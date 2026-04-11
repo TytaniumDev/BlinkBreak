@@ -81,6 +81,29 @@ platform :ios do
 
     sync_certs
 
+    # Flip both targets from xcodegen's default "Automatic" signing to "Manual"
+    # with the specific match-provided Distribution profiles. This is the step
+    # that prevents xcodebuild from trying to fetch a Development profile
+    # during archive.
+    update_code_signing_settings(
+      path: XCODEPROJ,
+      use_automatic_signing: false,
+      targets: ["BlinkBreak"],
+      team_id: "F2HXQGU2CC",
+      code_sign_identity: "Apple Distribution",
+      profile_name: "match AppStore #{APP_IDENTIFIER}",
+      bundle_identifier: APP_IDENTIFIER
+    )
+    update_code_signing_settings(
+      path: XCODEPROJ,
+      use_automatic_signing: false,
+      targets: ["BlinkBreak Watch App"],
+      team_id: "F2HXQGU2CC",
+      code_sign_identity: "Apple Distribution",
+      profile_name: "match AppStore #{WATCH_APP_IDENTIFIER}",
+      bundle_identifier: WATCH_APP_IDENTIFIER
+    )
+
     api_key = asc_api_key
 
     # Auto-bump CFBundleVersion to (latest TestFlight build number) + 1.
