@@ -306,6 +306,91 @@ struct SessionControllerTests {
         #expect(nextArmed.cycleId == f.persistence.load().currentCycleId)
     }
 
+    // MARK: - handleRemoteSnapshot
+
+    @Test("handleRemoteSnapshot with a remote ack cancels delivered notifications for the acked cycle")
+    func remoteAckCancelsDelivered() {
+        let f = Fixture()
+        f.controller.start()
+        let cycleId = f.persistence.load().currentCycleId!
+        f.advance(by: BlinkBreakConstants.breakInterval)
+
+        let remoteSnapshot = SessionSnapshot(
+            sessionActive: true,
+            currentCycleId: UUID(),
+            cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
+            lookAwayStartedAt: f.nowBox.value,
+            updatedAt: f.nowBox.value
+        )
+        f.controller.handleRemoteSnapshot(remoteSnapshot)
+
+        let cancelled = f.scheduler.lastCancelledIdentifiers ?? []
+        #expect(cancelled.contains(BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString))
+    }
+
+    @Test("handleRemoteSnapshot with a remote ack disarms the local alarm for the acked cycle")
+    func remoteAckDisarmsAlarm() {
+        let f = Fixture()
+        f.controller.start()
+        let cycleId = f.persistence.load().currentCycleId!
+        f.alarm.reset()
+        f.advance(by: BlinkBreakConstants.breakInterval)
+
+        let remoteSnapshot = SessionSnapshot(
+            sessionActive: true,
+            currentCycleId: UUID(),
+            cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
+            lookAwayStartedAt: f.nowBox.value,
+            updatedAt: f.nowBox.value
+        )
+        f.controller.handleRemoteSnapshot(remoteSnapshot)
+
+        #expect(f.alarm.disarmedCycleIds.contains(cycleId))
+    }
+
+    @Test("handleRemoteSnapshot is idempotent when called twice with the same snapshot")
+    func remoteSnapshotDoubleDelivery() {
+        let f = Fixture()
+        f.controller.start()
+        f.advance(by: BlinkBreakConstants.breakInterval)
+
+        let snapshot = SessionSnapshot(
+            sessionActive: true,
+            currentCycleId: UUID(),
+            cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
+            lookAwayStartedAt: f.nowBox.value,
+            updatedAt: f.nowBox.value
+        )
+        f.controller.handleRemoteSnapshot(snapshot)
+        let recordAfterFirst = f.persistence.load()
+        f.controller.handleRemoteSnapshot(snapshot)
+        let recordAfterSecond = f.persistence.load()
+
+        #expect(recordAfterFirst == recordAfterSecond)
+    }
+
+    @Test("handleRemoteSnapshot ignores snapshots older than the local lastUpdatedAt")
+    func remoteSnapshotStaleIgnored() {
+        let f = Fixture()
+        f.controller.start()
+        let cycleIdBefore = f.persistence.load().currentCycleId
+
+        var rec = f.persistence.load()
+        rec.lastUpdatedAt = f.nowBox.value.addingTimeInterval(100)
+        f.persistence.save(rec)
+
+        let stale = SessionSnapshot(
+            sessionActive: false,
+            currentCycleId: nil,
+            cycleStartedAt: nil,
+            lookAwayStartedAt: nil,
+            updatedAt: f.nowBox.value.addingTimeInterval(50)
+        )
+        f.controller.handleRemoteSnapshot(stale)
+
+        #expect(f.persistence.load().currentCycleId == cycleIdBefore)
+    }
+
     @Test("full loop: start → wait → ack → wait → reconcile → stop")
     func fullLoop() async {
         let f = Fixture()

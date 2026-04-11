@@ -240,9 +240,11 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     // MARK: - Incoming Watch commands
 
-    /// Hook up a `WatchConnectivityProtocol` so commands from the Watch are routed here.
-    /// Call once, after initializing the controller.
-    public func wireUpWatchCommands() {
+    /// Hook up the WatchConnectivity service to the controller's state. Call once, after
+    /// initializing. Wires both directions:
+    /// - Incoming commands (`start`, `stop`, `startBreak`) become method calls.
+    /// - Incoming state snapshots become `handleRemoteSnapshot` calls.
+    public func wireUpConnectivity() {
         connectivity.onCommandReceived = { [weak self] command, cycleId in
             guard let self else { return }
             Task { @MainActor in
@@ -258,6 +260,46 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 }
             }
         }
+        connectivity.onSnapshotReceived = { [weak self] snapshot in
+            guard let self else { return }
+            Task { @MainActor in
+                self.handleRemoteSnapshot(snapshot)
+            }
+        }
+    }
+
+    /// Activate the underlying connectivity service. Call once at launch, before
+    /// `wireUpConnectivity()`. Exposed as a method so apps don't need direct access to
+    /// the `connectivity` property.
+    public func activateConnectivity() {
+        connectivity.activate()
+    }
+
+    /// Processes an incoming WCSession snapshot from the paired device. Implements the
+    /// acknowledgment-sync rule: if a remote ack just happened (incoming `lookAwayStartedAt`
+    /// newly set), cancel our delivered notification for the acked cycle and disarm our
+    /// local alarm.
+    ///
+    /// Idempotent: calling with the same snapshot twice produces the same end state.
+    /// Protected by a staleness guard: snapshots older than the local `lastUpdatedAt` are
+    /// dropped so out-of-order delivery can't clobber newer state.
+    public func handleRemoteSnapshot(_ snapshot: SessionSnapshot) {
+        let local = persistence.load()
+
+        // Staleness guard: ignore older-than-local snapshots.
+        let localStamp = local.lastUpdatedAt ?? .distantPast
+        guard snapshot.updatedAt > localStamp else { return }
+
+        // Detect a fresh remote ack: incoming snapshot has lookAwayStartedAt set, local
+        // didn't. Cancel delivered notifications for the acked cycleId and disarm the alarm.
+        let remoteAckedBreak = snapshot.lookAwayStartedAt != nil && local.lookAwayStartedAt == nil
+        if remoteAckedBreak, let ackedCycleId = local.currentCycleId {
+            scheduler.cancel(identifiers: CascadeBuilder.identifiers(for: ackedCycleId))
+            alarm.disarm(cycleId: ackedCycleId)
+        }
+
+        // Persist the new snapshot locally.
+        persistence.save(SessionRecord(from: snapshot))
     }
 
     // MARK: - Helpers
