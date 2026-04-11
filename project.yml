@@ -21,7 +21,8 @@ settings:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: ""  # set after enrolling in the Apple Developer Program
+    DEVELOPMENT_TEAM: "F2HXQGU2CC"
+    CODE_SIGN_STYLE: Automatic
 
 # Local package dependency — all business logic lives here.
 packages:
@@ -54,6 +55,9 @@ targets:
         UIBackgroundModes: []
         UIRequiredDeviceCapabilities:
           - arm64
+        # Portrait-only; UIRequiresFullScreen silences Xcode's "all orientations must
+        # be supported" validation warning for single-orientation apps.
+        UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
     entitlements:
