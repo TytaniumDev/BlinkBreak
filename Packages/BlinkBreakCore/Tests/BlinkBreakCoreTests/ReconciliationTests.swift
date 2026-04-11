@@ -102,13 +102,15 @@ struct ReconciliationTests {
         #expect(startedAt == started)
     }
 
-    @Test("reconcile past break time with no pending notifications → idle fallback")
+    @Test("reconcile past break time with no pending notifications → breakActive (single-notification design)")
     func pastBreakNoPending() async {
         let f = Fixture()
+        let cycleId = UUID()
+        let started = f.nowBox.value
         f.persistence.save(SessionRecord(
             sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: f.nowBox.value,
+            currentCycleId: cycleId,
+            cycleStartedAt: started,
             lookAwayStartedAt: nil
         ))
         f.scheduler.stubPendingIdentifiers = []
@@ -118,8 +120,16 @@ struct ReconciliationTests {
 
         await f.controller.reconcileOnLaunch()
 
-        #expect(f.controller.state == .idle)
-        #expect(f.persistence.load() == .idle)
+        // With the single-notification design, reconcile can't distinguish
+        // "notification just fired" from "notification fired a while ago" via
+        // the pending list (it's in the delivered list, not pending). So we
+        // unconditionally go to breakActive — the user needs to acknowledge
+        // the break or stop the session manually.
+        guard case .breakActive(let startedAt) = f.controller.state else {
+            Issue.record("expected breakActive, got \(f.controller.state)")
+            return
+        }
+        #expect(startedAt == started)
     }
 
     @Test("reconcile within lookAway window → lookAway")

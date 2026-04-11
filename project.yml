@@ -142,6 +142,27 @@ targets:
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/BlinkBreak.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BlinkBreak"
 
+  # =========================================================================
+  # UI test target — XCUITest integration suite.
+  #
+  # IMPORTANT: This suite is slow (several minutes). Only run it as a final
+  # verification step, NOT during iteration. Use ./scripts/test.sh for the
+  # fast unit-test loop during development.
+  # =========================================================================
+  BlinkBreakUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: BlinkBreakUITests
+    dependencies:
+      - target: BlinkBreak
+      - package: BlinkBreakCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreakUITests
+        TEST_TARGET_NAME: BlinkBreak
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   BlinkBreak:
     build:
@@ -161,3 +182,25 @@ schemes:
       config: Debug
     archive:
       config: Release
+
+  # Separate scheme for the slow XCUITest integration suite. Kept out of the
+  # main BlinkBreak scheme so `./scripts/test.sh` (and the fast CI unit job)
+  # never accidentally runs the integration suite.
+  #
+  # Run via ./scripts/test-integration.sh as a final verification step.
+  BlinkBreakUITests:
+    build:
+      targets:
+        BlinkBreak: all
+        BlinkBreak Watch App: all
+        BlinkBreakUITests: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BlinkBreakUITests
+      gatherCoverageData: false
+      environmentVariables:
+        BB_BREAK_INTERVAL: "3"
+        BB_LOOKAWAY_DURATION: "3"

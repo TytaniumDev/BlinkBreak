@@ -21,6 +21,15 @@ struct BlinkBreakApp: App {
     // UNUserNotificationCenterDelegate so the app can respond to notification taps.
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    init() {
+        // XCUITest hook: when launched with `-BB_RESET_DEFAULTS`, wipe the persisted
+        // session record so each integration test starts from a clean idle state.
+        // Production launches never pass this flag.
+        if CommandLine.arguments.contains("-BB_RESET_DEFAULTS") {
+            UserDefaults.standard.removeObject(forKey: BlinkBreakConstants.sessionRecordKey)
+        }
+    }
+
     // @StateObject owns an observable object for the entire lifetime of the app.
     // Flutter analogue: a top-level ChangeNotifierProvider that lives for as long
     // as the app runs. Views deeper in the tree observe this via @ObservedObject /

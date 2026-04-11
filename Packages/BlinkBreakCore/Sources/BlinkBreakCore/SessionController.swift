@@ -223,19 +223,18 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             return
         }
 
-        // Case 5: break time has arrived. Check whether any cascade notifications are still
-        // pending for the current cycleId — if so, we're in breakActive waiting for ack.
-        // If not, the cascade fully fired without acknowledgment and we should fall back to idle.
-        let pending = Set(await scheduler.pendingIdentifiers())
-        let cascadeIds = Set(CascadeBuilder.identifiers(for: currentCycleId))
-        if !pending.isDisjoint(with: cascadeIds) {
-            state = .breakActive(cycleStartedAt: cycleStartedAt)
-        } else {
-            // Nothing pending for this cycle — cascade ran out with no ack.
-            persistence.save(.idle)
-            state = .idle
-            broadcastSnapshot(for: .idle)
-        }
+        // Case 5: break time has arrived (or passed) without a look-away start.
+        // State is breakActive — the user needs to acknowledge the break. This is
+        // unconditional: with the single-notification design, the notification
+        // either transitions from pending to delivered at break time (no overlap
+        // window), so we can't distinguish "just fired" from "fired a while ago"
+        // by inspecting the scheduler. Instead we rely on the persisted session
+        // record: if the user never acknowledged, they're still owed a break.
+        //
+        // The user can always Stop the session from the breakActive screen path
+        // (ack, then stop from lookAway) or by swiping away the notification and
+        // reopening the app. There's no timeout-to-idle fallback.
+        state = .breakActive(cycleStartedAt: cycleStartedAt)
     }
 
     // MARK: - Incoming Watch commands
