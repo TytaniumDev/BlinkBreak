@@ -1,0 +1,35 @@
+# SwiftLint configuration for BlinkBreak
+#
+# Kept deliberately lenient for V1. Tighten over time as you find patterns you
+# want to enforce. The BlinkBreakCore forbidden-import check lives in
+# scripts/lint.sh, not here.
+
+disabled_rules:
+  - trailing_whitespace  # we trust git's auto-strip
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - force_unwrapping  # tests still use !, see file-level exceptions below
+
+excluded:
+  - .build
+  - Packages/**/.build
+  - BlinkBreak.xcodeproj
+
+line_length:
+  warning: 140
+  error: 200
+
+identifier_name:
+  min_length: 1    # allow short names like `n`, `f` in tests
+  excluded:
+    - id
+    - n
+    - f
+
+# Relax in test files
+file_length:
+  warning: 600
+  error: 900

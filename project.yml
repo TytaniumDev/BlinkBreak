@@ -1,0 +1,140 @@
+# BlinkBreak Xcode project spec for xcodegen.
+#
+# Generate the .xcodeproj with:
+#   xcodegen generate
+#
+# This file is the source of truth for the Xcode project structure — the
+# generated BlinkBreak.xcodeproj is gitignored. Diff against this file to see
+# what changed in the project configuration.
+
+name: BlinkBreak
+options:
+  bundleIdPrefix: com.tytaniumdev
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""  # set after enrolling in the Apple Developer Program
+
+# Local package dependency — all business logic lives here.
+packages:
+  BlinkBreakCore:
+    path: Packages/BlinkBreakCore
+
+targets:
+
+  # =========================================================================
+  # iOS app target
+  # =========================================================================
+  BlinkBreak:
+    type: application
+    platform: iOS
+    sources:
+      - path: BlinkBreak
+    dependencies:
+      - package: BlinkBreakCore
+    info:
+      path: BlinkBreak/Info.plist
+      properties:
+        CFBundleDisplayName: BlinkBreak
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: ""
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations: {}
+        UIBackgroundModes: []
+        UIRequiredDeviceCapabilities:
+          - arm64
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    entitlements:
+      path: BlinkBreak/BlinkBreak.entitlements
+      properties:
+        com.apple.developer.usernotifications.time-sensitive: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreak
+        TARGETED_DEVICE_FAMILY: "1,2"  # iPhone + iPad
+        ENABLE_PREVIEWS: YES
+        SWIFT_EMIT_LOC_STRINGS: NO
+    scheme:
+      testTargets:
+        - BlinkBreakTests
+      gatherCoverageData: true
+
+  # =========================================================================
+  # watchOS app target
+  # =========================================================================
+  BlinkBreak Watch App:
+    type: application
+    platform: watchOS
+    sources:
+      - path: "BlinkBreak Watch App"
+    dependencies:
+      - package: BlinkBreakCore
+    info:
+      path: "BlinkBreak Watch App/Info.plist"
+      properties:
+        CFBundleDisplayName: BlinkBreak
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.tytaniumdev.BlinkBreak
+        WKWatchOnly: false
+    entitlements:
+      path: "BlinkBreak Watch App/BlinkBreakWatch.entitlements"
+      properties:
+        com.apple.developer.usernotifications.time-sensitive: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreak.watchkitapp
+        TARGETED_DEVICE_FAMILY: "4"  # watchOS
+        ENABLE_PREVIEWS: YES
+
+  # =========================================================================
+  # Unit test target (runs BlinkBreakCore tests via the iOS scheme; the
+  # package-level `swift test` run covers these too, this is for Xcode / CI
+  # running xcodebuild test).
+  # =========================================================================
+  BlinkBreakTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: BlinkBreakTests
+    dependencies:
+      - target: BlinkBreak
+      - package: BlinkBreakCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreakTests
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/BlinkBreak.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BlinkBreak"
+
+schemes:
+  BlinkBreak:
+    build:
+      targets:
+        BlinkBreak: all
+        BlinkBreak Watch App: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BlinkBreakTests
+      gatherCoverageData: true
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

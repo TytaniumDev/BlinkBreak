@@ -1,0 +1,24 @@
+//
+//  AlertBackground.swift
+//  BlinkBreak
+//
+//  The bold red full-bleed background used only during the breakActive state.
+//  Intentional visual departure from the calm theme to make it unmistakable
+//  that the app is demanding attention.
+//
+
+import SwiftUI
+
+/// Full-bleed red background used only on the breakActive alert screen.
+///
+/// Flutter analogue: a Scaffold with a red background color, edge-to-edge.
+struct AlertBackground: View {
+    var body: some View {
+        Color(red: 0.69, green: 0.00, blue: 0.13)  // deep red, high contrast
+            .ignoresSafeArea()
+    }
+}
+
+#Preview {
+    AlertBackground()
+}

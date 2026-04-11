@@ -1,0 +1,21 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  CI:
+    uses: ./.github/workflows/ci-shared.yml
+
+  trigger-deploy:
+    needs: [CI]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Note
+        run: |
+          echo "Release CI passed. TestFlight deploy is workflow_dispatch-only in V1."
+          echo "To enable auto-deploy, uncomment the gh workflow run line in this file."
+          echo "See README.md for the TestFlight enrollment walkthrough."

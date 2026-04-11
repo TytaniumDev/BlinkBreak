@@ -1,0 +1,97 @@
+name: Deploy to TestFlight
+
+# DISABLED BY DEFAULT: workflow_dispatch only.
+# To enable automatic deploys on main, add `push: { branches: [main] }` and
+# populate the four required repo secrets listed below.
+#
+# Required secrets (set in Settings -> Secrets and variables -> Actions):
+#   APPSTORE_API_KEY_ID      - App Store Connect API Key ID (Users -> Keys in ASC)
+#   APPSTORE_API_ISSUER_ID   - App Store Connect Issuer ID
+#   APPSTORE_API_KEY_P8      - Base64-encoded contents of the AuthKey_*.p8 file
+#                              (generate: `base64 -i AuthKey_XXX.p8 | pbcopy`)
+#   BUILD_CERTIFICATE_P12    - Base64-encoded .p12 export of your Distribution cert
+#   BUILD_CERTIFICATE_PASSWORD - Password for the .p12
+#
+# See README.md -> TestFlight for the full enrollment + secret setup walkthrough.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Install signing certificate
+        env:
+          BUILD_CERTIFICATE_P12: ${{ secrets.BUILD_CERTIFICATE_P12 }}
+          BUILD_CERTIFICATE_PASSWORD: ${{ secrets.BUILD_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$BUILD_CERTIFICATE_P12" | base64 --decode > cert.p12
+          KEYCHAIN=build.keychain
+          security create-keychain -p tmp "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p tmp "$KEYCHAIN"
+          security import cert.p12 -k "$KEYCHAIN" -P "$BUILD_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k tmp "$KEYCHAIN"
+          rm cert.p12
+
+      - name: Write App Store Connect API key
+        env:
+          APPSTORE_API_KEY_P8: ${{ secrets.APPSTORE_API_KEY_P8 }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$APPSTORE_API_KEY_P8" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
+
+      - name: Archive app
+        run: |
+          xcodebuild archive \
+            -project BlinkBreak.xcodeproj \
+            -scheme BlinkBreak \
+            -archivePath build/BlinkBreak.xcarchive \
+            -destination 'generic/platform=iOS' \
+            -allowProvisioningUpdates \
+            CODE_SIGN_STYLE=Automatic \
+            -quiet
+
+      - name: Export IPA
+        run: |
+          cat > ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>uploadBitcode</key><false/>
+            <key>uploadSymbols</key><true/>
+            <key>signingStyle</key><string>automatic</string>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/BlinkBreak.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/ \
+            -allowProvisioningUpdates
+
+      - name: Upload to TestFlight
+        env:
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app \
+            --type ios \
+            --file build/BlinkBreak.ipa \
+            --apiKey "$APPSTORE_API_KEY_ID" \
+            --apiIssuer "$APPSTORE_API_ISSUER_ID"

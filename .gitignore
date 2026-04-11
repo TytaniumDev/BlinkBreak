@@ -1,0 +1,38 @@
+# Xcode
+BlinkBreak.xcodeproj/
+*.xcworkspace
+build/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcscmblueprint
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+Packages/*.build/
+Package.resolved
+.swiftpm/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Superpowers scratch (brainstorming companion, plans, specs already committed intentionally)
+.superpowers/
+
+# Tooling
+*.log
+
+# Secrets
+*.p12
+*.p8
+*.mobileprovision
+ExportOptions.plist
+AuthKey_*.p8
