@@ -201,7 +201,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         // If not, the cascade fully fired without acknowledgment and we should fall back to idle.
         let pending = Set(await scheduler.pendingIdentifiers())
         let cascadeIds = Set(CascadeBuilder.identifiers(for: currentCycleId))
-        if pending.intersection(cascadeIds).isEmpty == false {
+        if !pending.isDisjoint(with: cascadeIds) {
             state = .breakActive(cycleStartedAt: cycleStartedAt)
         } else {
             // Nothing pending for this cycle — cascade ran out with no ack.

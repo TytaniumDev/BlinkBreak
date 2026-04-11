@@ -18,10 +18,13 @@ struct PermissionDeniedView: View {
             Text("Notifications are off")
                 .font(.title2.weight(.semibold))
 
-            Text("BlinkBreak can't remind you to take breaks without permission to send notifications. Open Settings and enable notifications for BlinkBreak to continue.")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.7))
-                .padding(.top, 4)
+            Text(
+                "BlinkBreak can't remind you to take breaks without permission to send notifications. "
+                + "Open Settings and enable notifications for BlinkBreak to continue."
+            )
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.7))
+            .padding(.top, 4)
 
             Spacer()
 

@@ -26,6 +26,8 @@ jobs:
 
   Test:
     runs-on: macos-15
+    env:
+      BLINKBREAK_FULL_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode

@@ -11,7 +11,8 @@ opt_in_rules:
   - empty_count
   - explicit_init
   - first_where
-  - force_unwrapping  # tests still use !, see file-level exceptions below
+  # Note: force_unwrapping is intentionally left out. Tests use `!` to assert
+  # that fixture lookups succeed — that's the correct pattern for test code.
 
 excluded:
   - .build
