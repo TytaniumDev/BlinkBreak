@@ -1,20 +1,20 @@
 name: Deploy to TestFlight
 
-# Triggered manually OR automatically on push to main once the push trigger is
-# uncommented below. Auto-bumps CURRENT_PROJECT_VERSION from git commit count
-# so every upload has a unique CFBundleVersion — TestFlight rejects duplicates.
+# Triggered manually or on push to main. Uses Fastlane + match + pilot, which
+# is the standard industry pattern for iOS TestFlight CD in 2026.
 #
-# Secrets are centrally managed in Doppler under project "blinkbreak", config
-# "prd". The only GitHub-side secret is DOPPLER_TOKEN (a read-only service
-# token scoped to blinkbreak/prd). To rotate any cert or key, update it in
-# Doppler and re-run this workflow — no GitHub secrets changes needed.
+# Why Fastlane (not hand-rolled xcodebuild):
+#   - Xcode 16's "automatic" signing tries Apple's cloud-managed distribution
+#     certificate, which requires the ASC API key to have the Admin role.
+#     We only want to grant App Manager (principle of least privilege).
+#   - Fastlane match stores a CLASSIC Apple Distribution cert encrypted in a
+#     separate private git repo (TytaniumDev/BlinkBreak-certificates) and
+#     references it by a deterministic profile name ("match AppStore <bundle>"),
+#     so xcodebuild never touches cloud signing.
+#   - `upload_to_testflight` (pilot) handles the ASC API authentication cleanly.
 #
-# Expected Doppler secrets (all under blinkbreak/prd):
-#   APPSTORE_API_KEY_ID        - App Store Connect API Key ID
-#   APPSTORE_API_ISSUER_ID     - App Store Connect Issuer ID
-#   APPSTORE_API_KEY_P8        - base64(AuthKey_*.p8)
-#   BUILD_CERTIFICATE_P12      - base64(Apple Distribution p12)
-#   BUILD_CERTIFICATE_PASSWORD - password for the p12
+# Secrets are centrally managed in Doppler (project "blinkbreak", config "prd").
+# The only GitHub secret is DOPPLER_TOKEN.
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # need full history for the build-number computation
+          fetch-depth: 0
 
       - name: Select latest available Xcode
         run: |
@@ -42,8 +42,9 @@ jobs:
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
 
-      - name: Install xcodegen
-        run: brew install xcodegen
+      - name: Install xcodegen + fastlane
+        run: |
+          brew install xcodegen fastlane
 
       - name: Install Doppler CLI
         uses: dopplerhq/cli-action@v3
@@ -55,168 +56,59 @@ jobs:
           DELIM=$(openssl rand -hex 16)
           SECRETS=$(doppler secrets download --no-file --format json)
           KEYS='[
-            "APPSTORE_API_KEY_ID",
-            "APPSTORE_API_ISSUER_ID",
-            "APPSTORE_API_KEY_P8",
-            "BUILD_CERTIFICATE_P12",
-            "BUILD_CERTIFICATE_PASSWORD"
+            "MATCH_PASSWORD",
+            "MATCH_SSH_PRIVATE_KEY",
+            "MATCH_KEYCHAIN_PASSWORD",
+            "ASC_KEY_ID",
+            "ASC_ISSUER_ID",
+            "ASC_API_KEY_CONTENT",
+            "ASC_API_KEY_IS_BASE64"
           ]'
-          # Mask each value in the Actions log before anything else uses it.
+          # Mask every value in the log before using it.
           echo "$SECRETS" | jq -r --argjson keys "$KEYS" '
             to_entries[] | select(.key | IN($keys[])) | .value
           ' | while IFS= read -r val; do
             [ -n "$val" ] && echo "::add-mask::$val"
           done
-          # Write into $GITHUB_ENV using a random heredoc delimiter so multi-line
-          # values (base64 p12, base64 p8) survive intact.
+          # Write into $GITHUB_ENV with a random heredoc delimiter so multi-line
+          # values (base64 p8, RSA/ED25519 private key, etc) survive intact.
           echo "$SECRETS" | jq -r --argjson keys "$KEYS" --arg d "$DELIM" '
             to_entries[] | select(.key | IN($keys[])) | "\(.key)<<\($d)\n\(.value)\n\($d)"
           ' >> "$GITHUB_ENV"
 
-      - name: Compute build number from git commit count
-        run: |
-          BUILD_NUMBER=$(git rev-list --count HEAD)
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
-          echo "Computed build number: $BUILD_NUMBER"
-
-      - name: Patch build number into project.yml and generate Xcode project
+      - name: Install SSH deploy key for match certs repo
         env:
-          BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
+          MATCH_SSH_PRIVATE_KEY: ${{ env.MATCH_SSH_PRIVATE_KEY }}
         run: |
-          python3 - <<'PY'
-          import os, re
-          bn = os.environ["BUILD_NUMBER"]
-          with open("project.yml") as f:
-              content = f.read()
-          content = re.sub(
-              r'CURRENT_PROJECT_VERSION:\s*"?[0-9]+"?',
-              f'CURRENT_PROJECT_VERSION: "{bn}"',
-              content
-          )
-          with open("project.yml", "w") as f:
-              f.write(content)
-          print(f"patched CURRENT_PROJECT_VERSION to {bn}")
-          PY
-          xcodegen generate
+          mkdir -p ~/.ssh
+          echo "$MATCH_SSH_PRIVATE_KEY" > ~/.ssh/match_deploy_key
+          chmod 600 ~/.ssh/match_deploy_key
+          # Trust GitHub's host key so the clone doesn't prompt.
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          # Configure ssh to use our deploy key specifically for the certs repo.
+          cat >> ~/.ssh/config <<'SSHCONFIG'
+          Host github.com-match
+            HostName github.com
+            IdentityFile ~/.ssh/match_deploy_key
+            IdentitiesOnly yes
+          SSHCONFIG
+          chmod 600 ~/.ssh/config
 
-      - name: Install signing certificate into temp keychain
+      - name: Run fastlane beta
         env:
-          BUILD_CERTIFICATE_P12: ${{ env.BUILD_CERTIFICATE_P12 }}
-          BUILD_CERTIFICATE_PASSWORD: ${{ env.BUILD_CERTIFICATE_PASSWORD }}
+          MATCH_PASSWORD: ${{ env.MATCH_PASSWORD }}
+          MATCH_KEYCHAIN_PASSWORD: ${{ env.MATCH_KEYCHAIN_PASSWORD }}
+          ASC_KEY_ID: ${{ env.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ env.ASC_ISSUER_ID }}
+          ASC_API_KEY_CONTENT: ${{ env.ASC_API_KEY_CONTENT }}
+          ASC_API_KEY_IS_BASE64: ${{ env.ASC_API_KEY_IS_BASE64 }}
+          # Tell fastlane it's running non-interactively.
+          FASTLANE_HIDE_CHANGELOG: "1"
+          FASTLANE_SKIP_UPDATE_CHECK: "1"
+          FASTLANE_DISABLE_COLORS: "1"
+          # Force git to use our deploy-key SSH config when talking to the
+          # match certs repo. Fastlane match's Matchfile uses git@github.com:...
+          # — we rewrite that via GIT_SSH_COMMAND directly.
+          GIT_SSH_COMMAND: "ssh -i ~/.ssh/match_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
         run: |
-          echo "$BUILD_CERTIFICATE_P12" | base64 --decode > /tmp/cert.p12
-          KEYCHAIN=/tmp/build.keychain
-          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-
-          EXISTING=$(security list-keychains -d user | tr -d '"' | xargs)
-          security list-keychains -d user -s "$KEYCHAIN" $EXISTING
-
-          security import /tmp/cert.p12 \
-            -k "$KEYCHAIN" \
-            -P "$BUILD_CERTIFICATE_PASSWORD" \
-            -T /usr/bin/codesign
-
-          security set-key-partition-list \
-            -S apple-tool:,apple: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-
-          rm /tmp/cert.p12
-          security find-identity -v -p codesigning "$KEYCHAIN"
-
-      - name: Write App Store Connect API key
-        env:
-          APPSTORE_API_KEY_P8: ${{ env.APPSTORE_API_KEY_P8 }}
-          APPSTORE_API_KEY_ID: ${{ env.APPSTORE_API_KEY_ID }}
-        run: |
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "$APPSTORE_API_KEY_P8" | base64 --decode \
-            > ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
-
-      - name: Archive app
-        env:
-          APPSTORE_API_KEY_ID: ${{ env.APPSTORE_API_KEY_ID }}
-          APPSTORE_API_ISSUER_ID: ${{ env.APPSTORE_API_ISSUER_ID }}
-        run: |
-          xcodebuild archive \
-            -project BlinkBreak.xcodeproj \
-            -scheme BlinkBreak \
-            -archivePath build/BlinkBreak.xcarchive \
-            -destination 'generic/platform=iOS' \
-            -configuration Release \
-            -allowProvisioningUpdates \
-            -authenticationKeyID "$APPSTORE_API_KEY_ID" \
-            -authenticationKeyIssuerID "$APPSTORE_API_ISSUER_ID" \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
-
-      - name: Export IPA
-        env:
-          APPSTORE_API_KEY_ID: ${{ env.APPSTORE_API_KEY_ID }}
-          APPSTORE_API_ISSUER_ID: ${{ env.APPSTORE_API_ISSUER_ID }}
-        run: |
-          # Force MANUAL signing with the local Distribution certificate instead
-          # of Xcode 16's automatic cloud-signing. Automatic requires the App
-          # Store Connect API key to have the "Admin" role for cloud signing,
-          # which our "App Manager" key doesn't have (and shouldn't — less
-          # privilege is better). The Archive step already pulled provisioning
-          # profiles via -allowProvisioningUpdates, so they're on disk at
-          # ~/Library/MobileDevice/Provisioning Profiles/ by now. Xcode's
-          # auto-created profiles follow a predictable name pattern:
-          # "iOS Team Provisioning Profile: <bundle-id>".
-          cat > /tmp/ExportOptions.plist <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>app-store-connect</string>
-            <key>destination</key><string>export</string>
-            <key>teamID</key><string>F2HXQGU2CC</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>signingCertificate</key><string>Apple Distribution</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>com.tytaniumdev.BlinkBreak</key>
-              <string>iOS Team Provisioning Profile: com.tytaniumdev.BlinkBreak</string>
-              <key>com.tytaniumdev.BlinkBreak.watchkitapp</key>
-              <string>iOS Team Provisioning Profile: com.tytaniumdev.BlinkBreak.watchkitapp</string>
-            </dict>
-            <key>stripSwiftSymbols</key><true/>
-            <key>uploadSymbols</key><true/>
-          </dict>
-          </plist>
-          PLIST
-
-          # Debug: list the profiles the Archive step pulled, so if the name
-          # pattern ever drifts we can see it in the CI log.
-          echo "--- installed provisioning profiles ---"
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/" 2>&1 || true
-          for p in "$HOME/Library/MobileDevice/Provisioning Profiles"/*.mobileprovision; do
-            [ -f "$p" ] || continue
-            /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$(security cms -D -i "$p" 2>/dev/null)" 2>&1 || true
-          done
-          echo "--- end profiles ---"
-
-          xcodebuild -exportArchive \
-            -archivePath build/BlinkBreak.xcarchive \
-            -exportOptionsPlist /tmp/ExportOptions.plist \
-            -exportPath build/export \
-            -allowProvisioningUpdates \
-            -authenticationKeyID "$APPSTORE_API_KEY_ID" \
-            -authenticationKeyIssuerID "$APPSTORE_API_ISSUER_ID" \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
-
-      - name: Upload to TestFlight
-        env:
-          APPSTORE_API_KEY_ID: ${{ env.APPSTORE_API_KEY_ID }}
-          APPSTORE_API_ISSUER_ID: ${{ env.APPSTORE_API_ISSUER_ID }}
-        run: |
-          IPA_PATH=$(find build/export -name "*.ipa" | head -1)
-          echo "Uploading: $IPA_PATH"
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$IPA_PATH" \
-            --apiKey "$APPSTORE_API_KEY_ID" \
-            --apiIssuer "$APPSTORE_API_ISSUER_ID"
+          fastlane beta
