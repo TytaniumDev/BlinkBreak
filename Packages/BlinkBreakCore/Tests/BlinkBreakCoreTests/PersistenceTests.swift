@@ -60,4 +60,53 @@ struct PersistenceTests {
 
         #expect(decoded == original)
     }
+
+    @Test("SessionRecord round-trips lastUpdatedAt through JSON")
+    func lastUpdatedAtRoundTrip() throws {
+        let when = Date(timeIntervalSince1970: 1_700_001_234)
+        let record = SessionRecord(
+            sessionActive: true,
+            currentCycleId: UUID(),
+            cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lookAwayStartedAt: nil,
+            lastUpdatedAt: when
+        )
+        let data = try JSONEncoder().encode(record)
+        let decoded = try JSONDecoder().decode(SessionRecord.self, from: data)
+        #expect(decoded.lastUpdatedAt == when)
+    }
+
+    @Test("SessionRecord decodes legacy JSON without lastUpdatedAt")
+    func legacyRecordDecodes() throws {
+        let legacyJSON = """
+        {
+            "sessionActive": true,
+            "currentCycleId": "11111111-2222-3333-4444-555555555555",
+            "cycleStartedAt": 1700000000
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(SessionRecord.self, from: legacyJSON)
+        #expect(decoded.sessionActive == true)
+        #expect(decoded.lastUpdatedAt == nil)
+    }
+
+    @Test("SessionRecord.init(from: SessionSnapshot) copies updatedAt into lastUpdatedAt")
+    func initFromSnapshot() {
+        let cycleId = UUID()
+        let cycleStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let lookAwayStart = Date(timeIntervalSince1970: 1_700_000_100)
+        let snap = SessionSnapshot(
+            sessionActive: true,
+            currentCycleId: cycleId,
+            cycleStartedAt: cycleStart,
+            lookAwayStartedAt: lookAwayStart,
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_200)
+        )
+        let record = SessionRecord(from: snap)
+        #expect(record.sessionActive == true)
+        #expect(record.currentCycleId == cycleId)
+        #expect(record.cycleStartedAt == cycleStart)
+        #expect(record.lookAwayStartedAt == lookAwayStart)
+        #expect(record.lastUpdatedAt == Date(timeIntervalSince1970: 1_700_000_200))
+    }
 }
