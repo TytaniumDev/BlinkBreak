@@ -42,6 +42,10 @@ public enum BlinkBreakConstants {
     /// Prefix for the "done looking away, back to work" notification.
     public static let doneIdPrefix = "done."
 
+    /// Filename (without directory path) of the bundled custom alarm sound for the break
+    /// notification. iOS looks for this in the app bundle and truncates at 30 seconds.
+    public static let breakSoundFileName = "break-alarm.caf"
+
     /// Notification category ID for the break-alert action ("Start break" button).
     public static let breakCategoryId = "BLINKBREAK_BREAK_CATEGORY"
 

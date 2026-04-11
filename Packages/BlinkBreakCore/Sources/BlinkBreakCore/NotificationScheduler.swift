@@ -150,6 +150,28 @@ public enum CascadeBuilder {
         return result
     }
 
+    /// Build the single break notification for one cycle. Replaces the six-notification
+    /// cascade once the caller (SessionController) switches over.
+    /// - Parameters:
+    ///   - cycleId: The UUID identifying this cycle.
+    ///   - cycleStartedAt: When the 20-minute countdown began.
+    /// - Returns: One ScheduledNotification with the custom alarm sound attached.
+    public static func buildBreakNotification(
+        cycleId: UUID,
+        cycleStartedAt: Date
+    ) -> ScheduledNotification {
+        ScheduledNotification(
+            identifier: BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString,
+            title: "Time to look away",
+            body: "Focus on something 20 feet away for 20 seconds.",
+            fireDate: cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval),
+            isTimeSensitive: true,
+            threadIdentifier: cycleId.uuidString,
+            categoryIdentifier: BlinkBreakConstants.breakCategoryId,
+            soundName: BlinkBreakConstants.breakSoundFileName
+        )
+    }
+
     /// Build the single "done, look back at your screen" notification.
     public static func buildDoneNotification(
         cycleId: UUID,

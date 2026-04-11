@@ -114,4 +114,30 @@ struct NotificationSchedulerTests {
         )
         #expect(notification.soundName == "break-alarm.caf")
     }
+
+    @Test("buildBreakNotification produces exactly one notification with the right identifier")
+    func buildBreakNotificationIsSingle() {
+        let n = CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: startedAt)
+        #expect(n.identifier == BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString)
+    }
+
+    @Test("buildBreakNotification fires at cycleStartedAt + breakInterval")
+    func buildBreakNotificationFireDate() {
+        let n = CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: startedAt)
+        #expect(n.fireDate == startedAt.addingTimeInterval(BlinkBreakConstants.breakInterval))
+    }
+
+    @Test("buildBreakNotification is time-sensitive with the break category")
+    func buildBreakNotificationFlags() {
+        let n = CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: startedAt)
+        #expect(n.isTimeSensitive)
+        #expect(n.categoryIdentifier == BlinkBreakConstants.breakCategoryId)
+        #expect(n.threadIdentifier == cycleId.uuidString)
+    }
+
+    @Test("buildBreakNotification uses the break-alarm.caf custom sound")
+    func buildBreakNotificationSoundName() {
+        let n = CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: startedAt)
+        #expect(n.soundName == "break-alarm.caf")
+    }
 }
