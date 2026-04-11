@@ -1,19 +1,24 @@
 name: Deploy to TestFlight
 
-# Triggered manually OR automatically on push to main once you uncomment the
-# push trigger below. Auto-bumps the build number from git history so every
-# upload has a unique CFBundleVersion (TestFlight rejects duplicates).
+# Triggered manually OR automatically on push to main once the push trigger is
+# uncommented below. Auto-bumps CURRENT_PROJECT_VERSION from git commit count
+# so every upload has a unique CFBundleVersion — TestFlight rejects duplicates.
 #
-# Required secrets (Settings -> Secrets and variables -> Actions):
+# Secrets are centrally managed in Doppler under project "blinkbreak", config
+# "prd". The only GitHub-side secret is DOPPLER_TOKEN (a read-only service
+# token scoped to blinkbreak/prd). To rotate any cert or key, update it in
+# Doppler and re-run this workflow — no GitHub secrets changes needed.
+#
+# Expected Doppler secrets (all under blinkbreak/prd):
 #   APPSTORE_API_KEY_ID        - App Store Connect API Key ID
 #   APPSTORE_API_ISSUER_ID     - App Store Connect Issuer ID
-#   APPSTORE_API_KEY_P8        - Base64-encoded contents of AuthKey_*.p8
-#   BUILD_CERTIFICATE_P12      - Base64-encoded Distribution .p12
-#   BUILD_CERTIFICATE_PASSWORD - Password for the .p12
+#   APPSTORE_API_KEY_P8        - base64(AuthKey_*.p8)
+#   BUILD_CERTIFICATE_P12      - base64(Apple Distribution p12)
+#   BUILD_CERTIFICATE_PASSWORD - password for the p12
 
 on:
   workflow_dispatch:
-  # Uncomment the next two lines to auto-deploy every push to main:
+  # Uncomment to auto-deploy every push to main:
   # push:
   #   branches: [main]
 
@@ -24,11 +29,11 @@ concurrency:
 jobs:
   deploy:
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so we can auto-bump the build number from commit count.
-          fetch-depth: 0
+          fetch-depth: 0  # need full history for the build-number computation
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode.app
@@ -36,23 +41,44 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
-      - name: Compute build number from git commit count
-        id: bump
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@v3
+
+      - name: Load secrets from Doppler
         env:
-          GIT_COMMIT_COUNT: ${{ github.run_number }}
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          # Use the commit count on main as the monotonically-increasing build number.
-          # Falls back to GitHub Actions run number if git history is shallow.
-          BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo "$GIT_COMMIT_COUNT")
+          DELIM=$(openssl rand -hex 16)
+          SECRETS=$(doppler secrets download --no-file --format json)
+          KEYS='[
+            "APPSTORE_API_KEY_ID",
+            "APPSTORE_API_ISSUER_ID",
+            "APPSTORE_API_KEY_P8",
+            "BUILD_CERTIFICATE_P12",
+            "BUILD_CERTIFICATE_PASSWORD"
+          ]'
+          # Mask each value in the Actions log before anything else uses it.
+          echo "$SECRETS" | jq -r --argjson keys "$KEYS" '
+            to_entries[] | select(.key | IN($keys[])) | .value
+          ' | while IFS= read -r val; do
+            [ -n "$val" ] && echo "::add-mask::$val"
+          done
+          # Write into $GITHUB_ENV using a random heredoc delimiter so multi-line
+          # values (base64 p12, base64 p8) survive intact.
+          echo "$SECRETS" | jq -r --argjson keys "$KEYS" --arg d "$DELIM" '
+            to_entries[] | select(.key | IN($keys[])) | "\(.key)<<\($d)\n\(.value)\n\($d)"
+          ' >> "$GITHUB_ENV"
+
+      - name: Compute build number from git commit count
+        run: |
+          BUILD_NUMBER=$(git rev-list --count HEAD)
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "Computed build number: $BUILD_NUMBER"
 
-      - name: Generate Xcode project
+      - name: Patch build number into project.yml and generate Xcode project
         env:
           BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
         run: |
-          # Override CURRENT_PROJECT_VERSION in project.yml before generating.
-          # Uses python for a deterministic YAML edit; avoids sed on YAML.
           python3 - <<'PY'
           import os, re
           bn = os.environ["BUILD_NUMBER"]
@@ -71,8 +97,8 @@ jobs:
 
       - name: Install signing certificate into temp keychain
         env:
-          BUILD_CERTIFICATE_P12: ${{ secrets.BUILD_CERTIFICATE_P12 }}
-          BUILD_CERTIFICATE_PASSWORD: ${{ secrets.BUILD_CERTIFICATE_PASSWORD }}
+          BUILD_CERTIFICATE_P12: ${{ env.BUILD_CERTIFICATE_P12 }}
+          BUILD_CERTIFICATE_PASSWORD: ${{ env.BUILD_CERTIFICATE_PASSWORD }}
         run: |
           echo "$BUILD_CERTIFICATE_P12" | base64 --decode > /tmp/cert.p12
           KEYCHAIN=/tmp/build.keychain
@@ -82,7 +108,6 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
 
-          # Prepend our keychain to the search list so signing can find the cert.
           EXISTING=$(security list-keychains -d user | tr -d '"' | xargs)
           security list-keychains -d user -s "$KEYCHAIN" $EXISTING
 
@@ -100,8 +125,8 @@ jobs:
 
       - name: Write App Store Connect API key
         env:
-          APPSTORE_API_KEY_P8: ${{ secrets.APPSTORE_API_KEY_P8 }}
-          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_KEY_P8: ${{ env.APPSTORE_API_KEY_P8 }}
+          APPSTORE_API_KEY_ID: ${{ env.APPSTORE_API_KEY_ID }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$APPSTORE_API_KEY_P8" | base64 --decode \
@@ -109,8 +134,8 @@ jobs:
 
       - name: Archive app
         env:
-          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
-          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          APPSTORE_API_KEY_ID: ${{ env.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ env.APPSTORE_API_ISSUER_ID }}
         run: |
           xcodebuild archive \
             -project BlinkBreak.xcodeproj \
@@ -147,8 +172,8 @@ jobs:
 
       - name: Upload to TestFlight
         env:
-          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
-          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          APPSTORE_API_KEY_ID: ${{ env.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ env.APPSTORE_API_ISSUER_ID }}
         run: |
           IPA_PATH=$(find build/export -name "*.ipa" | head -1)
           echo "Uploading: $IPA_PATH"
