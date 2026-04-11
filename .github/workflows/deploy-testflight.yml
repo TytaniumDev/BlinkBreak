@@ -153,6 +153,9 @@ jobs:
             -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
 
       - name: Export IPA
+        env:
+          APPSTORE_API_KEY_ID: ${{ env.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ env.APPSTORE_API_ISSUER_ID }}
         run: |
           cat > /tmp/ExportOptions.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -172,7 +175,10 @@ jobs:
             -archivePath build/BlinkBreak.xcarchive \
             -exportOptionsPlist /tmp/ExportOptions.plist \
             -exportPath build/export \
-            -allowProvisioningUpdates
+            -allowProvisioningUpdates \
+            -authenticationKeyID "$APPSTORE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPSTORE_API_ISSUER_ID" \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
 
       - name: Upload to TestFlight
         env:
