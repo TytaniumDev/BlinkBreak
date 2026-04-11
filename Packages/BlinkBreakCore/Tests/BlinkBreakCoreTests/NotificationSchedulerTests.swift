@@ -87,4 +87,31 @@ struct NotificationSchedulerTests {
             #expect(ids.contains("\(BlinkBreakConstants.breakNudgeIdPrefix)\(cycleId.uuidString).\(n)"))
         }
     }
+
+    @Test("ScheduledNotification carries an optional soundName, defaulting to nil")
+    func soundNameDefaultsToNil() {
+        let notification = ScheduledNotification(
+            identifier: "test",
+            title: "t", body: "b",
+            fireDate: startedAt,
+            isTimeSensitive: true,
+            threadIdentifier: "thread",
+            categoryIdentifier: nil
+        )
+        #expect(notification.soundName == nil)
+    }
+
+    @Test("ScheduledNotification stores a custom soundName when provided")
+    func soundNameStoresCustom() {
+        let notification = ScheduledNotification(
+            identifier: "test",
+            title: "t", body: "b",
+            fireDate: startedAt,
+            isTimeSensitive: true,
+            threadIdentifier: "thread",
+            categoryIdentifier: nil,
+            soundName: "break-alarm.caf"
+        )
+        #expect(notification.soundName == "break-alarm.caf")
+    }
 }

@@ -28,7 +28,7 @@ public struct ScheduledNotification: Equatable, Sendable {
     /// Notification title shown on the banner / Watch face.
     public let title: String
 
-    /// Notification body. Empty for the cascade nudges (they're just haptics).
+    /// Notification body.
     public let body: String
 
     /// When the notification should fire, in absolute wall-clock time.
@@ -39,11 +39,16 @@ public struct ScheduledNotification: Equatable, Sendable {
     public let isTimeSensitive: Bool
 
     /// Group identifier used to collapse related notifications into a single Notification
-    /// Center entry. All six cascade notifications for one cycle share a thread ID.
+    /// Center entry. All notifications for one cycle share a thread ID.
     public let threadIdentifier: String
 
     /// If non-nil, attaches the given category ID so the notification exposes action buttons.
     public let categoryIdentifier: String?
+
+    /// If non-nil, plays the named custom sound file bundled in the app when the notification
+    /// fires. If nil, uses `UNNotificationSound.default`. iOS caps custom notification sounds
+    /// at 30 seconds; files longer than that fall back to the default.
+    public let soundName: String?
 
     public init(
         identifier: String,
@@ -52,7 +57,8 @@ public struct ScheduledNotification: Equatable, Sendable {
         fireDate: Date,
         isTimeSensitive: Bool,
         threadIdentifier: String,
-        categoryIdentifier: String?
+        categoryIdentifier: String?,
+        soundName: String? = nil
     ) {
         self.identifier = identifier
         self.title = title
@@ -61,6 +67,7 @@ public struct ScheduledNotification: Equatable, Sendable {
         self.isTimeSensitive = isTimeSensitive
         self.threadIdentifier = threadIdentifier
         self.categoryIdentifier = categoryIdentifier
+        self.soundName = soundName
     }
 }
 
@@ -212,7 +219,11 @@ public final class UNNotificationScheduler: NotificationSchedulerProtocol, @unch
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.body = notification.body
-        content.sound = .default
+        if let soundName = notification.soundName {
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(soundName))
+        } else {
+            content.sound = .default
+        }
         content.threadIdentifier = notification.threadIdentifier
         if let category = notification.categoryIdentifier {
             content.categoryIdentifier = category
