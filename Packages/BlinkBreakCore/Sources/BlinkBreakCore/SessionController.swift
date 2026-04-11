@@ -34,6 +34,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     private let scheduler: NotificationSchedulerProtocol
     private let connectivity: WatchConnectivityProtocol
     private let persistence: PersistenceProtocol
+    private let alarm: SessionAlarmProtocol
     private let clock: @Sendable () -> Date
 
     // MARK: - Init
@@ -45,17 +46,21 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     ///     `NoopConnectivity()` in tests / on macOS.
     ///   - persistence: Session record storage. Use `UserDefaultsPersistence()` in production,
     ///     `InMemoryPersistence()` in tests.
+    ///   - alarm: Extended runtime session alarm. Use `WKExtendedRuntimeSessionAlarm()` on
+    ///     Watch, `NoopSessionAlarm()` on iPhone and in tests.
     ///   - clock: Closure returning "now". Defaults to `{ Date() }`. Tests pass a closure
     ///     backed by a mutable fake date so they can advance virtual time.
     public init(
         scheduler: NotificationSchedulerProtocol,
         connectivity: WatchConnectivityProtocol,
         persistence: PersistenceProtocol,
+        alarm: SessionAlarmProtocol,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.scheduler = scheduler
         self.connectivity = connectivity
         self.persistence = persistence
+        self.alarm = alarm
         self.clock = clock
     }
 
@@ -82,12 +87,22 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             scheduler.schedule(notification)
         }
 
+        // Arm the Watch-side extended runtime session alarm. No-op on iPhone.
+        alarm.arm(
+            cycleId: cycleId,
+            fireDate: cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        )
+
         state = .running(cycleStartedAt: cycleStartedAt)
         broadcastSnapshot(for: record)
     }
 
-    /// Stops the current session. Transitions any-state → idle. Cancels all pending notifications.
+    /// Stops the current session. Transitions any-state → idle. Cancels all pending notifications
+    /// and disarms the alarm.
     public func stop() {
+        if let currentCycleId = persistence.load().currentCycleId {
+            alarm.disarm(cycleId: currentCycleId)
+        }
         scheduler.cancelAll()
         persistence.save(.idle)
         state = .idle
@@ -108,37 +123,48 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             return
         }
 
-        // 1. Cancel all cascade notifications for this cycle (pending and delivered).
+        // 1. Disarm the current cycle's alarm (stops any in-progress haptic loop on Watch).
+        alarm.disarm(cycleId: cycleId)
+
+        // 2. Cancel all notifications for this cycle (pending and delivered).
         scheduler.cancel(identifiers: CascadeBuilder.identifiers(for: cycleId))
 
-        // 2. The user is about to start looking away. Generate a new cycleId for the NEXT cycle.
+        // 3. The user is about to start looking away. Generate a new cycleId for the NEXT cycle.
         let lookAwayStartedAt = clock()
         let nextCycleId = UUID()
         let nextCycleStartedAt = lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration)
 
-        // 3. Schedule the "done, back to work" notification. Uses the OLD cycleId so it shares
+        // 4. Schedule the "done, back to work" notification. Uses the OLD cycleId so it shares
         //    the thread-identifier with the cascade it completes — groups cleanly in Notification
         //    Center.
         scheduler.schedule(
             CascadeBuilder.buildDoneNotification(cycleId: cycleId, lookAwayStartedAt: lookAwayStartedAt)
         )
 
-        // 4. Schedule the next cycle's cascade. It will start firing 20 seconds + 20 minutes from now.
+        // 5. Schedule the next cycle's cascade. It will start firing 20 seconds + 20 minutes from now.
+        //    (Still cascade at this point; switched to single-notification in the next task.)
         for notification in CascadeBuilder.buildBreakCascade(cycleId: nextCycleId, cycleStartedAt: nextCycleStartedAt) {
             scheduler.schedule(notification)
         }
 
-        // 5. Persist the new state. currentCycleId is the NEW one; cycleStartedAt is the NEW one.
+        // 6. Arm the alarm for the next cycle.
+        alarm.arm(
+            cycleId: nextCycleId,
+            fireDate: nextCycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        )
+
+        // 7. Persist the new state. currentCycleId is the NEW one; cycleStartedAt is the NEW one.
         //    lookAwayStartedAt records the start of the current 20s window.
         let newRecord = SessionRecord(
             sessionActive: true,
             currentCycleId: nextCycleId,
             cycleStartedAt: nextCycleStartedAt,
-            lookAwayStartedAt: lookAwayStartedAt
+            lookAwayStartedAt: lookAwayStartedAt,
+            lastUpdatedAt: clock()
         )
         persistence.save(newRecord)
 
-        // 6. Update UI state and broadcast to the Watch.
+        // 8. Update UI state and broadcast to the Watch.
         state = .lookAway(lookAwayStartedAt: lookAwayStartedAt)
         broadcastSnapshot(for: newRecord)
     }
@@ -193,6 +219,10 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         let breakFireTime = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
         if now < breakFireTime {
             state = .running(cycleStartedAt: cycleStartedAt)
+            // Re-arm the alarm for the remaining time in the cycle. On iPhone this is
+            // a no-op (NoopSessionAlarm); on Watch it restores the extended runtime
+            // session after an app kill / launch.
+            alarm.arm(cycleId: currentCycleId, fireDate: breakFireTime)
             return
         }
 

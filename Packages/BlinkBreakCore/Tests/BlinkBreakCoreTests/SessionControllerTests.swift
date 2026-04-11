@@ -24,6 +24,7 @@ struct SessionControllerTests {
         let scheduler = MockNotificationScheduler()
         let connectivity = MockWatchConnectivity()
         let persistence = InMemoryPersistence()
+        let alarm = MockSessionAlarm()
         let nowBox = NowBox(value: Date(timeIntervalSince1970: 1_700_000_000))
         let controller: SessionController
 
@@ -33,6 +34,7 @@ struct SessionControllerTests {
                 scheduler: scheduler,
                 connectivity: connectivity,
                 persistence: persistence,
+                alarm: alarm,
                 clock: { box.value }
             )
         }
@@ -265,6 +267,45 @@ struct SessionControllerTests {
     }
 
     // MARK: - Full session loop
+
+    // MARK: - Alarm wiring
+
+    @Test("start() arms the alarm with the cycleId and correct fireDate")
+    func startArmsAlarm() {
+        let f = Fixture()
+        f.controller.start()
+
+        let armed = f.alarm.lastArmed
+        #expect(armed != nil)
+        #expect(armed?.cycleId == f.persistence.load().currentCycleId)
+        #expect(armed?.fireDate == f.nowBox.value.addingTimeInterval(BlinkBreakConstants.breakInterval))
+    }
+
+    @Test("stop() disarms the current cycle's alarm")
+    func stopDisarmsAlarm() {
+        let f = Fixture()
+        f.controller.start()
+        let cycleId = f.persistence.load().currentCycleId!
+
+        f.controller.stop()
+
+        #expect(f.alarm.lastDisarmedCycleId == cycleId)
+    }
+
+    @Test("handleStartBreakAction disarms the current cycle and arms the next")
+    func ackDisarmsAndReArms() {
+        let f = Fixture()
+        f.controller.start()
+        let firstCycleId = f.persistence.load().currentCycleId!
+        f.advance(by: BlinkBreakConstants.breakInterval)
+
+        f.controller.handleStartBreakAction(cycleId: firstCycleId)
+
+        #expect(f.alarm.disarmedCycleIds.contains(firstCycleId))
+        #expect(f.alarm.armedCalls.count == 2)  // start + re-arm
+        let nextArmed = f.alarm.lastArmed!
+        #expect(nextArmed.cycleId == f.persistence.load().currentCycleId)
+    }
 
     @Test("full loop: start → wait → ack → wait → reconcile → stop")
     func fullLoop() async {
