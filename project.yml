@@ -55,6 +55,11 @@ targets:
         CFBundleDisplayName: BlinkBreak
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Export compliance: BlinkBreak does not implement or call any encryption
+        # directly (no network, no keychain, no custom crypto), so it's exempt from
+        # U.S. export compliance. Setting this flag skips App Store Connect's
+        # encryption documentation dialog on every upload.
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: ""
         UIApplicationSceneManifest:
@@ -103,6 +108,8 @@ targets:
         CFBundleDisplayName: BlinkBreak
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Same export-compliance exemption as the iOS target.
+        ITSAppUsesNonExemptEncryption: false
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.tytaniumdev.BlinkBreak
         WKWatchOnly: false
