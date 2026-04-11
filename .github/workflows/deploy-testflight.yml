@@ -1,27 +1,34 @@
 name: Deploy to TestFlight
 
-# DISABLED BY DEFAULT: workflow_dispatch only.
-# To enable automatic deploys on main, add `push: { branches: [main] }` and
-# populate the four required repo secrets listed below.
+# Triggered manually OR automatically on push to main once you uncomment the
+# push trigger below. Auto-bumps the build number from git history so every
+# upload has a unique CFBundleVersion (TestFlight rejects duplicates).
 #
-# Required secrets (set in Settings -> Secrets and variables -> Actions):
-#   APPSTORE_API_KEY_ID      - App Store Connect API Key ID (Users -> Keys in ASC)
-#   APPSTORE_API_ISSUER_ID   - App Store Connect Issuer ID
-#   APPSTORE_API_KEY_P8      - Base64-encoded contents of the AuthKey_*.p8 file
-#                              (generate: `base64 -i AuthKey_XXX.p8 | pbcopy`)
-#   BUILD_CERTIFICATE_P12    - Base64-encoded .p12 export of your Distribution cert
+# Required secrets (Settings -> Secrets and variables -> Actions):
+#   APPSTORE_API_KEY_ID        - App Store Connect API Key ID
+#   APPSTORE_API_ISSUER_ID     - App Store Connect Issuer ID
+#   APPSTORE_API_KEY_P8        - Base64-encoded contents of AuthKey_*.p8
+#   BUILD_CERTIFICATE_P12      - Base64-encoded Distribution .p12
 #   BUILD_CERTIFICATE_PASSWORD - Password for the .p12
-#
-# See README.md -> TestFlight for the full enrollment + secret setup walkthrough.
 
 on:
   workflow_dispatch:
+  # Uncomment the next two lines to auto-deploy every push to main:
+  # push:
+  #   branches: [main]
+
+concurrency:
+  group: testflight-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so we can auto-bump the build number from commit count.
+          fetch-depth: 0
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode.app
@@ -29,22 +36,67 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
-      - name: Generate Xcode project
-        run: xcodegen generate
+      - name: Compute build number from git commit count
+        id: bump
+        env:
+          GIT_COMMIT_COUNT: ${{ github.run_number }}
+        run: |
+          # Use the commit count on main as the monotonically-increasing build number.
+          # Falls back to GitHub Actions run number if git history is shallow.
+          BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo "$GIT_COMMIT_COUNT")
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "Computed build number: $BUILD_NUMBER"
 
-      - name: Install signing certificate
+      - name: Generate Xcode project
+        env:
+          BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
+        run: |
+          # Override CURRENT_PROJECT_VERSION in project.yml before generating.
+          # Uses python for a deterministic YAML edit; avoids sed on YAML.
+          python3 - <<'PY'
+          import os, re
+          bn = os.environ["BUILD_NUMBER"]
+          with open("project.yml") as f:
+              content = f.read()
+          content = re.sub(
+              r'CURRENT_PROJECT_VERSION:\s*"?[0-9]+"?',
+              f'CURRENT_PROJECT_VERSION: "{bn}"',
+              content
+          )
+          with open("project.yml", "w") as f:
+              f.write(content)
+          print(f"patched CURRENT_PROJECT_VERSION to {bn}")
+          PY
+          xcodegen generate
+
+      - name: Install signing certificate into temp keychain
         env:
           BUILD_CERTIFICATE_P12: ${{ secrets.BUILD_CERTIFICATE_P12 }}
           BUILD_CERTIFICATE_PASSWORD: ${{ secrets.BUILD_CERTIFICATE_PASSWORD }}
         run: |
-          echo "$BUILD_CERTIFICATE_P12" | base64 --decode > cert.p12
-          KEYCHAIN=build.keychain
-          security create-keychain -p tmp "$KEYCHAIN"
-          security default-keychain -s "$KEYCHAIN"
-          security unlock-keychain -p tmp "$KEYCHAIN"
-          security import cert.p12 -k "$KEYCHAIN" -P "$BUILD_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k tmp "$KEYCHAIN"
-          rm cert.p12
+          echo "$BUILD_CERTIFICATE_P12" | base64 --decode > /tmp/cert.p12
+          KEYCHAIN=/tmp/build.keychain
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          # Prepend our keychain to the search list so signing can find the cert.
+          EXISTING=$(security list-keychains -d user | tr -d '"' | xargs)
+          security list-keychains -d user -s "$KEYCHAIN" $EXISTING
+
+          security import /tmp/cert.p12 \
+            -k "$KEYCHAIN" \
+            -P "$BUILD_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          rm /tmp/cert.p12
+          security find-identity -v -p codesigning "$KEYCHAIN"
 
       - name: Write App Store Connect API key
         env:
@@ -52,37 +104,45 @@ jobs:
           APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
-          echo "$APPSTORE_API_KEY_P8" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
+          echo "$APPSTORE_API_KEY_P8" | base64 --decode \
+            > ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
 
       - name: Archive app
+        env:
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
         run: |
           xcodebuild archive \
             -project BlinkBreak.xcodeproj \
             -scheme BlinkBreak \
             -archivePath build/BlinkBreak.xcarchive \
             -destination 'generic/platform=iOS' \
+            -configuration Release \
             -allowProvisioningUpdates \
-            CODE_SIGN_STYLE=Automatic \
-            -quiet
+            -authenticationKeyID "$APPSTORE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPSTORE_API_ISSUER_ID" \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
 
       - name: Export IPA
         run: |
-          cat > ExportOptions.plist <<'PLIST'
+          cat > /tmp/ExportOptions.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>method</key><string>app-store-connect</string>
-            <key>uploadBitcode</key><false/>
-            <key>uploadSymbols</key><true/>
+            <key>destination</key><string>export</string>
+            <key>teamID</key><string>F2HXQGU2CC</string>
             <key>signingStyle</key><string>automatic</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>uploadSymbols</key><true/>
           </dict>
           </plist>
           PLIST
           xcodebuild -exportArchive \
             -archivePath build/BlinkBreak.xcarchive \
-            -exportOptionsPlist ExportOptions.plist \
-            -exportPath build/ \
+            -exportOptionsPlist /tmp/ExportOptions.plist \
+            -exportPath build/export \
             -allowProvisioningUpdates
 
       - name: Upload to TestFlight
@@ -90,8 +150,10 @@ jobs:
           APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
           APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
         run: |
+          IPA_PATH=$(find build/export -name "*.ipa" | head -1)
+          echo "Uploading: $IPA_PATH"
           xcrun altool --upload-app \
             --type ios \
-            --file build/BlinkBreak.ipa \
+            --file "$IPA_PATH" \
             --apiKey "$APPSTORE_API_KEY_ID" \
             --apiIssuer "$APPSTORE_API_ISSUER_ID"
