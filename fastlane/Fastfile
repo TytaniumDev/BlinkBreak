@@ -144,6 +144,10 @@ platform :ios do
 
     upload_to_testflight(
       api_key: api_key,
+      # pilot (upload_to_testflight) wants a single app_identifier string,
+      # but match needs the full array (via Appfile). Pass the iOS bundle
+      # ID explicitly here to override Appfile's array.
+      app_identifier: APP_IDENTIFIER,
       skip_waiting_for_build_processing: true,
       skip_submission: true
     )
