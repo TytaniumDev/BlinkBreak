@@ -31,7 +31,8 @@ struct BlinkBreakApp: App {
         return SessionController(
             scheduler: scheduler,
             connectivity: WCSessionConnectivity(),
-            persistence: UserDefaultsPersistence()
+            persistence: UserDefaultsPersistence(),
+            alarm: NoopSessionAlarm()
         )
     }()
 
@@ -44,8 +45,13 @@ struct BlinkBreakApp: App {
                     appDelegate.controller = controller
                     appDelegate.requestNotificationAuthorizationIfNeeded()
 
-                    // Activate WatchConnectivity and wire up incoming Watch commands.
-                    controller.wireUpWatchCommands()
+                    // Activate WatchConnectivity and wire up both directions:
+                    // - onCommandReceived: the (rarely-used) Watch→Phone command path.
+                    // - onSnapshotReceived: when the Watch broadcasts a break
+                    //   acknowledgment, handleRemoteSnapshot cancels our delivered
+                    //   iPhone notification and disarms our (noop) alarm.
+                    controller.activateConnectivity()
+                    controller.wireUpConnectivity()
                     Task { await controller.reconcileOnLaunch() }
                 }
         }
