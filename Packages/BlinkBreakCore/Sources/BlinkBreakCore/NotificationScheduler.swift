@@ -101,57 +101,7 @@ public protocol NotificationSchedulerProtocol: Sendable {
 /// Public so tests can call it directly without going through the scheduler.
 public enum CascadeBuilder {
 
-    /// Build the six-notification cascade for one cycle.
-    /// - Parameters:
-    ///   - cycleId: The UUID identifying this cycle. Used in all six notification IDs.
-    ///   - cycleStartedAt: When the 20-minute countdown began.
-    /// - Returns: Six notifications: 1 primary at `cycleStartedAt + breakInterval`,
-    ///   plus `nudgeCount` nudges at subsequent `nudgeInterval` offsets.
-    public static func buildBreakCascade(
-        cycleId: UUID,
-        cycleStartedAt: Date
-    ) -> [ScheduledNotification] {
-        let primaryFireDate = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
-        let threadId = cycleId.uuidString
-        let title = "Time to look away"
-        let body = "Focus on something 20 feet away for 20 seconds."
-
-        var result: [ScheduledNotification] = []
-        result.reserveCapacity(1 + BlinkBreakConstants.nudgeCount)
-
-        // 1. Primary notification.
-        result.append(
-            ScheduledNotification(
-                identifier: BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString,
-                title: title,
-                body: body,
-                fireDate: primaryFireDate,
-                isTimeSensitive: true,
-                threadIdentifier: threadId,
-                categoryIdentifier: BlinkBreakConstants.breakCategoryId
-            )
-        )
-
-        // 2. Five nudges at 5-second intervals after the primary.
-        for n in 1...BlinkBreakConstants.nudgeCount {
-            let offset = BlinkBreakConstants.nudgeInterval * Double(n)
-            result.append(
-                ScheduledNotification(
-                    identifier: "\(BlinkBreakConstants.breakNudgeIdPrefix)\(cycleId.uuidString).\(n)",
-                    title: title,
-                    body: body,
-                    fireDate: primaryFireDate.addingTimeInterval(offset),
-                    isTimeSensitive: true,
-                    threadIdentifier: threadId,
-                    categoryIdentifier: BlinkBreakConstants.breakCategoryId
-                )
-            )
-        }
-        return result
-    }
-
-    /// Build the single break notification for one cycle. Replaces the six-notification
-    /// cascade once the caller (SessionController) switches over.
+    /// Build the single break notification for one cycle.
     /// - Parameters:
     ///   - cycleId: The UUID identifying this cycle.
     ///   - cycleStartedAt: When the 20-minute countdown began.
@@ -189,17 +139,13 @@ public enum CascadeBuilder {
     }
 
     /// Returns every notification identifier that belongs to a specific cycle.
-    /// Used for targeted cancellation — "cancel the cascade for this cycle" translates
+    /// Used for targeted cancellation — "cancel the notifications for this cycle" translates
     /// into `cancel(identifiers: CascadeBuilder.identifiers(for: cycleId))`.
     public static func identifiers(for cycleId: UUID) -> [String] {
-        var ids: [String] = []
-        ids.reserveCapacity(2 + BlinkBreakConstants.nudgeCount)
-        ids.append(BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString)
-        for n in 1...BlinkBreakConstants.nudgeCount {
-            ids.append("\(BlinkBreakConstants.breakNudgeIdPrefix)\(cycleId.uuidString).\(n)")
-        }
-        ids.append(BlinkBreakConstants.doneIdPrefix + cycleId.uuidString)
-        return ids
+        [
+            BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString,
+            BlinkBreakConstants.doneIdPrefix + cycleId.uuidString
+        ]
     }
 }
 

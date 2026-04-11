@@ -21,23 +21,10 @@ public enum BlinkBreakConstants {
     /// How long the user looks 20 feet away during a break. Hardcoded per the 20-20-20 rule.
     public static let lookAwayDuration: TimeInterval = 20    // 20 seconds
 
-    // MARK: - Notification cascade tuning
-
-    /// How many seconds between each haptic nudge in the break cascade.
-    public static let nudgeInterval: TimeInterval = 5
-
-    /// How many nudges fire after the primary break notification before the cascade gives up.
-    /// With 5 nudges at 5-second intervals, the wrist buzzes for 25 seconds after the primary,
-    /// for a total of ~30 seconds of "alarm-like" buzzing before it stops.
-    public static let nudgeCount: Int = 5
-
     // MARK: - Notification identifiers
 
     /// Prefix for the primary break notification. Formatted with the cycle UUID.
     public static let breakPrimaryIdPrefix = "break.primary."
-
-    /// Prefix for the nudge notifications. Formatted with `<cycleId>.<n>`.
-    public static let breakNudgeIdPrefix = "break.nudge."
 
     /// Prefix for the "done looking away, back to work" notification.
     public static let doneIdPrefix = "done."
