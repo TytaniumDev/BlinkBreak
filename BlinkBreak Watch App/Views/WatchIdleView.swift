@@ -26,6 +26,7 @@ struct WatchIdleView<Controller: SessionControllerProtocol>: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.accentColor)
+            .accessibilityIdentifier("button.idle.start")
         }
         .padding(.vertical, 10)
     }

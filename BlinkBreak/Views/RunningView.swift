@@ -28,6 +28,7 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
             EyebrowLabel(text: "Next break in")
 
             CountdownRing(progress: progress, label: countdownLabel)
+                .accessibilityIdentifier("label.running.countdown")
 
             Text("Fires at \(breakFireTimeFormatted)")
                 .font(.footnote)
@@ -38,6 +39,7 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
             DestructiveButton(title: "Stop") {
                 controller.stop()
             }
+            .accessibilityIdentifier("button.running.stop")
         }
         .padding(24)
         .onReceive(ticker) { now = $0 }
