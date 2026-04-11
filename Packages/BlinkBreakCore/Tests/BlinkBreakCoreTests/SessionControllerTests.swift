@@ -78,24 +78,19 @@ struct SessionControllerTests {
         #expect(startedAt == f.nowBox.value)
     }
 
-    @Test("start() schedules the six-notification cascade")
-    func startSchedulesCascade() {
+    @Test("start() schedules a single break notification")
+    func startSchedulesSingleBreakNotification() {
         let f = Fixture()
         f.controller.start()
 
-        #expect(f.scheduler.scheduledNotifications.count == 1 + BlinkBreakConstants.nudgeCount)
-
-        // All should be time-sensitive and share a thread id.
-        let allTimeSensitive = f.scheduler.scheduledNotifications.allSatisfy { $0.isTimeSensitive }
-        #expect(allTimeSensitive)
-        let threadIds = Set(f.scheduler.scheduledNotifications.map(\.threadIdentifier))
-        #expect(threadIds.count == 1)
-
-        // All should point to the break category.
-        let allInBreakCategory = f.scheduler.scheduledNotifications.allSatisfy {
-            $0.categoryIdentifier == BlinkBreakConstants.breakCategoryId
-        }
-        #expect(allInBreakCategory)
+        #expect(f.scheduler.scheduledNotifications.count == 1)
+        let n = f.scheduler.scheduledNotifications[0]
+        #expect(n.isTimeSensitive)
+        #expect(n.categoryIdentifier == BlinkBreakConstants.breakCategoryId)
+        #expect(n.soundName == BlinkBreakConstants.breakSoundFileName)
+        let cycleId = f.persistence.load().currentCycleId!
+        #expect(n.identifier == BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString)
+        #expect(n.threadIdentifier == cycleId.uuidString)
     }
 
     @Test("start() persists an active record")
@@ -134,7 +129,7 @@ struct SessionControllerTests {
         f.controller.start()
 
         #expect(f.scheduler.cancelAllCount == 1)
-        #expect(f.scheduler.scheduledNotifications.count == 1 + BlinkBreakConstants.nudgeCount)
+        #expect(f.scheduler.scheduledNotifications.count == 1)
         #expect(!f.scheduler.scheduledNotifications.contains { $0.identifier == "stale.old" })
     }
 
@@ -234,8 +229,8 @@ struct SessionControllerTests {
         #expect(cancelled.contains(BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString))
     }
 
-    @Test("handleStartBreakAction schedules a done notification + next cascade")
-    func ackSchedulesDoneAndNextCascade() {
+    @Test("handleStartBreakAction schedules a done notification + next break notification")
+    func ackSchedulesDoneAndNextBreak() {
         let f = Fixture()
         f.controller.start()
         let cycleId = f.persistence.load().currentCycleId!
@@ -243,11 +238,15 @@ struct SessionControllerTests {
 
         f.controller.handleStartBreakAction(cycleId: cycleId)
 
-        // After ack: old cascade cancelled, done scheduled (1) + new cascade scheduled (6) = 7 remaining.
-        #expect(f.scheduler.scheduledNotifications.count == 2 + BlinkBreakConstants.nudgeCount)
+        // After ack: old break cancelled, done scheduled (1) + new break scheduled (1) = 2 remaining.
+        #expect(f.scheduler.scheduledNotifications.count == 2)
 
         let ids = f.scheduler.scheduledNotifications.map(\.identifier)
         #expect(ids.contains(BlinkBreakConstants.doneIdPrefix + cycleId.uuidString))
+
+        let newCycleId = f.persistence.load().currentCycleId!
+        #expect(newCycleId != cycleId)
+        #expect(ids.contains(BlinkBreakConstants.breakPrimaryIdPrefix + newCycleId.uuidString))
     }
 
     @Test("handleStartBreakAction advances persistence to a new cycle")

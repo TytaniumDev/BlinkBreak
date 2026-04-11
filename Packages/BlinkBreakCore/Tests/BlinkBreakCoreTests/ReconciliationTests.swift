@@ -113,9 +113,8 @@ struct ReconciliationTests {
         ))
         f.scheduler.stubPendingIdentifiers = []
 
-        f.advance(by: BlinkBreakConstants.breakInterval
-                  + BlinkBreakConstants.nudgeInterval * Double(BlinkBreakConstants.nudgeCount)
-                  + 1)
+        // Advance well past the break time.
+        f.advance(by: BlinkBreakConstants.breakInterval + 60)
 
         await f.controller.reconcileOnLaunch()
 

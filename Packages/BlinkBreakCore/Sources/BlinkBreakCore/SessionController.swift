@@ -82,10 +82,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         )
         persistence.save(record)
 
-        // Schedule the six-notification cascade for this cycle.
-        for notification in CascadeBuilder.buildBreakCascade(cycleId: cycleId, cycleStartedAt: cycleStartedAt) {
-            scheduler.schedule(notification)
-        }
+        // Schedule the single break notification for this cycle.
+        scheduler.schedule(CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: cycleStartedAt))
 
         // Arm the Watch-side extended runtime session alarm. No-op on iPhone.
         alarm.arm(
@@ -141,11 +139,10 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             CascadeBuilder.buildDoneNotification(cycleId: cycleId, lookAwayStartedAt: lookAwayStartedAt)
         )
 
-        // 5. Schedule the next cycle's cascade. It will start firing 20 seconds + 20 minutes from now.
-        //    (Still cascade at this point; switched to single-notification in the next task.)
-        for notification in CascadeBuilder.buildBreakCascade(cycleId: nextCycleId, cycleStartedAt: nextCycleStartedAt) {
-            scheduler.schedule(notification)
-        }
+        // 5. Schedule the next cycle's single break notification.
+        scheduler.schedule(
+            CascadeBuilder.buildBreakNotification(cycleId: nextCycleId, cycleStartedAt: nextCycleStartedAt)
+        )
 
         // 6. Arm the alarm for the next cycle.
         alarm.arm(
