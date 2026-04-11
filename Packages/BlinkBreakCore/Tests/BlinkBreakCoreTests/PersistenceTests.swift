@@ -78,13 +78,13 @@ struct PersistenceTests {
 
     @Test("SessionRecord decodes legacy JSON without lastUpdatedAt")
     func legacyRecordDecodes() throws {
-        let legacyJSON = """
+        let legacyJSON = Data("""
         {
             "sessionActive": true,
             "currentCycleId": "11111111-2222-3333-4444-555555555555",
             "cycleStartedAt": 1700000000
         }
-        """.data(using: .utf8)!
+        """.utf8)
         let decoded = try JSONDecoder().decode(SessionRecord.self, from: legacyJSON)
         #expect(decoded.sessionActive == true)
         #expect(decoded.lastUpdatedAt == nil)
