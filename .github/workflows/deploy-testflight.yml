@@ -18,9 +18,8 @@ name: Deploy to TestFlight
 
 on:
   workflow_dispatch:
-  # Uncomment to auto-deploy every push to main:
-  # push:
-  #   branches: [main]
+  push:
+    branches: [main]
 
 concurrency:
   group: testflight-deploy
