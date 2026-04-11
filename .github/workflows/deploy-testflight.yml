@@ -157,6 +157,15 @@ jobs:
           APPSTORE_API_KEY_ID: ${{ env.APPSTORE_API_KEY_ID }}
           APPSTORE_API_ISSUER_ID: ${{ env.APPSTORE_API_ISSUER_ID }}
         run: |
+          # Force MANUAL signing with the local Distribution certificate instead
+          # of Xcode 16's automatic cloud-signing. Automatic requires the App
+          # Store Connect API key to have the "Admin" role for cloud signing,
+          # which our "App Manager" key doesn't have (and shouldn't — less
+          # privilege is better). The Archive step already pulled provisioning
+          # profiles via -allowProvisioningUpdates, so they're on disk at
+          # ~/Library/MobileDevice/Provisioning Profiles/ by now. Xcode's
+          # auto-created profiles follow a predictable name pattern:
+          # "iOS Team Provisioning Profile: <bundle-id>".
           cat > /tmp/ExportOptions.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -165,12 +174,31 @@ jobs:
             <key>method</key><string>app-store-connect</string>
             <key>destination</key><string>export</string>
             <key>teamID</key><string>F2HXQGU2CC</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.tytaniumdev.BlinkBreak</key>
+              <string>iOS Team Provisioning Profile: com.tytaniumdev.BlinkBreak</string>
+              <key>com.tytaniumdev.BlinkBreak.watchkitapp</key>
+              <string>iOS Team Provisioning Profile: com.tytaniumdev.BlinkBreak.watchkitapp</string>
+            </dict>
             <key>stripSwiftSymbols</key><true/>
             <key>uploadSymbols</key><true/>
           </dict>
           </plist>
           PLIST
+
+          # Debug: list the profiles the Archive step pulled, so if the name
+          # pattern ever drifts we can see it in the CI log.
+          echo "--- installed provisioning profiles ---"
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/" 2>&1 || true
+          for p in "$HOME/Library/MobileDevice/Provisioning Profiles"/*.mobileprovision; do
+            [ -f "$p" ] || continue
+            /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$(security cms -D -i "$p" 2>/dev/null)" 2>&1 || true
+          done
+          echo "--- end profiles ---"
+
           xcodebuild -exportArchive \
             -archivePath build/BlinkBreak.xcarchive \
             -exportOptionsPlist /tmp/ExportOptions.plist \
