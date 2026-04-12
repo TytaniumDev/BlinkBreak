@@ -72,4 +72,15 @@ public enum BlinkBreakConstants {
     /// `sessionRecordKey` so existing users upgrade cleanly — a missing schedule key
     /// falls back to `WeeklySchedule.default` without touching the session record.
     public static let weeklyScheduleKey = "BlinkBreak.WeeklySchedule"
+
+    // MARK: - Schedule notification/task identifiers
+
+    /// Notification category for the schedule start-time fallback notification.
+    public static let scheduleCategoryId = "BLINKBREAK_SCHEDULE_CATEGORY"
+
+    /// Action identifier for the "Start" button on schedule notifications.
+    public static let scheduleStartActionId = "SCHEDULE_START"
+
+    /// BGTaskScheduler task identifier for schedule checks.
+    public static let scheduleTaskId = "com.tytaniumdev.BlinkBreak.scheduleCheck"
 }

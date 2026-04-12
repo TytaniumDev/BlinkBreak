@@ -66,6 +66,8 @@ targets:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations: {}
         UIBackgroundModes: []
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.tytaniumdev.BlinkBreak.scheduleCheck
         UIRequiredDeviceCapabilities:
           - arm64
         # Portrait-only; UIRequiresFullScreen silences Xcode's "all orientations must
