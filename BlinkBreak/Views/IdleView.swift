@@ -30,6 +30,7 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
             PrimaryButton(title: "Start") {
                 controller.start()
             }
+            .accessibilityIdentifier("button.idle.start")
         }
         .padding(24)
     }

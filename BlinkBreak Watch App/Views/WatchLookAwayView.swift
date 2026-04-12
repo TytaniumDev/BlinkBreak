@@ -17,6 +17,7 @@ struct WatchLookAwayView: View {
                 .font(.headline)
                 .foregroundStyle(.white.opacity(0.9))
                 .multilineTextAlignment(.center)
+                .accessibilityIdentifier("label.lookAway.message")
 
             Text("We'll tap you when it's time")
                 .font(.caption2)

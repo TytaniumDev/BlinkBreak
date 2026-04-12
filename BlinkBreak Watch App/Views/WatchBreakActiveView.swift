@@ -32,6 +32,7 @@ struct WatchBreakActiveView<Controller: SessionControllerProtocol>: View {
             .buttonStyle(.borderedProminent)
             .tint(.white)
             .foregroundStyle(Color(red: 0.69, green: 0, blue: 0.13))
+            .accessibilityIdentifier("button.breakActive.startBreak")
         }
         .padding(.vertical, 10)
     }

@@ -28,7 +28,7 @@ public struct ScheduledNotification: Equatable, Sendable {
     /// Notification title shown on the banner / Watch face.
     public let title: String
 
-    /// Notification body. Empty for the cascade nudges (they're just haptics).
+    /// Notification body.
     public let body: String
 
     /// When the notification should fire, in absolute wall-clock time.
@@ -39,11 +39,16 @@ public struct ScheduledNotification: Equatable, Sendable {
     public let isTimeSensitive: Bool
 
     /// Group identifier used to collapse related notifications into a single Notification
-    /// Center entry. All six cascade notifications for one cycle share a thread ID.
+    /// Center entry. All notifications for one cycle share a thread ID.
     public let threadIdentifier: String
 
     /// If non-nil, attaches the given category ID so the notification exposes action buttons.
     public let categoryIdentifier: String?
+
+    /// If non-nil, plays the named custom sound file bundled in the app when the notification
+    /// fires. If nil, uses `UNNotificationSound.default`. iOS caps custom notification sounds
+    /// at 30 seconds; files longer than that fall back to the default.
+    public let soundName: String?
 
     public init(
         identifier: String,
@@ -52,7 +57,8 @@ public struct ScheduledNotification: Equatable, Sendable {
         fireDate: Date,
         isTimeSensitive: Bool,
         threadIdentifier: String,
-        categoryIdentifier: String?
+        categoryIdentifier: String?,
+        soundName: String? = nil
     ) {
         self.identifier = identifier
         self.title = title
@@ -61,6 +67,7 @@ public struct ScheduledNotification: Equatable, Sendable {
         self.isTimeSensitive = isTimeSensitive
         self.threadIdentifier = threadIdentifier
         self.categoryIdentifier = categoryIdentifier
+        self.soundName = soundName
     }
 }
 
@@ -94,53 +101,25 @@ public protocol NotificationSchedulerProtocol: Sendable {
 /// Public so tests can call it directly without going through the scheduler.
 public enum CascadeBuilder {
 
-    /// Build the six-notification cascade for one cycle.
+    /// Build the single break notification for one cycle.
     /// - Parameters:
-    ///   - cycleId: The UUID identifying this cycle. Used in all six notification IDs.
+    ///   - cycleId: The UUID identifying this cycle.
     ///   - cycleStartedAt: When the 20-minute countdown began.
-    /// - Returns: Six notifications: 1 primary at `cycleStartedAt + breakInterval`,
-    ///   plus `nudgeCount` nudges at subsequent `nudgeInterval` offsets.
-    public static func buildBreakCascade(
+    /// - Returns: One ScheduledNotification with the custom alarm sound attached.
+    public static func buildBreakNotification(
         cycleId: UUID,
         cycleStartedAt: Date
-    ) -> [ScheduledNotification] {
-        let primaryFireDate = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
-        let threadId = cycleId.uuidString
-        let title = "Time to look away"
-        let body = "Focus on something 20 feet away for 20 seconds."
-
-        var result: [ScheduledNotification] = []
-        result.reserveCapacity(1 + BlinkBreakConstants.nudgeCount)
-
-        // 1. Primary notification.
-        result.append(
-            ScheduledNotification(
-                identifier: BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString,
-                title: title,
-                body: body,
-                fireDate: primaryFireDate,
-                isTimeSensitive: true,
-                threadIdentifier: threadId,
-                categoryIdentifier: BlinkBreakConstants.breakCategoryId
-            )
+    ) -> ScheduledNotification {
+        ScheduledNotification(
+            identifier: BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString,
+            title: "Time to look away",
+            body: "Focus on something 20 feet away for 20 seconds.",
+            fireDate: cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval),
+            isTimeSensitive: true,
+            threadIdentifier: cycleId.uuidString,
+            categoryIdentifier: BlinkBreakConstants.breakCategoryId,
+            soundName: BlinkBreakConstants.breakSoundFileName
         )
-
-        // 2. Five nudges at 5-second intervals after the primary.
-        for n in 1...BlinkBreakConstants.nudgeCount {
-            let offset = BlinkBreakConstants.nudgeInterval * Double(n)
-            result.append(
-                ScheduledNotification(
-                    identifier: "\(BlinkBreakConstants.breakNudgeIdPrefix)\(cycleId.uuidString).\(n)",
-                    title: title,
-                    body: body,
-                    fireDate: primaryFireDate.addingTimeInterval(offset),
-                    isTimeSensitive: true,
-                    threadIdentifier: threadId,
-                    categoryIdentifier: BlinkBreakConstants.breakCategoryId
-                )
-            )
-        }
-        return result
     }
 
     /// Build the single "done, look back at your screen" notification.
@@ -160,17 +139,13 @@ public enum CascadeBuilder {
     }
 
     /// Returns every notification identifier that belongs to a specific cycle.
-    /// Used for targeted cancellation — "cancel the cascade for this cycle" translates
+    /// Used for targeted cancellation — "cancel the notifications for this cycle" translates
     /// into `cancel(identifiers: CascadeBuilder.identifiers(for: cycleId))`.
     public static func identifiers(for cycleId: UUID) -> [String] {
-        var ids: [String] = []
-        ids.reserveCapacity(2 + BlinkBreakConstants.nudgeCount)
-        ids.append(BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString)
-        for n in 1...BlinkBreakConstants.nudgeCount {
-            ids.append("\(BlinkBreakConstants.breakNudgeIdPrefix)\(cycleId.uuidString).\(n)")
-        }
-        ids.append(BlinkBreakConstants.doneIdPrefix + cycleId.uuidString)
-        return ids
+        [
+            BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString,
+            BlinkBreakConstants.doneIdPrefix + cycleId.uuidString
+        ]
     }
 }
 
@@ -212,7 +187,18 @@ public final class UNNotificationScheduler: NotificationSchedulerProtocol, @unch
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.body = notification.body
+        // Custom notification sounds are iOS-only; watchOS uses system haptics and
+        // ignores custom sound files. On watchOS we fall back to .default so the same
+        // ScheduledNotification struct builds everywhere.
+        #if os(iOS)
+        if let soundName = notification.soundName {
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(soundName))
+        } else {
+            content.sound = .default
+        }
+        #else
         content.sound = .default
+        #endif
         content.threadIdentifier = notification.threadIdentifier
         if let category = notification.categoryIdentifier {
             content.categoryIdentifier = category

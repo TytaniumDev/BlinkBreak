@@ -28,6 +28,7 @@ struct WatchRunningView<Controller: SessionControllerProtocol>: View {
             Text(countdownLabel)
                 .font(.system(size: 34, weight: .ultraLight, design: .default))
                 .monospacedDigit()
+                .accessibilityIdentifier("label.running.countdown")
 
             Spacer()
 
@@ -36,6 +37,7 @@ struct WatchRunningView<Controller: SessionControllerProtocol>: View {
             }
             .buttonStyle(.bordered)
             .tint(.white.opacity(0.6))
+            .accessibilityIdentifier("button.running.stop")
         }
         .padding(.vertical, 8)
         .onReceive(ticker) { now = $0 }

@@ -29,12 +29,14 @@ struct LookAwayView<Controller: SessionControllerProtocol>: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.85))
                 .padding(.horizontal, 32)
+                .accessibilityIdentifier("label.lookAway.message")
 
             Spacer()
 
             DestructiveButton(title: "Stop") {
                 controller.stop()
             }
+            .accessibilityIdentifier("button.lookAway.stop")
         }
         .padding(24)
     }

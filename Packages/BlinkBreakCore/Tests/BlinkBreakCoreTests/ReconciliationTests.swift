@@ -17,6 +17,7 @@ struct ReconciliationTests {
     final class Fixture {
         let scheduler = MockNotificationScheduler()
         let persistence = InMemoryPersistence()
+        let alarm = MockSessionAlarm()
         let nowBox = NowBox(value: Date(timeIntervalSince1970: 1_700_000_000))
         let controller: SessionController
 
@@ -26,6 +27,7 @@ struct ReconciliationTests {
                 scheduler: scheduler,
                 connectivity: MockWatchConnectivity(),
                 persistence: persistence,
+                alarm: alarm,
                 clock: { box.value }
             )
         }
@@ -100,25 +102,34 @@ struct ReconciliationTests {
         #expect(startedAt == started)
     }
 
-    @Test("reconcile past break time with no pending notifications → idle fallback")
+    @Test("reconcile past break time with no pending notifications → breakActive (single-notification design)")
     func pastBreakNoPending() async {
         let f = Fixture()
+        let cycleId = UUID()
+        let started = f.nowBox.value
         f.persistence.save(SessionRecord(
             sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: f.nowBox.value,
+            currentCycleId: cycleId,
+            cycleStartedAt: started,
             lookAwayStartedAt: nil
         ))
         f.scheduler.stubPendingIdentifiers = []
 
-        f.advance(by: BlinkBreakConstants.breakInterval
-                  + BlinkBreakConstants.nudgeInterval * Double(BlinkBreakConstants.nudgeCount)
-                  + 1)
+        // Advance well past the break time.
+        f.advance(by: BlinkBreakConstants.breakInterval + 60)
 
         await f.controller.reconcileOnLaunch()
 
-        #expect(f.controller.state == .idle)
-        #expect(f.persistence.load() == .idle)
+        // With the single-notification design, reconcile can't distinguish
+        // "notification just fired" from "notification fired a while ago" via
+        // the pending list (it's in the delivered list, not pending). So we
+        // unconditionally go to breakActive — the user needs to acknowledge
+        // the break or stop the session manually.
+        guard case .breakActive(let startedAt) = f.controller.state else {
+            Issue.record("expected breakActive, got \(f.controller.state)")
+            return
+        }
+        #expect(startedAt == started)
     }
 
     @Test("reconcile within lookAway window → lookAway")
@@ -183,5 +194,23 @@ struct ReconciliationTests {
 
         #expect(f.controller.state == .idle)
         #expect(f.persistence.load() == .idle)
+    }
+
+    @Test("reconcile in running state re-arms the alarm for the remaining time")
+    func reconcileRunningReArmsAlarm() async {
+        let f = Fixture()
+        let cycleId = UUID()
+        f.persistence.save(SessionRecord(
+            sessionActive: true,
+            currentCycleId: cycleId,
+            cycleStartedAt: f.nowBox.value,
+            lookAwayStartedAt: nil
+        ))
+        f.scheduler.stubPendingIdentifiers = CascadeBuilder.identifiers(for: cycleId)
+
+        await f.controller.reconcileOnLaunch()
+
+        #expect(f.alarm.lastArmed?.cycleId == cycleId)
+        #expect(f.alarm.lastArmed?.fireDate == f.nowBox.value.addingTimeInterval(BlinkBreakConstants.breakInterval))
     }
 }

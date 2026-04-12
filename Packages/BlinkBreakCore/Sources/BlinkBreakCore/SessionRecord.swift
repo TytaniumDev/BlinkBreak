@@ -6,6 +6,10 @@
 //  pending notification queue is the source of truth for "what happens next";
 //  this record is just what lets the UI rehydrate on launch.
 //
+//  `lastUpdatedAt` is a staleness marker used by `SessionController.handleRemoteSnapshot`
+//  to drop out-of-order snapshot deliveries. It's optional for Codable backwards
+//  compatibility with pre-redesign persisted records.
+//
 //  Flutter analogue: the @JsonSerializable() model you'd stash in SharedPreferences.
 //
 
@@ -19,7 +23,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     public var sessionActive: Bool
 
     /// The current cycle's UUID. Used to tag notifications so we can cancel the
-    /// cascade on acknowledgment without touching unrelated cycles.
+    /// break notification on acknowledgment without touching unrelated cycles.
     public var currentCycleId: UUID?
 
     /// When the current running-state cycle began. Used to derive the next-break fire time.
@@ -29,16 +33,33 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// When the current look-away window began. Non-nil only in the `lookAway` state.
     public var lookAwayStartedAt: Date?
 
+    /// When this record was last written (locally or from an incoming remote snapshot).
+    /// Optional so legacy persisted records decode without migration.
+    public var lastUpdatedAt: Date?
+
     public init(
         sessionActive: Bool = false,
         currentCycleId: UUID? = nil,
         cycleStartedAt: Date? = nil,
-        lookAwayStartedAt: Date? = nil
+        lookAwayStartedAt: Date? = nil,
+        lastUpdatedAt: Date? = nil
     ) {
         self.sessionActive = sessionActive
         self.currentCycleId = currentCycleId
         self.cycleStartedAt = cycleStartedAt
         self.lookAwayStartedAt = lookAwayStartedAt
+        self.lastUpdatedAt = lastUpdatedAt
+    }
+
+    /// Build a persistence record from an incoming WatchConnectivity snapshot.
+    /// Copies `snapshot.updatedAt` into `lastUpdatedAt` so the staleness guard
+    /// in `handleRemoteSnapshot` sees the right timestamp.
+    public init(from snapshot: SessionSnapshot) {
+        self.sessionActive = snapshot.sessionActive
+        self.currentCycleId = snapshot.currentCycleId
+        self.cycleStartedAt = snapshot.cycleStartedAt
+        self.lookAwayStartedAt = snapshot.lookAwayStartedAt
+        self.lastUpdatedAt = snapshot.updatedAt
     }
 
     /// The canonical "idle" record. Use this when stopping or clearing session state.
@@ -46,6 +67,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         sessionActive: false,
         currentCycleId: nil,
         cycleStartedAt: nil,
-        lookAwayStartedAt: nil
+        lookAwayStartedAt: nil,
+        lastUpdatedAt: nil
     )
 }

@@ -48,6 +48,7 @@ struct BreakActiveView<Controller: SessionControllerProtocol>: View {
                     .background(Capsule().fill(Color.white))
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("button.breakActive.startBreak")
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }

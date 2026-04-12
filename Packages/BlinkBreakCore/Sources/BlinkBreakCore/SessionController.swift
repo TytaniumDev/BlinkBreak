@@ -34,6 +34,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     private let scheduler: NotificationSchedulerProtocol
     private let connectivity: WatchConnectivityProtocol
     private let persistence: PersistenceProtocol
+    private let alarm: SessionAlarmProtocol
     private let clock: @Sendable () -> Date
 
     // MARK: - Init
@@ -45,17 +46,21 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     ///     `NoopConnectivity()` in tests / on macOS.
     ///   - persistence: Session record storage. Use `UserDefaultsPersistence()` in production,
     ///     `InMemoryPersistence()` in tests.
+    ///   - alarm: Extended runtime session alarm. Use `WKExtendedRuntimeSessionAlarm()` on
+    ///     Watch, `NoopSessionAlarm()` on iPhone and in tests.
     ///   - clock: Closure returning "now". Defaults to `{ Date() }`. Tests pass a closure
     ///     backed by a mutable fake date so they can advance virtual time.
     public init(
         scheduler: NotificationSchedulerProtocol,
         connectivity: WatchConnectivityProtocol,
         persistence: PersistenceProtocol,
+        alarm: SessionAlarmProtocol,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.scheduler = scheduler
         self.connectivity = connectivity
         self.persistence = persistence
+        self.alarm = alarm
         self.clock = clock
     }
 
@@ -73,25 +78,36 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             sessionActive: true,
             currentCycleId: cycleId,
             cycleStartedAt: cycleStartedAt,
-            lookAwayStartedAt: nil
+            lookAwayStartedAt: nil,
+            lastUpdatedAt: cycleStartedAt
         )
         persistence.save(record)
 
-        // Schedule the six-notification cascade for this cycle.
-        for notification in CascadeBuilder.buildBreakCascade(cycleId: cycleId, cycleStartedAt: cycleStartedAt) {
-            scheduler.schedule(notification)
-        }
+        // Schedule the single break notification for this cycle.
+        scheduler.schedule(CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: cycleStartedAt))
+
+        // Arm the Watch-side extended runtime session alarm. No-op on iPhone.
+        alarm.arm(
+            cycleId: cycleId,
+            fireDate: cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        )
 
         state = .running(cycleStartedAt: cycleStartedAt)
         broadcastSnapshot(for: record)
     }
 
-    /// Stops the current session. Transitions any-state → idle. Cancels all pending notifications.
+    /// Stops the current session. Transitions any-state → idle. Cancels all pending notifications
+    /// and disarms the alarm.
     public func stop() {
+        if let currentCycleId = persistence.load().currentCycleId {
+            alarm.disarm(cycleId: currentCycleId)
+        }
         scheduler.cancelAll()
-        persistence.save(.idle)
+        var idleRecord = SessionRecord.idle
+        idleRecord.lastUpdatedAt = clock()
+        persistence.save(idleRecord)
         state = .idle
-        broadcastSnapshot(for: .idle)
+        broadcastSnapshot(for: idleRecord)
     }
 
     /// Handles the user tapping "Start break" on a notification action.
@@ -108,37 +124,47 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             return
         }
 
-        // 1. Cancel all cascade notifications for this cycle (pending and delivered).
+        // 1. Disarm the current cycle's alarm (stops any in-progress haptic loop on Watch).
+        alarm.disarm(cycleId: cycleId)
+
+        // 2. Cancel all notifications for this cycle (pending and delivered).
         scheduler.cancel(identifiers: CascadeBuilder.identifiers(for: cycleId))
 
-        // 2. The user is about to start looking away. Generate a new cycleId for the NEXT cycle.
+        // 3. The user is about to start looking away. Generate a new cycleId for the NEXT cycle.
         let lookAwayStartedAt = clock()
         let nextCycleId = UUID()
         let nextCycleStartedAt = lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration)
 
-        // 3. Schedule the "done, back to work" notification. Uses the OLD cycleId so it shares
+        // 4. Schedule the "done, back to work" notification. Uses the OLD cycleId so it shares
         //    the thread-identifier with the cascade it completes — groups cleanly in Notification
         //    Center.
         scheduler.schedule(
             CascadeBuilder.buildDoneNotification(cycleId: cycleId, lookAwayStartedAt: lookAwayStartedAt)
         )
 
-        // 4. Schedule the next cycle's cascade. It will start firing 20 seconds + 20 minutes from now.
-        for notification in CascadeBuilder.buildBreakCascade(cycleId: nextCycleId, cycleStartedAt: nextCycleStartedAt) {
-            scheduler.schedule(notification)
-        }
+        // 5. Schedule the next cycle's single break notification.
+        scheduler.schedule(
+            CascadeBuilder.buildBreakNotification(cycleId: nextCycleId, cycleStartedAt: nextCycleStartedAt)
+        )
 
-        // 5. Persist the new state. currentCycleId is the NEW one; cycleStartedAt is the NEW one.
+        // 6. Arm the alarm for the next cycle.
+        alarm.arm(
+            cycleId: nextCycleId,
+            fireDate: nextCycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        )
+
+        // 7. Persist the new state. currentCycleId is the NEW one; cycleStartedAt is the NEW one.
         //    lookAwayStartedAt records the start of the current 20s window.
         let newRecord = SessionRecord(
             sessionActive: true,
             currentCycleId: nextCycleId,
             cycleStartedAt: nextCycleStartedAt,
-            lookAwayStartedAt: lookAwayStartedAt
+            lookAwayStartedAt: lookAwayStartedAt,
+            lastUpdatedAt: clock()
         )
         persistence.save(newRecord)
 
-        // 6. Update UI state and broadcast to the Watch.
+        // 8. Update UI state and broadcast to the Watch.
         state = .lookAway(lookAwayStartedAt: lookAwayStartedAt)
         broadcastSnapshot(for: newRecord)
     }
@@ -193,29 +219,39 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         let breakFireTime = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
         if now < breakFireTime {
             state = .running(cycleStartedAt: cycleStartedAt)
+            // Re-arm the alarm for the remaining time in the cycle. On iPhone this is
+            // a no-op (NoopSessionAlarm); on Watch it restores the extended runtime
+            // session after an app kill / launch.
+            alarm.arm(cycleId: currentCycleId, fireDate: breakFireTime)
             return
         }
 
-        // Case 5: break time has arrived. Check whether any cascade notifications are still
-        // pending for the current cycleId — if so, we're in breakActive waiting for ack.
-        // If not, the cascade fully fired without acknowledgment and we should fall back to idle.
-        let pending = Set(await scheduler.pendingIdentifiers())
-        let cascadeIds = Set(CascadeBuilder.identifiers(for: currentCycleId))
-        if !pending.isDisjoint(with: cascadeIds) {
-            state = .breakActive(cycleStartedAt: cycleStartedAt)
-        } else {
-            // Nothing pending for this cycle — cascade ran out with no ack.
-            persistence.save(.idle)
-            state = .idle
-            broadcastSnapshot(for: .idle)
-        }
+        // Case 5: break time has arrived (or passed) without a look-away start.
+        // State is breakActive — the user needs to acknowledge the break. This is
+        // unconditional: with the single-notification design, the notification
+        // either transitions from pending to delivered at break time (no overlap
+        // window), so we can't distinguish "just fired" from "fired a while ago"
+        // by inspecting the scheduler. Instead we rely on the persisted session
+        // record: if the user never acknowledged, they're still owed a break.
+        //
+        // The user can always Stop the session from the breakActive screen path
+        // (ack, then stop from lookAway) or by swiping away the notification and
+        // reopening the app. There's no timeout-to-idle fallback.
+        state = .breakActive(cycleStartedAt: cycleStartedAt)
+        // Re-arm the alarm so the Watch can restart the haptic loop after an app
+        // kill/relaunch during an active break. Uses breakFireTime (which is in the
+        // past) — the alarm implementation's DispatchSourceTimer fires immediately
+        // when the deadline is already passed, which starts the haptic loop right away.
+        alarm.arm(cycleId: currentCycleId, fireDate: breakFireTime)
     }
 
     // MARK: - Incoming Watch commands
 
-    /// Hook up a `WatchConnectivityProtocol` so commands from the Watch are routed here.
-    /// Call once, after initializing the controller.
-    public func wireUpWatchCommands() {
+    /// Hook up the WatchConnectivity service to the controller's state. Call once, after
+    /// initializing. Wires both directions:
+    /// - Incoming commands (`start`, `stop`, `startBreak`) become method calls.
+    /// - Incoming state snapshots become `handleRemoteSnapshot` calls.
+    public func wireUpConnectivity() {
         connectivity.onCommandReceived = { [weak self] command, cycleId in
             guard let self else { return }
             Task { @MainActor in
@@ -231,6 +267,53 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 }
             }
         }
+        connectivity.onSnapshotReceived = { [weak self] snapshot in
+            guard let self else { return }
+            Task { @MainActor in
+                self.handleRemoteSnapshot(snapshot)
+            }
+        }
+    }
+
+    /// Activate the underlying connectivity service. Call once at launch, before
+    /// `wireUpConnectivity()`. Exposed as a method so apps don't need direct access to
+    /// the `connectivity` property.
+    public func activateConnectivity() {
+        connectivity.activate()
+    }
+
+    /// Processes an incoming WCSession snapshot from the paired device. Implements the
+    /// acknowledgment-sync rule: if a remote ack just happened (incoming `lookAwayStartedAt`
+    /// newly set), cancel our delivered notification for the acked cycle and disarm our
+    /// local alarm.
+    ///
+    /// Idempotent: calling with the same snapshot twice produces the same end state.
+    /// Protected by a staleness guard: snapshots older than the local `lastUpdatedAt` are
+    /// dropped so out-of-order delivery can't clobber newer state.
+    public func handleRemoteSnapshot(_ snapshot: SessionSnapshot) {
+        let local = persistence.load()
+
+        // Staleness guard: ignore older-than-local snapshots.
+        let localStamp = local.lastUpdatedAt ?? .distantPast
+        guard snapshot.updatedAt > localStamp else { return }
+
+        // Detect remote state changes that require local cleanup.
+        let remoteAckedBreak = snapshot.lookAwayStartedAt != nil && local.lookAwayStartedAt == nil
+        let remoteStopped = !snapshot.sessionActive && local.sessionActive
+
+        if (remoteAckedBreak || remoteStopped), let cycleId = local.currentCycleId {
+            scheduler.cancel(identifiers: CascadeBuilder.identifiers(for: cycleId))
+            alarm.disarm(cycleId: cycleId)
+            if remoteStopped {
+                scheduler.cancelAll()
+            }
+        }
+
+        // Persist the new snapshot locally and reconcile to update the in-memory
+        // state + UI. Without reconcile, the UI wouldn't update until the next
+        // 1-second tick from RootView.
+        persistence.save(SessionRecord(from: snapshot))
+        Task { await reconcileOnLaunch() }
     }
 
     // MARK: - Helpers

@@ -10,11 +10,28 @@ Tyler is a Flutter expert new to iOS/Swift — code comments frame SwiftUI conce
 
 ## Commands
 
-### Test
+### Test (fast — use during iteration)
 ```bash
 ./scripts/test.sh
 ```
-Runs the BlinkBreakCore unit suite via `swift test` when only Command Line Tools are installed; switches to `xcodebuild test` when full Xcode is available. All business logic lives in `BlinkBreakCore` and is covered by ~35 tests.
+Runs the BlinkBreakCore unit suite via `swift test`. Sub-second runtime (~46 tests). All business logic lives in `BlinkBreakCore` and is covered by these unit tests with injected mocks (`MockNotificationScheduler`, `MockSessionAlarm`, `MockWatchConnectivity`, `InMemoryPersistence`). This is what you run during iteration.
+
+### Test — integration (slow — final verification only)
+```bash
+./scripts/test-integration.sh
+```
+Runs the full XCUITest integration suite — 21 end-to-end tests that drive the iOS app through a real simulator. Takes ~4 minutes. **Do not run during iteration.** Run only as a final verification step before committing or creating a PR, and when you suspect a change might have broken end-to-end behavior that the unit tests can't catch.
+
+The suite covers: app launch, idle state, start/stop transitions, full break cycle (running → breakActive → lookAway → running), state reconciliation across app terminate + relaunch, and rapid start/stop stress testing. It uses `BB_BREAK_INTERVAL=3` and `BB_LOOKAWAY_DURATION=3` environment variables (set by the `BlinkBreakUITests` scheme) so a full cycle runs in ~6 seconds of wall-clock time instead of 20 minutes + 20 seconds.
+
+**What the integration suite does NOT cover** (requires on-device manual verification, kept in the PR checklist):
+- Watch haptic feedback — Taptic Engine is a no-op in the watchOS simulator
+- Real iPhone ↔ Watch notification forwarding
+- Focus Mode break-through semantics
+- Actual custom alarm sound playback through the speaker
+- WatchOS UI tests (Apple's XCUITest support on watchOS is limited; iOS-only coverage in this suite)
+
+The script automatically runs `xcrun simctl erase all` before each invocation to avoid the intermittent "Application failed preflight checks" flake where stale runner bundles fail to launch. Costs a few seconds, much cheaper than debugging false positives.
 
 ### Lint
 ```bash
@@ -68,9 +85,37 @@ A tiny `SessionRecord` struct (sessionActive, currentCycleId, cycleStartedAt, lo
 
 ## Test structure
 
-- **Unit tests** in `Packages/BlinkBreakCore/Tests/BlinkBreakCoreTests/` using the Swift Testing framework (`import Testing`, `@Test`, `#expect`). Protocol-based dependency injection lets tests substitute mocks for every collaborator and drive virtual time via a closure-backed clock.
-- **No XCUITest in V1.** Views are thin `switch state` routers; SwiftUI previews cover visual verification.
-- **No real-notification integration tests.** The scheduler protocol mock covers the interaction surface.
+Two layers. **Run unit tests during iteration; run integration tests only as final verification.**
+
+### Unit tests (fast — milliseconds)
+
+- **Location:** `Packages/BlinkBreakCore/Tests/BlinkBreakCoreTests/` using the Swift Testing framework (`import Testing`, `@Test`, `#expect`).
+- **Runner:** `./scripts/test.sh` → `swift test`. ~46 tests in <1 second total.
+- **Design:** Protocol-based dependency injection lets tests substitute mocks for every collaborator and drive virtual time via a closure-backed clock. Every `SessionController` collaborator has a matching mock: `MockNotificationScheduler`, `MockSessionAlarm`, `MockWatchConnectivity`, `InMemoryPersistence`. A mutable `NowBox` drives the injected `clock` closure so tests advance virtual time with zero real sleeping.
+- **When to add a unit test:** Always, for any new state-machine transition, notification path, reconciliation case, or remote-snapshot handling. Write the failing test first, watch it fail, make it pass.
+
+### Integration tests (slow — minutes)
+
+- **Location:** `BlinkBreakUITests/` — XCUITest target that builds alongside the iOS app.
+- **Runner:** `./scripts/test-integration.sh` → `xcodebuild test -scheme BlinkBreakUITests`. 21 tests in ~4 minutes.
+- **Do NOT run during iteration.** The unit suite covers business logic with instant feedback. Integration tests are for catching regressions the unit suite can't see: real `UNUserNotificationCenter` delivery, real `UserDefaultsPersistence` round-trips, real SwiftUI view rendering, real state transitions through the full app lifecycle.
+- **Run integration tests when:** (a) your change touches cross-target wiring (iOS ↔ Watch, view ↔ controller, persistence), (b) you changed `SessionController.reconcileOnLaunch` or any state-transition logic, (c) you're about to commit or create a PR as a final sanity check.
+- **Environment variables:** the `BlinkBreakUITests` scheme sets `BB_BREAK_INTERVAL=3` and `BB_LOOKAWAY_DURATION=3`. `BlinkBreakConstants` reads these at first access so tests exercise a full 20-20-20 cycle in ~6 seconds of wall-clock time. Production builds don't set the vars and get the unmodified 20-minute default. The `-BB_RESET_DEFAULTS` launch arg wipes `UserDefaults` at `BlinkBreakApp.init()` so each test starts from a clean idle state.
+- **Accessibility identifiers:** every state-bearing UI element (buttons and key labels) carries an `accessibilityIdentifier` like `button.idle.start`, `button.running.stop`, `button.breakActive.startBreak`, `button.lookAway.stop`, `label.running.countdown`, `label.lookAway.message`. Tests query for these via the `A11y` enum in `BlinkBreakUITestsBase.swift`. Adding a new view state? Add its identifier to `A11y` and to the view.
+- **Simulator flakes:** `test-integration.sh` runs `xcrun simctl erase all` before each invocation. Without this reset, the iOS runner bundle sometimes fails with "Application failed preflight checks" on the second back-to-back run. The erase + shutdown sequence adds ~3 seconds but eliminates the false positive.
+
+### What neither layer covers (manual verification only)
+
+- **Watch haptics.** The Taptic Engine is a no-op in the watchOS simulator. `WKExtendedRuntimeSessionAlarm`'s `notifyUser(hapticType:repeatHandler:)` loop is verified by construction (calling into the real API) but the actual wrist buzz requires a paired hardware Apple Watch.
+- **iPhone → Watch notification forwarding.** Forwarding is based on physical wrist detection and pairing; simulators don't model it.
+- **Focus Mode break-through.** No Focus Mode in the simulator.
+- **Custom alarm sound playback.** The simulator speaker plays sounds but not in the same way a real iPhone does with silent mode, ringer, or background audio.
+
+All four of these are in the **on-device manual verification checklist** in `docs/superpowers/plans/2026-04-11-notification-alarm-redesign.md` (Task 13, Step 5). Any PR that affects alarm behavior must exercise the manual checklist before merging.
+
+### watchOS integration tests — deliberately not included in V1
+
+Apple's XCUITest support on watchOS is limited and flaky. The watchOS views are thin mirrors of the iOS views that share the same `SessionControllerProtocol`, so the iOS integration tests provide transitive coverage of the state machine logic the watchOS target depends on. Adding a `BlinkBreakWatchUITests` target was evaluated and deferred — the cost/benefit didn't justify it for V1.
 
 ## Platform constraints
 
@@ -101,7 +146,7 @@ Matches the `TytaniumDev` repo pattern established by Wheelson / HeadsUpCDM / My
 - Components in `Views/Components/` are stateless, take everything as parameters, and have `#Preview` macros. They should be under 50 lines each.
 - Every SwiftUI view file has a `#Preview` for each state it can render.
 - `SessionController` methods are the only place state mutations happen. Views never mutate state directly.
-- When adding a new state-machine transition or notification path: write the unit test first, watch it fail, make it pass. All 35 existing tests must stay green after any `BlinkBreakCore` change.
+- When adding a new state-machine transition or notification path: write the unit test first, watch it fail, make it pass. All ~46 existing unit tests must stay green after any `BlinkBreakCore` change. For cross-target changes (view wiring, persistence round-trips, reconciliation), also run `./scripts/test-integration.sh` before committing.
 - iOS app target is `BlinkBreak`; bundle ID `com.tytaniumdev.BlinkBreak`. Watch app target is `BlinkBreak Watch App`; bundle ID `com.tytaniumdev.BlinkBreak.watchkitapp` (must remain a child of the iOS bundle ID).
 
 ## Apple Developer Program prerequisites
