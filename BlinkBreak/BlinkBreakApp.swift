@@ -35,15 +35,22 @@ struct BlinkBreakApp: App {
     // as the app runs. Views deeper in the tree observe this via @ObservedObject /
     // @EnvironmentObject.
     @StateObject private var controller: SessionController = {
+        let persistence = UserDefaultsPersistence()
+        let evaluator = ScheduleEvaluator(schedule: {
+            persistence.loadSchedule() ?? .empty
+        })
         let scheduler = UNNotificationScheduler()
         scheduler.registerCategories()
         return SessionController(
             scheduler: scheduler,
             connectivity: WCSessionConnectivity(),
-            persistence: UserDefaultsPersistence(),
-            alarm: NoopSessionAlarm()
+            persistence: persistence,
+            alarm: NoopSessionAlarm(),
+            scheduleEvaluator: evaluator
         )
     }()
+
+    @State private var scheduleTaskManager: ScheduleTaskManager?
 
     var body: some Scene {
         WindowGroup {
@@ -54,6 +61,24 @@ struct BlinkBreakApp: App {
                     appDelegate.controller = controller
                     appDelegate.requestNotificationAuthorizationIfNeeded()
 
+                    // Register the schedule notification category so iOS can display
+                    // the "Open" action button on schedule start-time notifications.
+                    let scheduleAction = UNNotificationAction(
+                        identifier: BlinkBreakConstants.scheduleStartActionId,
+                        title: "Open",
+                        options: [.foreground]
+                    )
+                    let scheduleCategory = UNNotificationCategory(
+                        identifier: BlinkBreakConstants.scheduleCategoryId,
+                        actions: [scheduleAction],
+                        intentIdentifiers: []
+                    )
+                    UNUserNotificationCenter.current().getNotificationCategories { existing in
+                        var categories = existing
+                        categories.insert(scheduleCategory)
+                        UNUserNotificationCenter.current().setNotificationCategories(categories)
+                    }
+
                     // Activate WatchConnectivity and wire up both directions:
                     // - onCommandReceived: the (rarely-used) Watch→Phone command path.
                     // - onSnapshotReceived: when the Watch broadcasts a break
@@ -62,6 +87,23 @@ struct BlinkBreakApp: App {
                     controller.activateConnectivity()
                     controller.wireUpConnectivity()
                     Task { await controller.reconcileOnLaunch() }
+
+                    // Set up the ScheduleTaskManager for background schedule checks
+                    // and local notification fallback at the next scheduled start time.
+                    let persistence = UserDefaultsPersistence()
+                    let manager = ScheduleTaskManager(
+                        persistence: persistence,
+                        evaluator: ScheduleEvaluator(schedule: {
+                            persistence.loadSchedule() ?? .empty
+                        }),
+                        controllerProvider: { [weak controller] in controller }
+                    )
+                    manager.registerBackgroundTask()
+                    manager.reschedule()
+                    scheduleTaskManager = manager
+                }
+                .onChange(of: controller.weeklySchedule) { _, _ in
+                    scheduleTaskManager?.reschedule()
                 }
         }
     }

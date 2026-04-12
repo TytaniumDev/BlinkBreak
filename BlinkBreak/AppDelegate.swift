@@ -66,6 +66,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        // Handle schedule start notification tap — reconcile state so the controller
+        // can auto-start if the schedule window is active.
+        if response.notification.request.content.categoryIdentifier == BlinkBreakConstants.scheduleCategoryId {
+            Task { @MainActor in
+                await controller?.reconcileOnLaunch()
+            }
+            completionHandler()
+            return
+        }
+
         guard response.actionIdentifier == BlinkBreakConstants.startBreakActionId ||
               response.actionIdentifier == UNNotificationDefaultActionIdentifier else {
             completionHandler()

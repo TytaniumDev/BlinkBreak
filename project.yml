@@ -65,7 +65,8 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations: {}
-        UIBackgroundModes: []
+        UIBackgroundModes:
+          - fetch
         BGTaskSchedulerPermittedIdentifiers:
           - com.tytaniumdev.BlinkBreak.scheduleCheck
         UIRequiredDeviceCapabilities:
