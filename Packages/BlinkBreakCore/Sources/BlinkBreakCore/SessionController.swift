@@ -40,6 +40,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     private let alarm: SessionAlarmProtocol
     private let clock: @Sendable () -> Date
     private let scheduleEvaluator: ScheduleEvaluating
+    private let calendar: Calendar
 
     // MARK: - Init
 
@@ -60,6 +61,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         persistence: PersistenceProtocol,
         alarm: SessionAlarmProtocol,
         scheduleEvaluator: ScheduleEvaluating = NoopScheduleEvaluator(),
+        calendar: Calendar = .current,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.scheduler = scheduler
@@ -67,6 +69,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         self.persistence = persistence
         self.alarm = alarm
         self.scheduleEvaluator = scheduleEvaluator
+        self.calendar = calendar
         self.clock = clock
         self.weeklySchedule = persistence.loadSchedule() ?? .empty
     }
@@ -113,7 +116,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         scheduler.cancelAll()
         var idleRecord = SessionRecord.idle
         idleRecord.lastUpdatedAt = now
-        if scheduleEvaluator.shouldBeActive(at: now, manualStopDate: nil, calendar: .current) {
+        if scheduleEvaluator.shouldBeActive(at: now, manualStopDate: nil, calendar: calendar) {
             idleRecord.manualStopDate = now
         }
         persistence.save(idleRecord)
@@ -283,7 +286,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         let shouldBeActive = scheduleEvaluator.shouldBeActive(
             at: now,
             manualStopDate: record.manualStopDate,
-            calendar: .current
+            calendar: calendar
         )
         if shouldBeActive && state == .idle {
             start()

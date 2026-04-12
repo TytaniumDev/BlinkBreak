@@ -30,23 +30,26 @@ struct BlinkBreakApp: App {
         }
     }
 
+    // Shared instances used by both the SessionController and the ScheduleTaskManager
+    // so we don't create duplicate persistence / evaluator objects.
+    private static let sharedPersistence = UserDefaultsPersistence()
+    private static let sharedEvaluator = ScheduleEvaluator(schedule: {
+        sharedPersistence.loadSchedule() ?? .empty
+    })
+
     // @StateObject owns an observable object for the entire lifetime of the app.
     // Flutter analogue: a top-level ChangeNotifierProvider that lives for as long
     // as the app runs. Views deeper in the tree observe this via @ObservedObject /
     // @EnvironmentObject.
     @StateObject private var controller: SessionController = {
-        let persistence = UserDefaultsPersistence()
-        let evaluator = ScheduleEvaluator(schedule: {
-            persistence.loadSchedule() ?? .empty
-        })
         let scheduler = UNNotificationScheduler()
         scheduler.registerCategories()
         return SessionController(
             scheduler: scheduler,
             connectivity: WCSessionConnectivity(),
-            persistence: persistence,
+            persistence: sharedPersistence,
             alarm: NoopSessionAlarm(),
-            scheduleEvaluator: evaluator
+            scheduleEvaluator: sharedEvaluator
         )
     }()
 
@@ -90,12 +93,9 @@ struct BlinkBreakApp: App {
 
                     // Set up the ScheduleTaskManager for background schedule checks
                     // and local notification fallback at the next scheduled start time.
-                    let persistence = UserDefaultsPersistence()
                     let manager = ScheduleTaskManager(
-                        persistence: persistence,
-                        evaluator: ScheduleEvaluator(schedule: {
-                            persistence.loadSchedule() ?? .empty
-                        }),
+                        persistence: Self.sharedPersistence,
+                        evaluator: Self.sharedEvaluator,
                         controllerProvider: { [weak controller] in controller }
                     )
                     manager.registerBackgroundTask()

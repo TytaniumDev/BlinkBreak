@@ -42,9 +42,9 @@ struct ScheduleStatusLabel: View {
         let endMinutes = endHour * 60 + endMinute
 
         if currentMinutes < startMinutes {
-            return "Starts at \(formatTime(hour: startHour, minute: startMinute))"
+            return "Starts at \(formatScheduleTime(hour: startHour, minute: startMinute))"
         } else if currentMinutes < endMinutes {
-            return "Active until \(formatTime(hour: endHour, minute: endMinute))"
+            return "Active until \(formatScheduleTime(hour: endHour, minute: endMinute))"
         } else {
             return nextStartText(from: now, calendar: cal)
         }
@@ -57,16 +57,10 @@ struct ScheduleStatusLabel: View {
             if let d = schedule.days[wd], d.isEnabled,
                let h = d.startTime.hour, let m = d.startTime.minute {
                 let dayName = cal.shortWeekdaySymbols[wd - 1]
-                return "Next: \(dayName) \(formatTime(hour: h, minute: m))"
+                return "Next: \(dayName) \(formatScheduleTime(hour: h, minute: m))"
             }
         }
         return nil
-    }
-
-    private func formatTime(hour: Int, minute: Int) -> String {
-        let period = hour >= 12 ? "PM" : "AM"
-        let displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
-        return String(format: "%d:%02d %@", displayHour, minute, period)
     }
 }
 
