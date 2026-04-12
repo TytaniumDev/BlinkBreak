@@ -29,6 +29,9 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// The current session state. Views observe this via @ObservedObject / @StateObject.
     @Published public private(set) var state: SessionState = .idle
 
+    /// The current weekly schedule. Views observe this to display schedule settings.
+    @Published public private(set) var weeklySchedule: WeeklySchedule = .empty
+
     // MARK: - Dependencies
 
     private let scheduler: NotificationSchedulerProtocol
@@ -36,6 +39,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     private let persistence: PersistenceProtocol
     private let alarm: SessionAlarmProtocol
     private let clock: @Sendable () -> Date
+    private let scheduleEvaluator: ScheduleEvaluating
+    private let calendar: Calendar
 
     // MARK: - Init
 
@@ -55,13 +60,18 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         connectivity: WatchConnectivityProtocol,
         persistence: PersistenceProtocol,
         alarm: SessionAlarmProtocol,
+        scheduleEvaluator: ScheduleEvaluating = NoopScheduleEvaluator(),
+        calendar: Calendar = .current,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.scheduler = scheduler
         self.connectivity = connectivity
         self.persistence = persistence
         self.alarm = alarm
+        self.scheduleEvaluator = scheduleEvaluator
+        self.calendar = calendar
         self.clock = clock
+        self.weeklySchedule = persistence.loadSchedule() ?? .empty
     }
 
     // MARK: - Public API (SessionControllerProtocol)
@@ -99,15 +109,25 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// Stops the current session. Transitions any-state → idle. Cancels all pending notifications
     /// and disarms the alarm.
     public func stop() {
+        let now = clock()
         if let currentCycleId = persistence.load().currentCycleId {
             alarm.disarm(cycleId: currentCycleId)
         }
         scheduler.cancelAll()
         var idleRecord = SessionRecord.idle
-        idleRecord.lastUpdatedAt = clock()
+        idleRecord.lastUpdatedAt = now
+        if scheduleEvaluator.shouldBeActive(at: now, manualStopDate: nil, calendar: calendar) {
+            idleRecord.manualStopDate = now
+        }
         persistence.save(idleRecord)
         state = .idle
         broadcastSnapshot(for: idleRecord)
+    }
+
+    /// Replace the weekly schedule, persist it, and update the published property.
+    public func updateSchedule(_ schedule: WeeklySchedule) {
+        persistence.saveSchedule(schedule)
+        weeklySchedule = schedule
     }
 
     /// Handles the user tapping "Start break" on a notification action.
@@ -180,8 +200,17 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// Rebuilds the in-memory `state` from the persisted record + pending notifications +
     /// the current clock. Never trusts in-memory state. Called on launch, on foreground,
     /// and periodically by views to detect automatic state transitions (running → breakActive,
-    /// lookAway → running).
+    /// lookAway → running). After reconciling persisted state, evaluates the weekly schedule
+    /// to auto-start or auto-stop as appropriate.
     public func reconcileOnLaunch() async {
+        reconcileState()
+        evaluateSchedule()
+    }
+
+    /// Core reconciliation logic: rebuilds the in-memory `state` from the persisted record +
+    /// the current clock. Extracted from `reconcileOnLaunch` so `evaluateSchedule` can run
+    /// after reconciliation completes.
+    private func reconcileState() {
         let record = persistence.load()
         let now = clock()
 
@@ -243,6 +272,27 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         // past) — the alarm implementation's DispatchSourceTimer fires immediately
         // when the deadline is already passed, which starts the haptic loop right away.
         alarm.arm(cycleId: currentCycleId, fireDate: breakFireTime)
+    }
+
+    /// Consult the schedule evaluator to auto-start or auto-stop the session.
+    /// Runs after `reconcileState()` so the in-memory state reflects persistence.
+    /// Only takes action when the weekly schedule is enabled — without a schedule,
+    /// the evaluator has no effect (preserving existing behavior for all tests that
+    /// don't inject a scheduleEvaluator).
+    private func evaluateSchedule() {
+        guard weeklySchedule.isEnabled else { return }
+        let record = persistence.load()
+        let now = clock()
+        let shouldBeActive = scheduleEvaluator.shouldBeActive(
+            at: now,
+            manualStopDate: record.manualStopDate,
+            calendar: calendar
+        )
+        if shouldBeActive && state == .idle {
+            start()
+        } else if !shouldBeActive && state.isActive {
+            stop()
+        }
     }
 
     // MARK: - Incoming Watch commands

@@ -30,6 +30,13 @@ struct BlinkBreakApp: App {
         }
     }
 
+    // Shared instances used by both the SessionController and the ScheduleTaskManager
+    // so we don't create duplicate persistence / evaluator objects.
+    private static let sharedPersistence = UserDefaultsPersistence()
+    private static let sharedEvaluator = ScheduleEvaluator(schedule: {
+        sharedPersistence.loadSchedule() ?? .empty
+    })
+
     // @StateObject owns an observable object for the entire lifetime of the app.
     // Flutter analogue: a top-level ChangeNotifierProvider that lives for as long
     // as the app runs. Views deeper in the tree observe this via @ObservedObject /
@@ -40,10 +47,13 @@ struct BlinkBreakApp: App {
         return SessionController(
             scheduler: scheduler,
             connectivity: WCSessionConnectivity(),
-            persistence: UserDefaultsPersistence(),
-            alarm: NoopSessionAlarm()
+            persistence: sharedPersistence,
+            alarm: NoopSessionAlarm(),
+            scheduleEvaluator: sharedEvaluator
         )
     }()
+
+    @State private var scheduleTaskManager: ScheduleTaskManager?
 
     var body: some Scene {
         WindowGroup {
@@ -54,6 +64,24 @@ struct BlinkBreakApp: App {
                     appDelegate.controller = controller
                     appDelegate.requestNotificationAuthorizationIfNeeded()
 
+                    // Register the schedule notification category so iOS can display
+                    // the "Open" action button on schedule start-time notifications.
+                    let scheduleAction = UNNotificationAction(
+                        identifier: BlinkBreakConstants.scheduleStartActionId,
+                        title: "Open",
+                        options: [.foreground]
+                    )
+                    let scheduleCategory = UNNotificationCategory(
+                        identifier: BlinkBreakConstants.scheduleCategoryId,
+                        actions: [scheduleAction],
+                        intentIdentifiers: []
+                    )
+                    UNUserNotificationCenter.current().getNotificationCategories { existing in
+                        var categories = existing
+                        categories.insert(scheduleCategory)
+                        UNUserNotificationCenter.current().setNotificationCategories(categories)
+                    }
+
                     // Activate WatchConnectivity and wire up both directions:
                     // - onCommandReceived: the (rarely-used) Watch→Phone command path.
                     // - onSnapshotReceived: when the Watch broadcasts a break
@@ -62,6 +90,20 @@ struct BlinkBreakApp: App {
                     controller.activateConnectivity()
                     controller.wireUpConnectivity()
                     Task { await controller.reconcileOnLaunch() }
+
+                    // Set up the ScheduleTaskManager for foreground schedule checks
+                    // and local notification fallback at the next scheduled start time.
+                    // BGTask registration happens in AppDelegate.didFinishLaunching.
+                    let manager = ScheduleTaskManager(
+                        persistence: Self.sharedPersistence,
+                        evaluator: Self.sharedEvaluator,
+                        controllerProvider: { [weak controller] in controller }
+                    )
+                    manager.reschedule()
+                    scheduleTaskManager = manager
+                }
+                .onChange(of: controller.weeklySchedule) { _, _ in
+                    scheduleTaskManager?.reschedule()
                 }
         }
     }

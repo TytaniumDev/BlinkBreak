@@ -26,6 +26,14 @@ public protocol PersistenceProtocol: Sendable {
 
     /// Erase any stored record. Equivalent to `save(.idle)`.
     func clear()
+
+    /// Load the persisted weekly schedule, or `nil` if none has been saved yet.
+    /// Callers should fall back to `WeeklySchedule.default` on `nil`.
+    func loadSchedule() -> WeeklySchedule?
+
+    /// Persist the given weekly schedule. Independent of the session record so
+    /// existing users upgrade cleanly without a migration.
+    func saveSchedule(_ schedule: WeeklySchedule)
 }
 
 // MARK: - Real implementation
@@ -66,6 +74,16 @@ public final class UserDefaultsPersistence: PersistenceProtocol, @unchecked Send
     public func clear() {
         defaults.removeObject(forKey: key)
     }
+
+    public func loadSchedule() -> WeeklySchedule? {
+        guard let data = defaults.data(forKey: BlinkBreakConstants.weeklyScheduleKey) else { return nil }
+        return try? JSONDecoder().decode(WeeklySchedule.self, from: data)
+    }
+
+    public func saveSchedule(_ schedule: WeeklySchedule) {
+        guard let data = try? JSONEncoder().encode(schedule) else { return }
+        defaults.set(data, forKey: BlinkBreakConstants.weeklyScheduleKey)
+    }
 }
 
 // MARK: - In-memory implementation (for tests)
@@ -77,6 +95,7 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
 
     private let lock = NSLock()
     private var record: SessionRecord
+    private var schedule: WeeklySchedule?
 
     public init(initial: SessionRecord = .idle) {
         self.record = initial
@@ -98,5 +117,17 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
         lock.lock()
         defer { lock.unlock() }
         self.record = .idle
+    }
+
+    public func loadSchedule() -> WeeklySchedule? {
+        lock.lock()
+        defer { lock.unlock() }
+        return schedule
+    }
+
+    public func saveSchedule(_ schedule: WeeklySchedule) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.schedule = schedule
     }
 }

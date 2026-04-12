@@ -82,4 +82,8 @@ enum A11y {
         static let stopButton = "button.lookAway.stop"
         static let message = "label.lookAway.message"
     }
+    enum Schedule {
+        static let section = "section.schedule"
+        static let statusLabel = "label.schedule.status"
+    }
 }

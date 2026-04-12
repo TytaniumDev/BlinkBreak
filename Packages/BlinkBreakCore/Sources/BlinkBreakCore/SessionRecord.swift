@@ -37,18 +37,25 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// Optional so legacy persisted records decode without migration.
     public var lastUpdatedAt: Date?
 
+    /// When the user last manually stopped the session. Used to detect intentional
+    /// stops vs. crashes during reconciliation. Optional so legacy records decode
+    /// without migration.
+    public var manualStopDate: Date?
+
     public init(
         sessionActive: Bool = false,
         currentCycleId: UUID? = nil,
         cycleStartedAt: Date? = nil,
         lookAwayStartedAt: Date? = nil,
-        lastUpdatedAt: Date? = nil
+        lastUpdatedAt: Date? = nil,
+        manualStopDate: Date? = nil
     ) {
         self.sessionActive = sessionActive
         self.currentCycleId = currentCycleId
         self.cycleStartedAt = cycleStartedAt
         self.lookAwayStartedAt = lookAwayStartedAt
         self.lastUpdatedAt = lastUpdatedAt
+        self.manualStopDate = manualStopDate
     }
 
     /// Build a persistence record from an incoming WatchConnectivity snapshot.

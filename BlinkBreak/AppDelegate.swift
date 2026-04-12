@@ -12,6 +12,7 @@
 
 import UIKit
 import UserNotifications
+import BackgroundTasks
 import BlinkBreakCore
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -26,6 +27,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+
+        // BGTaskScheduler registration must happen before the app finishes launching.
+        // The controller doesn't exist yet, so we pass a closure that reads it lazily.
+        ScheduleTaskManager.registerBackgroundTaskHandler { [weak self] in
+            self?.controller
+        }
+
         return true
     }
 
@@ -66,6 +74,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        // Handle schedule start notification tap — reconcile state so the controller
+        // can auto-start if the schedule window is active.
+        if response.notification.request.content.categoryIdentifier == BlinkBreakConstants.scheduleCategoryId {
+            Task { @MainActor in
+                await controller?.reconcileOnLaunch()
+            }
+            completionHandler()
+            return
+        }
+
         guard response.actionIdentifier == BlinkBreakConstants.startBreakActionId ||
               response.actionIdentifier == UNNotificationDefaultActionIdentifier else {
             completionHandler()
