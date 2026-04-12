@@ -67,4 +67,9 @@ public enum BlinkBreakConstants {
     /// UserDefaults key for the persisted session record. Single-key storage; the value is
     /// a JSON-encoded `SessionRecord`.
     public static let sessionRecordKey = "BlinkBreak.SessionRecord"
+
+    /// UserDefaults key for the persisted weekly schedule. Stored separately from
+    /// `sessionRecordKey` so existing users upgrade cleanly — a missing schedule key
+    /// falls back to `WeeklySchedule.default` without touching the session record.
+    public static let weeklyScheduleKey = "BlinkBreak.WeeklySchedule"
 }

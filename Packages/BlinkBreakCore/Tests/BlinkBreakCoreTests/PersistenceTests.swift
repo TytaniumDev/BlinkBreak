@@ -139,4 +139,27 @@ struct PersistenceTests {
     func sessionRecordIdleManualStopDate() {
         #expect(SessionRecord.idle.manualStopDate == nil)
     }
+
+    @Test("InMemoryPersistence loadSchedule returns nil when nothing saved")
+    func loadScheduleDefaultNil() {
+        let persistence = InMemoryPersistence()
+        #expect(persistence.loadSchedule() == nil)
+    }
+
+    @Test("InMemoryPersistence schedule round-trips through save/load")
+    func scheduleRoundTrip() {
+        let persistence = InMemoryPersistence()
+        let schedule = WeeklySchedule.default
+        persistence.saveSchedule(schedule)
+        let loaded = persistence.loadSchedule()
+        #expect(loaded == schedule)
+    }
+
+    @Test("InMemoryPersistence clear does not affect schedule")
+    func clearDoesNotAffectSchedule() {
+        let persistence = InMemoryPersistence()
+        persistence.saveSchedule(.default)
+        persistence.clear()
+        #expect(persistence.loadSchedule() == .default)
+    }
 }
