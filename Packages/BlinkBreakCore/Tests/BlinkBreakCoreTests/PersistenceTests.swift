@@ -109,4 +109,34 @@ struct PersistenceTests {
         #expect(record.lookAwayStartedAt == lookAwayStart)
         #expect(record.lastUpdatedAt == Date(timeIntervalSince1970: 1_700_000_200))
     }
+
+    @Test("SessionRecord without manualStopDate decodes cleanly (backward compat)")
+    func sessionRecordManualStopBackwardCompat() throws {
+        let legacyJSON = """
+        {"sessionActive":true,"currentCycleId":"550E8400-E29B-41D4-A716-446655440000","cycleStartedAt":1700000000}
+        """
+        let data = Data(legacyJSON.utf8)
+        let record = try JSONDecoder().decode(SessionRecord.self, from: data)
+        #expect(record.sessionActive == true)
+        #expect(record.manualStopDate == nil)
+    }
+
+    @Test("SessionRecord with manualStopDate round-trips through JSON")
+    func sessionRecordManualStopDateRoundTrip() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        var record = SessionRecord(
+            sessionActive: true,
+            currentCycleId: UUID(),
+            cycleStartedAt: now
+        )
+        record.manualStopDate = now.addingTimeInterval(3600)
+        let data = try JSONEncoder().encode(record)
+        let decoded = try JSONDecoder().decode(SessionRecord.self, from: data)
+        #expect(decoded.manualStopDate == record.manualStopDate)
+    }
+
+    @Test("SessionRecord.idle has nil manualStopDate")
+    func sessionRecordIdleManualStopDate() {
+        #expect(SessionRecord.idle.manualStopDate == nil)
+    }
 }
