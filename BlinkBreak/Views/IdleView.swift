@@ -25,7 +25,14 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .padding(.top, 4)
 
+            ScheduleSection(controller: controller)
+                .padding(.top, 12)
+
             Spacer()
+
+            ScheduleStatusLabel(schedule: controller.weeklySchedule, now: Date())
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 4)
 
             PrimaryButton(title: "Start") {
                 controller.start()
@@ -39,7 +46,11 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
 #Preview {
     ZStack {
         CalmBackground()
-        IdleView(controller: PreviewSessionController.idle)
+        IdleView(controller: {
+            let c = PreviewSessionController(state: .idle)
+            c.weeklySchedule = .default
+            return c
+        }())
             .foregroundStyle(.white)
     }
 }
