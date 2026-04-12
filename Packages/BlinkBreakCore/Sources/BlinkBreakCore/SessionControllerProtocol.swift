@@ -45,4 +45,10 @@ public protocol SessionControllerProtocol: ObservableObject {
     /// Called from onAppear / applicationDidBecomeActive. Rebuilds the in-memory state
     /// from UserDefaults + pending notifications. Never trusts in-memory state.
     func reconcileOnLaunch() async
+
+    /// The current weekly schedule. Views observe this to display schedule settings.
+    var weeklySchedule: WeeklySchedule { get }
+
+    /// Replace the weekly schedule and persist it.
+    func updateSchedule(_ schedule: WeeklySchedule)
 }

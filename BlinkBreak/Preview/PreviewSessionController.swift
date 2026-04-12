@@ -21,6 +21,7 @@ import BlinkBreakCore
 final class PreviewSessionController: ObservableObject, SessionControllerProtocol {
 
     @Published var state: SessionState
+    @Published var weeklySchedule: WeeklySchedule = .empty
 
     init(state: SessionState = .idle) {
         self.state = state
@@ -46,6 +47,10 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
 
     func reconcileOnLaunch() async {
         // No-op in previews.
+    }
+
+    func updateSchedule(_ schedule: WeeklySchedule) {
+        weeklySchedule = schedule
     }
 
     // MARK: - Preview fixtures
