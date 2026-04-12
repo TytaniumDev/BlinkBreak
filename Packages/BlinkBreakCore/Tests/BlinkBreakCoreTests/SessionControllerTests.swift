@@ -163,7 +163,10 @@ struct SessionControllerTests {
 
         f.controller.stop()
 
-        #expect(f.persistence.load() == .idle)
+        let record = f.persistence.load()
+        #expect(record.sessionActive == false)
+        #expect(record.currentCycleId == nil)
+        #expect(record.lastUpdatedAt != nil)
     }
 
     @Test("stop() broadcasts an inactive snapshot")
@@ -420,6 +423,6 @@ struct SessionControllerTests {
         // User stops
         f.controller.stop()
         #expect(f.controller.state == .idle)
-        #expect(f.persistence.load() == .idle)
+        #expect(f.persistence.load().sessionActive == false)
     }
 }

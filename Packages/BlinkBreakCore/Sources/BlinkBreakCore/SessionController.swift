@@ -78,7 +78,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             sessionActive: true,
             currentCycleId: cycleId,
             cycleStartedAt: cycleStartedAt,
-            lookAwayStartedAt: nil
+            lookAwayStartedAt: nil,
+            lastUpdatedAt: cycleStartedAt
         )
         persistence.save(record)
 
@@ -102,9 +103,11 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             alarm.disarm(cycleId: currentCycleId)
         }
         scheduler.cancelAll()
-        persistence.save(.idle)
+        var idleRecord = SessionRecord.idle
+        idleRecord.lastUpdatedAt = clock()
+        persistence.save(idleRecord)
         state = .idle
-        broadcastSnapshot(for: .idle)
+        broadcastSnapshot(for: idleRecord)
     }
 
     /// Handles the user tapping "Start break" on a notification action.
@@ -235,6 +238,11 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         // (ack, then stop from lookAway) or by swiping away the notification and
         // reopening the app. There's no timeout-to-idle fallback.
         state = .breakActive(cycleStartedAt: cycleStartedAt)
+        // Re-arm the alarm so the Watch can restart the haptic loop after an app
+        // kill/relaunch during an active break. Uses breakFireTime (which is in the
+        // past) — the alarm implementation's DispatchSourceTimer fires immediately
+        // when the deadline is already passed, which starts the haptic loop right away.
+        alarm.arm(cycleId: currentCycleId, fireDate: breakFireTime)
     }
 
     // MARK: - Incoming Watch commands
@@ -289,16 +297,23 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         let localStamp = local.lastUpdatedAt ?? .distantPast
         guard snapshot.updatedAt > localStamp else { return }
 
-        // Detect a fresh remote ack: incoming snapshot has lookAwayStartedAt set, local
-        // didn't. Cancel delivered notifications for the acked cycleId and disarm the alarm.
+        // Detect remote state changes that require local cleanup.
         let remoteAckedBreak = snapshot.lookAwayStartedAt != nil && local.lookAwayStartedAt == nil
-        if remoteAckedBreak, let ackedCycleId = local.currentCycleId {
-            scheduler.cancel(identifiers: CascadeBuilder.identifiers(for: ackedCycleId))
-            alarm.disarm(cycleId: ackedCycleId)
+        let remoteStopped = !snapshot.sessionActive && local.sessionActive
+
+        if (remoteAckedBreak || remoteStopped), let cycleId = local.currentCycleId {
+            scheduler.cancel(identifiers: CascadeBuilder.identifiers(for: cycleId))
+            alarm.disarm(cycleId: cycleId)
+            if remoteStopped {
+                scheduler.cancelAll()
+            }
         }
 
-        // Persist the new snapshot locally.
+        // Persist the new snapshot locally and reconcile to update the in-memory
+        // state + UI. Without reconcile, the UI wouldn't update until the next
+        // 1-second tick from RootView.
         persistence.save(SessionRecord(from: snapshot))
+        Task { await reconcileOnLaunch() }
     }
 
     // MARK: - Helpers
