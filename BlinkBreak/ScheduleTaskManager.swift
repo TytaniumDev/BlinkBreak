@@ -33,30 +33,55 @@ final class ScheduleTaskManager {
 
     // MARK: - BGTask Registration
 
-    func registerBackgroundTask() {
+    /// Register the background task handler early -- must be called before the app
+    /// finishes launching (i.e., in `didFinishLaunchingWithOptions`). The handler
+    /// is a static method because `BGTaskScheduler.shared.register` must happen
+    /// before `UIApplication` returns from launch, before any instance is available.
+    static func registerBackgroundTaskHandler(controllerProvider: @escaping @MainActor () -> SessionController?) {
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: BlinkBreakConstants.scheduleTaskId,
             using: nil
-        ) { [weak self] task in
-            guard let self, let bgTask = task as? BGAppRefreshTask else {
+        ) { task in
+            guard let bgTask = task as? BGAppRefreshTask else {
                 task.setTaskCompleted(success: false)
                 return
             }
-            self.handleBackgroundTask(bgTask)
+            handleBackgroundTask(bgTask, controllerProvider: controllerProvider)
         }
     }
 
-    private func handleBackgroundTask(_ task: BGAppRefreshTask) {
-        task.expirationHandler = {
-            task.setTaskCompleted(success: false)
-        }
-
-        Task { @MainActor in
+    private static func handleBackgroundTask(
+        _ task: BGAppRefreshTask,
+        controllerProvider: @escaping @MainActor () -> SessionController?
+    ) {
+        let workTask = Task { @MainActor in
             if let controller = controllerProvider() {
                 await controller.reconcileOnLaunch()
             }
-            scheduleNextBackgroundTask()
+            guard !Task.isCancelled else { return }
+
+            // Re-schedule the next background task for the next transition date.
+            let evaluator = ScheduleEvaluator(schedule: {
+                UserDefaultsPersistence().loadSchedule() ?? .empty
+            })
+            guard let nextDate = evaluator.nextTransitionDate(from: Date(), calendar: .current) else {
+                BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: BlinkBreakConstants.scheduleTaskId)
+                task.setTaskCompleted(success: true)
+                return
+            }
+            let request = BGAppRefreshTaskRequest(identifier: BlinkBreakConstants.scheduleTaskId)
+            request.earliestBeginDate = nextDate
+            do {
+                try BGTaskScheduler.shared.submit(request)
+            } catch {
+                // Not actionable -- foreground reconciliation is the reliable path.
+            }
             task.setTaskCompleted(success: true)
+        }
+
+        task.expirationHandler = {
+            workTask.cancel()
+            task.setTaskCompleted(success: false)
         }
     }
 
@@ -68,14 +93,16 @@ final class ScheduleTaskManager {
     }
 
     private func scheduleNextBackgroundTask() {
-        let nextDate = evaluator.nextTransitionDate(from: Date(), calendar: .current)
+        guard let nextDate = evaluator.nextTransitionDate(from: Date(), calendar: .current) else {
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: BlinkBreakConstants.scheduleTaskId)
+            return
+        }
         let request = BGAppRefreshTaskRequest(identifier: BlinkBreakConstants.scheduleTaskId)
         request.earliestBeginDate = nextDate
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
-            // BGTaskScheduler.submit can fail in simulator or if called too frequently.
-            // Not actionable — foreground reconciliation is the reliable path.
+            // Not actionable -- foreground reconciliation is the reliable path.
         }
     }
 
@@ -83,11 +110,13 @@ final class ScheduleTaskManager {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["schedule.start"])
 
+        let now = Date()
+        let calendar = Calendar.current
         guard let schedule = persistence.loadSchedule(), schedule.isEnabled else { return }
-        guard let nextStart = evaluator.nextTransitionDate(from: Date(), calendar: .current) else { return }
+        guard let nextStart = evaluator.nextTransitionDate(from: now, calendar: calendar) else { return }
 
         // Only schedule if next transition is a start (not an end).
-        let isInsideWindow = evaluator.shouldBeActive(at: Date(), manualStopDate: nil, calendar: .current)
+        let isInsideWindow = evaluator.shouldBeActive(at: now, manualStopDate: nil, calendar: calendar)
         guard !isInsideWindow else { return }
 
         let content = UNMutableNotificationContent()
@@ -96,7 +125,7 @@ final class ScheduleTaskManager {
         content.categoryIdentifier = BlinkBreakConstants.scheduleCategoryId
         content.interruptionLevel = .timeSensitive
 
-        let comps = Calendar.current.dateComponents(
+        let comps = calendar.dateComponents(
             [.year, .month, .day, .hour, .minute, .second],
             from: nextStart
         )

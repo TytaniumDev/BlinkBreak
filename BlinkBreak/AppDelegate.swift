@@ -12,6 +12,7 @@
 
 import UIKit
 import UserNotifications
+import BackgroundTasks
 import BlinkBreakCore
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -26,6 +27,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+
+        // BGTaskScheduler registration must happen before the app finishes launching.
+        // The controller doesn't exist yet, so we pass a closure that reads it lazily.
+        ScheduleTaskManager.registerBackgroundTaskHandler { [weak self] in
+            self?.controller
+        }
+
         return true
     }
 

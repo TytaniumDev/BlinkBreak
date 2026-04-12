@@ -91,14 +91,14 @@ struct BlinkBreakApp: App {
                     controller.wireUpConnectivity()
                     Task { await controller.reconcileOnLaunch() }
 
-                    // Set up the ScheduleTaskManager for background schedule checks
+                    // Set up the ScheduleTaskManager for foreground schedule checks
                     // and local notification fallback at the next scheduled start time.
+                    // BGTask registration happens in AppDelegate.didFinishLaunching.
                     let manager = ScheduleTaskManager(
                         persistence: Self.sharedPersistence,
                         evaluator: Self.sharedEvaluator,
                         controllerProvider: { [weak controller] in controller }
                     )
-                    manager.registerBackgroundTask()
                     manager.reschedule()
                     scheduleTaskManager = manager
                 }

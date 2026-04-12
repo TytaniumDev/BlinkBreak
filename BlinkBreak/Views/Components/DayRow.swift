@@ -58,11 +58,9 @@ struct DayRow: View {
                     DatePicker("Start", selection: startTimeBinding,
                                displayedComponents: .hourAndMinute)
                         .datePickerStyle(.compact)
-                        .environment(\.locale, Locale(identifier: "en_US"))
                     DatePicker("End", selection: endTimeBinding,
                                displayedComponents: .hourAndMinute)
                         .datePickerStyle(.compact)
-                        .environment(\.locale, Locale(identifier: "en_US"))
                 }
                 .font(.caption)
                 .padding(.horizontal, 16)

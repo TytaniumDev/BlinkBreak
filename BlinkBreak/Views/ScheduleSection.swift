@@ -17,7 +17,10 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
     @ObservedObject var controller: Controller
     @State private var expandedDay: Int?
 
-    private static var orderedWeekdays: [Int] { [2, 3, 4, 5, 6, 7, 1] }
+    private static var orderedWeekdays: [Int] {
+        let first = Calendar.current.firstWeekday
+        return (0..<7).map { (first + $0 - 1) % 7 + 1 }
+    }
 
     private let dayNames: [Int: String] = [
         1: "Sun", 2: "Mon", 3: "Tue", 4: "Wed", 5: "Thu", 6: "Fri", 7: "Sat"

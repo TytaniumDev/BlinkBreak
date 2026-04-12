@@ -2,21 +2,18 @@
 //  TimeFormatting.swift
 //  BlinkBreak
 //
-//  Shared time formatting for schedule UI components.
+//  Shared time formatting for schedule UI components. Uses Foundation's
+//  locale-aware formatting so times display correctly for all locales
+//  (e.g., 24-hour vs. 12-hour, locale-specific AM/PM strings).
 //
 
 import Foundation
 
 func formatScheduleTime(_ components: DateComponents) -> String {
-    let hour = components.hour ?? 0
-    let minute = components.minute ?? 0
-    let period = hour >= 12 ? "PM" : "AM"
-    let displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
-    return String(format: "%d:%02d %@", displayHour, minute, period)
+    guard let date = Calendar.current.date(from: components) else { return "" }
+    return date.formatted(date: .omitted, time: .shortened)
 }
 
 func formatScheduleTime(hour: Int, minute: Int) -> String {
-    let period = hour >= 12 ? "PM" : "AM"
-    let displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
-    return String(format: "%d:%02d %@", displayHour, minute, period)
+    formatScheduleTime(DateComponents(hour: hour, minute: minute))
 }
