@@ -50,6 +50,8 @@ public final class UserDefaultsPersistence: PersistenceProtocol, @unchecked Send
 
     private let defaults: UserDefaults
     private let key: String
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
 
     public init(
         defaults: UserDefaults = .standard,
@@ -63,11 +65,11 @@ public final class UserDefaultsPersistence: PersistenceProtocol, @unchecked Send
         // If no data has ever been written, return the idle record. Same for malformed data —
         // we prefer a silent recovery-to-idle over crashing the app on a decoding error.
         guard let data = defaults.data(forKey: key) else { return .idle }
-        return (try? JSONDecoder().decode(SessionRecord.self, from: data)) ?? .idle
+        return (try? decoder.decode(SessionRecord.self, from: data)) ?? .idle
     }
 
     public func save(_ record: SessionRecord) {
-        guard let data = try? JSONEncoder().encode(record) else { return }
+        guard let data = try? encoder.encode(record) else { return }
         defaults.set(data, forKey: key)
     }
 
@@ -77,11 +79,11 @@ public final class UserDefaultsPersistence: PersistenceProtocol, @unchecked Send
 
     public func loadSchedule() -> WeeklySchedule? {
         guard let data = defaults.data(forKey: BlinkBreakConstants.weeklyScheduleKey) else { return nil }
-        return try? JSONDecoder().decode(WeeklySchedule.self, from: data)
+        return try? decoder.decode(WeeklySchedule.self, from: data)
     }
 
     public func saveSchedule(_ schedule: WeeklySchedule) {
-        guard let data = try? JSONEncoder().encode(schedule) else { return }
+        guard let data = try? encoder.encode(schedule) else { return }
         defaults.set(data, forKey: BlinkBreakConstants.weeklyScheduleKey)
     }
 }
