@@ -290,7 +290,12 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         )
         if shouldBeActive && state == .idle {
             start()
-        } else if !shouldBeActive && state.isActive {
+            // Mark the session as schedule-initiated so we can auto-stop it later.
+            // Manual starts leave wasAutoStarted as nil/false.
+            var updated = persistence.load()
+            updated.wasAutoStarted = true
+            persistence.save(updated)
+        } else if !shouldBeActive && state.isActive && (record.wasAutoStarted ?? false) {
             stop()
         }
     }

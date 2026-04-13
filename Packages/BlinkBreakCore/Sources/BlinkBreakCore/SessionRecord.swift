@@ -42,13 +42,20 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// without migration.
     public var manualStopDate: Date?
 
+    /// Whether this session was started automatically by the weekly schedule evaluator
+    /// (as opposed to the user manually tapping Start). Only schedule-started sessions
+    /// are eligible for automatic schedule-based stopping. Optional so legacy records
+    /// decode without migration; nil is treated as false.
+    public var wasAutoStarted: Bool?
+
     public init(
         sessionActive: Bool = false,
         currentCycleId: UUID? = nil,
         cycleStartedAt: Date? = nil,
         lookAwayStartedAt: Date? = nil,
         lastUpdatedAt: Date? = nil,
-        manualStopDate: Date? = nil
+        manualStopDate: Date? = nil,
+        wasAutoStarted: Bool? = nil
     ) {
         self.sessionActive = sessionActive
         self.currentCycleId = currentCycleId
@@ -56,6 +63,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.lookAwayStartedAt = lookAwayStartedAt
         self.lastUpdatedAt = lastUpdatedAt
         self.manualStopDate = manualStopDate
+        self.wasAutoStarted = wasAutoStarted
     }
 
     /// Build a persistence record from an incoming WatchConnectivity snapshot.

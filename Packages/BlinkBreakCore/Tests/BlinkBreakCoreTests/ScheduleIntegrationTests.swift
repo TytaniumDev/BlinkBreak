@@ -62,12 +62,15 @@ struct ScheduleIntegrationTests {
         #expect(f.persistence.load().sessionActive == true)
     }
 
-    @Test("reconcileOnLaunch auto-stops when evaluator says inactive and state is running")
+    @Test("reconcileOnLaunch auto-stops a schedule-started session when evaluator says inactive")
     func autoStop() async {
         let f = Fixture()
         f.controller.updateSchedule(.default)  // Enable schedule so evaluateSchedule() runs
-        f.controller.start()
+        // Auto-start via the schedule evaluator (not a manual start()).
+        f.evaluator.stubbedShouldBeActive = true
+        await f.controller.reconcileOnLaunch()
         #expect(f.controller.state != .idle)
+        // Schedule window ends → evaluator now says inactive → should auto-stop.
         f.evaluator.stubbedShouldBeActive = false
         await f.controller.reconcileOnLaunch()
         #expect(f.controller.state == .idle)
@@ -111,6 +114,32 @@ struct ScheduleIntegrationTests {
         f.evaluator.stubbedShouldBeActive = false
         await f.controller.reconcileOnLaunch()
         #expect(f.evaluator.shouldBeActiveCalls.last?.manualStopDate == stopDate)
+    }
+
+    @Test("reconcileOnLaunch does not auto-stop a manually started session")
+    func manualStartNotAutoStopped() async {
+        let f = Fixture()
+        f.controller.updateSchedule(.default)  // Enable schedule
+        f.controller.start()                    // User manually taps Start
+        #expect(f.controller.state != .idle)
+        f.evaluator.stubbedShouldBeActive = false  // Outside schedule window
+        await f.controller.reconcileOnLaunch()
+        // Manual start must survive — schedule should not override user intent.
+        #expect(f.controller.state != .idle)
+    }
+
+    @Test("reconcileOnLaunch does not auto-stop a manually started session even after multiple reconcile ticks")
+    func manualStartSurvivesMultipleTicks() async {
+        let f = Fixture()
+        f.controller.updateSchedule(.default)
+        f.controller.start()
+        f.evaluator.stubbedShouldBeActive = false
+        // Simulate several 1-second ticks from RootView
+        for _ in 0..<5 {
+            f.advance(by: 1)
+            await f.controller.reconcileOnLaunch()
+        }
+        #expect(f.controller.state != .idle)
     }
 
     @Test("updateSchedule saves to persistence and updates published property")
