@@ -22,38 +22,38 @@ final class MockSessionAlarm: SessionAlarmProtocol, @unchecked Sendable {
     // MARK: - SessionAlarmProtocol
 
     func arm(cycleId: UUID, fireDate: Date) {
-        lock.lock()
-        defer { lock.unlock() }
-        armedCalls.append((cycleId, fireDate))
+        lock.withLock {
+            armedCalls.append((cycleId, fireDate))
+        }
     }
 
     func disarm(cycleId: UUID) {
-        lock.lock()
-        defer { lock.unlock() }
-        disarmedCycleIds.append(cycleId)
+        lock.withLock {
+            disarmedCycleIds.append(cycleId)
+        }
     }
 
     // MARK: - Test helpers
 
     /// The most recent arm call, or nil if never armed.
     var lastArmed: (cycleId: UUID, fireDate: Date)? {
-        lock.lock()
-        defer { lock.unlock() }
-        return armedCalls.last
+        lock.withLock {
+            return armedCalls.last
+        }
     }
 
     /// The most recent disarm target, or nil if never disarmed.
     var lastDisarmedCycleId: UUID? {
-        lock.lock()
-        defer { lock.unlock() }
-        return disarmedCycleIds.last
+        lock.withLock {
+            return disarmedCycleIds.last
+        }
     }
 
     /// Reset all recorded state. Useful between test phases within one test.
     func reset() {
-        lock.lock()
-        defer { lock.unlock() }
-        armedCalls.removeAll()
-        disarmedCycleIds.removeAll()
+        lock.withLock {
+            armedCalls.removeAll()
+            disarmedCycleIds.removeAll()
+        }
     }
 }

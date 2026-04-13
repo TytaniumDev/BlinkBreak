@@ -21,7 +21,7 @@ struct DayRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Toggle("", isOn: $daySchedule.isEnabled)
+                Toggle("Enable \(dayName)", isOn: $daySchedule.isEnabled)
                     .labelsHidden()
                     .tint(.green)
                     .scaleEffect(0.8)
@@ -43,6 +43,7 @@ struct DayRow: View {
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.5))
                     }
+                    .accessibilityHint(isExpanded ? "Double tap to collapse time picker" : "Double tap to expand time picker")
                 } else {
                     Text("Off")
                         .font(.caption)

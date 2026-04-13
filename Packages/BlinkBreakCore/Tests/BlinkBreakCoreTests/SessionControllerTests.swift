@@ -52,13 +52,9 @@ struct SessionControllerTests {
         init(value: Date) { self.storage = value }
         var value: Date {
             get {
-                lock.lock(); defer { lock.unlock() }
-                return storage
-            }
+                lock.withLock { return storage }
             set {
-                lock.lock(); defer { lock.unlock() }
-                storage = newValue
-            }
+                lock.withLock { storage = newValue }
         }
     }
 

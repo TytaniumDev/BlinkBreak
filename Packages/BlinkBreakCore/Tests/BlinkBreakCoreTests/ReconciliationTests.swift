@@ -42,8 +42,8 @@ struct ReconciliationTests {
         private var storage: Date
         init(value: Date) { self.storage = value }
         var value: Date {
-            get { lock.lock(); defer { lock.unlock() }; return storage }
-            set { lock.lock(); defer { lock.unlock() }; storage = newValue }
+            get { lock.withLock { return storage }}
+            set { lock.withLock { storage = newValue }}
         }
     }
 

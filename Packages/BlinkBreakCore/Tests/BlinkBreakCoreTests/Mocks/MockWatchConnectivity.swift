@@ -23,15 +23,15 @@ final class MockWatchConnectivity: WatchConnectivityProtocol, @unchecked Sendabl
     // MARK: - Protocol
 
     func activate() {
-        lock.lock()
-        defer { lock.unlock() }
-        activateCount += 1
+        lock.withLock {
+            activateCount += 1
+        }
     }
 
     func broadcast(_ snapshot: SessionSnapshot) {
-        lock.lock()
-        defer { lock.unlock() }
-        broadcasts.append(snapshot)
+        lock.withLock {
+            broadcasts.append(snapshot)
+        }
     }
 
     func send(
@@ -46,15 +46,15 @@ final class MockWatchConnectivity: WatchConnectivityProtocol, @unchecked Sendabl
     // MARK: - Test helpers
 
     var lastBroadcast: SessionSnapshot? {
-        lock.lock()
-        defer { lock.unlock() }
-        return broadcasts.last
+        lock.withLock {
+            return broadcasts.last
+        }
     }
 
     func reset() {
-        lock.lock()
-        defer { lock.unlock() }
-        broadcasts.removeAll()
-        activateCount = 0
+        lock.withLock {
+            broadcasts.removeAll()
+            activateCount = 0
+        }
     }
 }

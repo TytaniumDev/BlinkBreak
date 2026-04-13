@@ -27,69 +27,69 @@ final class MockNotificationScheduler: NotificationSchedulerProtocol, @unchecked
     // MARK: - NotificationSchedulerProtocol
 
     func registerCategories() {
-        lock.lock()
-        defer { lock.unlock() }
-        registerCategoriesCount += 1
+        lock.withLock {
+            registerCategoriesCount += 1
+        }
     }
 
     func schedule(_ notification: ScheduledNotification) {
-        lock.lock()
-        defer { lock.unlock() }
-        scheduledNotifications.append(notification)
+        lock.withLock {
+            scheduledNotifications.append(notification)
+        }
     }
 
     func cancel(identifiers: [String]) {
-        lock.lock()
-        defer { lock.unlock() }
-        cancelledIdentifiers.append(identifiers)
+        lock.withLock {
+            cancelledIdentifiers.append(identifiers)
 
-        // Also remove any scheduled notifications with matching identifiers, so that
-        // subsequent `scheduledNotifications` reads reflect the effective state after
-        // cancellation — mirrors how the real UN API behaves.
-        let set = Set(identifiers)
-        scheduledNotifications.removeAll { set.contains($0.identifier) }
+            // Also remove any scheduled notifications with matching identifiers, so that
+            // subsequent `scheduledNotifications` reads reflect the effective state after
+            // cancellation — mirrors how the real UN API behaves.
+            let set = Set(identifiers)
+            scheduledNotifications.removeAll { set.contains($0.identifier) }
 
-        // And mirror removal from stubPendingIdentifiers so reconcile sees the
-        // post-cancellation state.
-        stubPendingIdentifiers.removeAll { set.contains($0) }
+            // And mirror removal from stubPendingIdentifiers so reconcile sees the
+            // post-cancellation state.
+            stubPendingIdentifiers.removeAll { set.contains($0) }
+        }
     }
 
     func cancelAll() {
-        lock.lock()
-        defer { lock.unlock() }
-        cancelAllCount += 1
-        scheduledNotifications.removeAll()
-        stubPendingIdentifiers.removeAll()
+        lock.withLock {
+            cancelAllCount += 1
+            scheduledNotifications.removeAll()
+            stubPendingIdentifiers.removeAll()
+        }
     }
 
     func pendingIdentifiers() async -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        // If the test set stubPendingIdentifiers explicitly, return that.
-        // Otherwise, derive from scheduled notifications.
-        if !stubPendingIdentifiers.isEmpty {
-            return stubPendingIdentifiers
+        lock.withLock {
+            // If the test set stubPendingIdentifiers explicitly, return that.
+            // Otherwise, derive from scheduled notifications.
+            if !stubPendingIdentifiers.isEmpty {
+                return stubPendingIdentifiers
+            }
+            return scheduledNotifications.map { $0.identifier }
         }
-        return scheduledNotifications.map { $0.identifier }
     }
 
     // MARK: - Test helpers
 
     /// The last set of identifiers passed to `cancel(identifiers:)`, or `nil` if never called.
     var lastCancelledIdentifiers: [String]? {
-        lock.lock()
-        defer { lock.unlock() }
-        return cancelledIdentifiers.last
+        lock.withLock {
+            return cancelledIdentifiers.last
+        }
     }
 
     /// Reset all recorded state. Useful between test phases within one test.
     func reset() {
-        lock.lock()
-        defer { lock.unlock() }
-        scheduledNotifications.removeAll()
-        cancelledIdentifiers.removeAll()
-        cancelAllCount = 0
-        registerCategoriesCount = 0
-        stubPendingIdentifiers.removeAll()
+        lock.withLock {
+            scheduledNotifications.removeAll()
+            cancelledIdentifiers.removeAll()
+            cancelAllCount = 0
+            registerCategoriesCount = 0
+            stubPendingIdentifiers.removeAll()
+        }
     }
 }
