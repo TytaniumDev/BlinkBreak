@@ -37,7 +37,7 @@ struct DiagnosticCollectorTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            lookAwayStartedAt: nil,
+            breakActiveStartedAt: nil,
             lastUpdatedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
         persistence.save(record)
@@ -96,7 +96,7 @@ struct DiagnosticCollectorTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            lookAwayStartedAt: nil,
+            breakActiveStartedAt: nil,
             lastUpdatedAt: syncDate
         )
         persistence.save(record)

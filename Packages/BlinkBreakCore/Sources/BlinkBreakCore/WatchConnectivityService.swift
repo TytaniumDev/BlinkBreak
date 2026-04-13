@@ -23,20 +23,30 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
     public let sessionActive: Bool
     public let currentCycleId: UUID?
     public let cycleStartedAt: Date?
-    public let lookAwayStartedAt: Date?
+    public let breakActiveStartedAt: Date?
     public let updatedAt: Date
+
+    /// Backwards-compatible coding keys: `breakActiveStartedAt` is encoded as
+    /// `"lookAwayStartedAt"` so existing Watch wire payloads decode without migration.
+    enum CodingKeys: String, CodingKey {
+        case sessionActive
+        case currentCycleId
+        case cycleStartedAt
+        case breakActiveStartedAt = "lookAwayStartedAt"
+        case updatedAt
+    }
 
     public init(
         sessionActive: Bool,
         currentCycleId: UUID?,
         cycleStartedAt: Date?,
-        lookAwayStartedAt: Date?,
+        breakActiveStartedAt: Date?,
         updatedAt: Date
     ) {
         self.sessionActive = sessionActive
         self.currentCycleId = currentCycleId
         self.cycleStartedAt = cycleStartedAt
-        self.lookAwayStartedAt = lookAwayStartedAt
+        self.breakActiveStartedAt = breakActiveStartedAt
         self.updatedAt = updatedAt
     }
 }

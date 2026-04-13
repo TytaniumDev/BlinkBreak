@@ -130,13 +130,13 @@ public enum CascadeBuilder {
     /// Build the single "done, look back at your screen" notification.
     public static func buildDoneNotification(
         cycleId: UUID,
-        lookAwayStartedAt: Date
+        breakActiveStartedAt: Date
     ) -> ScheduledNotification {
         ScheduledNotification(
             identifier: BlinkBreakConstants.doneIdPrefix + cycleId.uuidString,
             title: "Back to work",
             body: "Your eyes had a rest. Carry on.",
-            fireDate: lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
+            fireDate: breakActiveStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
             isTimeSensitive: false,
             threadIdentifier: cycleId.uuidString,
             categoryIdentifier: nil

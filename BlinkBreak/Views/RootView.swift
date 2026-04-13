@@ -23,14 +23,14 @@ struct RootView<Controller: SessionControllerProtocol>: View {
     @ObservedObject var controller: Controller
 
     /// A periodic tick used to drive countdown UIs and detect automatic state
-    /// transitions (running → breakActive, lookAway → running). Fires once per second.
+    /// transitions (running → breakPending, breakActive → running). Fires once per second.
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
             // Swap the background based on state so the red alert is unmistakable.
             switch controller.state {
-            case .breakActive:
+            case .breakPending:
                 AlertBackground()
             default:
                 CalmBackground()
@@ -43,10 +43,10 @@ struct RootView<Controller: SessionControllerProtocol>: View {
                     IdleView(controller: controller)
                 case .running(let cycleStartedAt):
                     RunningView(controller: controller, cycleStartedAt: cycleStartedAt)
+                case .breakPending:
+                    BreakPendingView(controller: controller)
                 case .breakActive:
                     BreakActiveView(controller: controller)
-                case .lookAway:
-                    LookAwayView(controller: controller)
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: controller.state)
@@ -54,7 +54,7 @@ struct RootView<Controller: SessionControllerProtocol>: View {
         .foregroundStyle(.white)
         .onReceive(tick) { _ in
             // Every second, ask the controller to reconcile. This picks up the
-            // running → breakActive transition when the clock crosses the threshold.
+            // running → breakPending transition when the clock crosses the threshold.
             Task { await controller.reconcileOnLaunch() }
         }
     }
@@ -68,10 +68,10 @@ struct RootView<Controller: SessionControllerProtocol>: View {
     RootView(controller: PreviewSessionController.running)
 }
 
-#Preview("Break Active") {
-    RootView(controller: PreviewSessionController.breakActive)
+#Preview("Break Pending") {
+    RootView(controller: PreviewSessionController.breakPending)
 }
 
-#Preview("Look Away") {
-    RootView(controller: PreviewSessionController.lookAway)
+#Preview("Break Active") {
+    RootView(controller: PreviewSessionController.breakActive)
 }

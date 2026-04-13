@@ -15,12 +15,12 @@ import Foundation
 /// and observed by all views.
 ///
 /// ```
-///    idle ────(Start)────► running ────(primary notification fires)────► breakActive
+///    idle ────(Start)────► running ────(primary notification fires)────► breakPending
 ///      ▲                      │                                              │
 ///      │                      │                                   (user taps "Start break")
 ///      │                      │                                              │
 ///   (Stop, from any state)   (Stop)                                           ▼
-///      │                      │                                         lookAway
+///      │                      │                                         breakActive
 ///      └──────────────────────┴──────(done notification, 20 s later)────────┘
 /// ```
 public enum SessionState: Equatable, Sendable {
@@ -37,12 +37,12 @@ public enum SessionState: Equatable, Sendable {
     /// If the app is foregrounded, show the red alert UI. If not, the cascade is
     /// buzzing the Watch in the background and this state is never visibly rendered.
     /// - Parameter cycleStartedAt: When the 20-minute countdown for this cycle started.
-    case breakActive(cycleStartedAt: Date)
+    case breakPending(cycleStartedAt: Date)
 
-    /// The user has tapped "Start break". The 20-second look-away is counting down.
-    /// - Parameter lookAwayStartedAt: When the look-away began. The `done` haptic
-    ///   fires at `lookAwayStartedAt + BlinkBreakConstants.lookAwayDuration`.
-    case lookAway(lookAwayStartedAt: Date)
+    /// The user has tapped "Start break". The 20-second break is counting down.
+    /// - Parameter startedAt: When the break began. The `done` haptic
+    ///   fires at `startedAt + BlinkBreakConstants.lookAwayDuration`.
+    case breakActive(startedAt: Date)
 }
 
 // MARK: - Convenience queries
@@ -54,7 +54,7 @@ extension SessionState {
         switch self {
         case .idle:
             return false
-        case .running, .breakActive, .lookAway:
+        case .running, .breakPending, .breakActive:
             return true
         }
     }
@@ -66,8 +66,8 @@ extension SessionState: CustomStringConvertible {
         switch self {
         case .idle: return "idle"
         case .running: return "running"
+        case .breakPending: return "breakPending"
         case .breakActive: return "breakActive"
-        case .lookAway: return "lookAway"
         }
     }
 }

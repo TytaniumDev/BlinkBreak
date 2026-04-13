@@ -102,7 +102,7 @@ struct SessionControllerTests {
         #expect(record.sessionActive)
         #expect(record.currentCycleId != nil)
         #expect(record.cycleStartedAt == f.nowBox.value)
-        #expect(record.lookAwayStartedAt == nil)
+        #expect(record.breakActiveStartedAt == nil)
     }
 
     @Test("start() broadcasts a snapshot to the Watch")
@@ -183,8 +183,8 @@ struct SessionControllerTests {
 
     // MARK: - handleStartBreakAction()
 
-    @Test("handleStartBreakAction with current cycleId transitions running → lookAway")
-    func ackTransitionsToLookAway() {
+    @Test("handleStartBreakAction with current cycleId transitions running → breakActive")
+    func ackTransitionsToBreakActive() {
         let f = Fixture()
         f.controller.start()
         let cycleId = f.persistence.load().currentCycleId!
@@ -192,8 +192,8 @@ struct SessionControllerTests {
 
         f.controller.handleStartBreakAction(cycleId: cycleId)
 
-        guard case .lookAway(let startedAt) = f.controller.state else {
-            Issue.record("expected lookAway, got \(f.controller.state)")
+        guard case .breakActive(let startedAt) = f.controller.state else {
+            Issue.record("expected breakActive, got \(f.controller.state)")
             return
         }
         #expect(startedAt == f.nowBox.value)
@@ -264,7 +264,7 @@ struct SessionControllerTests {
         let record = f.persistence.load()
         #expect(record.sessionActive)
         #expect(record.currentCycleId != oldCycleId)
-        #expect(record.lookAwayStartedAt == f.nowBox.value)
+        #expect(record.breakActiveStartedAt == f.nowBox.value)
         #expect(record.cycleStartedAt == f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
     }
 
@@ -322,7 +322,7 @@ struct SessionControllerTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            lookAwayStartedAt: f.nowBox.value,
+            breakActiveStartedAt: f.nowBox.value,
             updatedAt: f.nowBox.value
         )
         f.controller.handleRemoteSnapshot(remoteSnapshot)
@@ -343,7 +343,7 @@ struct SessionControllerTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            lookAwayStartedAt: f.nowBox.value,
+            breakActiveStartedAt: f.nowBox.value,
             updatedAt: f.nowBox.value
         )
         f.controller.handleRemoteSnapshot(remoteSnapshot)
@@ -361,7 +361,7 @@ struct SessionControllerTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            lookAwayStartedAt: f.nowBox.value,
+            breakActiveStartedAt: f.nowBox.value,
             updatedAt: f.nowBox.value
         )
         f.controller.handleRemoteSnapshot(snapshot)
@@ -386,7 +386,7 @@ struct SessionControllerTests {
             sessionActive: false,
             currentCycleId: nil,
             cycleStartedAt: nil,
-            lookAwayStartedAt: nil,
+            breakActiveStartedAt: nil,
             updatedAt: f.nowBox.value.addingTimeInterval(50)
         )
         f.controller.handleRemoteSnapshot(stale)
@@ -408,7 +408,7 @@ struct SessionControllerTests {
 
         // User acknowledges
         f.controller.handleStartBreakAction(cycleId: firstCycleId)
-        #expect(f.controller.state.description == "lookAway")
+        #expect(f.controller.state.description == "breakActive")
 
         // Look-away elapses
         f.advance(by: BlinkBreakConstants.lookAwayDuration + 1)

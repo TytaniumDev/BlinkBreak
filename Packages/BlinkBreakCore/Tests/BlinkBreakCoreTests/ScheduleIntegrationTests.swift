@@ -151,11 +151,11 @@ struct ScheduleIntegrationTests {
         await f.controller.reconcileOnLaunch()
         #expect(f.controller.state != .idle)
 
-        // Advance past the break interval so reconcile transitions to breakActive.
+        // Advance past the break interval so reconcile transitions to breakPending.
         f.advance(by: BlinkBreakConstants.breakInterval + 1)
         await f.controller.reconcileOnLaunch()
 
-        // Acknowledge the break to transition through lookAway → running.
+        // Acknowledge the break to transition through breakActive → running.
         let cycleId = f.persistence.load().currentCycleId!
         f.controller.handleStartBreakAction(cycleId: cycleId)
 

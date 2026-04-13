@@ -18,9 +18,9 @@ struct WatchRootView<Controller: SessionControllerProtocol>: View {
 
     var body: some View {
         ZStack {
-            // Red background only during breakActive; everything else is dark.
+            // Red background only during breakPending; everything else is dark.
             switch controller.state {
-            case .breakActive:
+            case .breakPending:
                 Color(red: 0.69, green: 0, blue: 0.13).ignoresSafeArea()
             default:
                 Color.black.ignoresSafeArea()
@@ -32,10 +32,10 @@ struct WatchRootView<Controller: SessionControllerProtocol>: View {
                     WatchIdleView(controller: controller)
                 case .running(let cycleStartedAt):
                     WatchRunningView(controller: controller, cycleStartedAt: cycleStartedAt)
+                case .breakPending:
+                    WatchBreakPendingView(controller: controller)
                 case .breakActive:
-                    WatchBreakActiveView(controller: controller)
-                case .lookAway:
-                    WatchLookAwayView()
+                    WatchBreakActiveView()
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: controller.state)

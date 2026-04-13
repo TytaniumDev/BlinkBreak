@@ -37,7 +37,7 @@ public protocol SessionControllerProtocol: ObservableObject {
     func handleStartBreakAction(cycleId: UUID)
 
     /// Acknowledge the currently-active break from inside the app. Used by
-    /// `BreakActiveView` when the user taps the in-app "Start break" button.
+    /// `BreakPendingView` when the user taps the in-app "Start break" button.
     /// The controller looks up its own current cycleId and calls `handleStartBreakAction`.
     /// Views don't need to know about cycleIds.
     func acknowledgeCurrentBreak()
