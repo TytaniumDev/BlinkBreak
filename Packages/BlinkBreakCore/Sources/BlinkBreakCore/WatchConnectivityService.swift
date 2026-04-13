@@ -119,6 +119,8 @@ import WatchConnectivity
 public final class WCSessionConnectivity: NSObject, WatchConnectivityProtocol, @unchecked Sendable {
 
     private let session: WCSession?
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
     public var onSnapshotReceived: ((SessionSnapshot) -> Void)?
     public var onCommandReceived: ((WatchCommand, UUID?) -> Void)?
 
@@ -141,7 +143,7 @@ public final class WCSessionConnectivity: NSObject, WatchConnectivityProtocol, @
 
     public func broadcast(_ snapshot: SessionSnapshot) {
         guard let session, session.activationState == .activated else { return }
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        guard let data = try? encoder.encode(snapshot) else { return }
         // updateApplicationContext replaces any previous pending snapshot. Perfect for
         // latest-wins state broadcasts.
         try? session.updateApplicationContext(["snapshot": data])
@@ -198,7 +200,7 @@ extension WCSessionConnectivity: WCSessionDelegate {
         didReceiveApplicationContext applicationContext: [String: Any]
     ) {
         guard let data = applicationContext["snapshot"] as? Data else { return }
-        guard let snapshot = try? JSONDecoder().decode(SessionSnapshot.self, from: data) else { return }
+        guard let snapshot = try? decoder.decode(SessionSnapshot.self, from: data) else { return }
         onSnapshotReceived?(snapshot)
     }
 
