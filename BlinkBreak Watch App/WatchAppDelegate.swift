@@ -57,21 +57,23 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
     }
 
     // MARK: - UNUserNotificationCenterDelegate
+    //
+    // Apple documents `UNUserNotificationCenterDelegate` methods as being delivered
+    // on the main queue, so these methods inherit this class's `@MainActor` isolation
+    // and can touch the controller directly (no `nonisolated` + Task hop needed).
 
-    nonisolated func userNotificationCenter(
+    func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         // Trigger a reconcile so the controller picks up the state transition
         // (e.g. running → breakPending) when a notification fires while foregrounded.
-        Task { @MainActor in
-            await controller.reconcile()
-        }
+        Task { await controller.reconcile() }
         completionHandler([.banner, .sound, .list])
     }
 
-    nonisolated func userNotificationCenter(
+    func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
@@ -93,9 +95,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
             return
         }
 
-        Task { @MainActor in
-            self.controller.handleStartBreakAction(cycleId: cycleId)
-            completionHandler()
-        }
+        controller.handleStartBreakAction(cycleId: cycleId)
+        completionHandler()
     }
 }

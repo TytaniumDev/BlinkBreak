@@ -253,6 +253,7 @@ public final class UNNotificationScheduler: NotificationSchedulerProtocol, @unch
         }
         return .default
         #else
+        _ = notification  // unused on watchOS; sound is always .default
         return .default
         #endif
     }
