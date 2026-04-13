@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // Trigger a reconcile so the controller picks up the state transition
         // (e.g. running → breakPending) when a notification fires while foregrounded.
         Task { @MainActor in
-            await controller?.reconcileOnLaunch()
+            await controller?.reconcile()
         }
         completionHandler([.banner, .sound, .list])
     }
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // can auto-start if the schedule window is active.
         if response.notification.request.content.categoryIdentifier == BlinkBreakConstants.scheduleCategoryId {
             Task { @MainActor in
-                await controller?.reconcileOnLaunch()
+                await controller?.reconcile()
             }
             completionHandler()
             return

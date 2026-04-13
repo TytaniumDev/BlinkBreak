@@ -43,7 +43,7 @@ struct WatchRootView<Controller: SessionControllerProtocol>: View {
         .foregroundStyle(.white)
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
-                Task { await controller.reconcileOnLaunch() }
+                Task { await controller.reconcile() }
             }
         }
     }

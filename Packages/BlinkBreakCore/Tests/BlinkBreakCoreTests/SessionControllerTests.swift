@@ -414,7 +414,7 @@ struct SessionControllerTests {
         f.advance(by: BlinkBreakConstants.lookAwayDuration + 1)
 
         // Reconcile picks up that we've rolled into the next running cycle
-        await f.controller.reconcileOnLaunch()
+        await f.controller.reconcile()
         #expect(f.controller.state.description == "running")
 
         let newRecord = f.persistence.load()

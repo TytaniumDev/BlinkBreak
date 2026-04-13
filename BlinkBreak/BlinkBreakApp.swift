@@ -98,7 +98,7 @@ struct BlinkBreakApp: App {
                     //   iPhone notification and disarms our (noop) alarm.
                     controller.activateConnectivity()
                     controller.wireUpConnectivity()
-                    Task { await controller.reconcileOnLaunch() }
+                    Task { await controller.reconcile() }
 
                     // Set up the ScheduleTaskManager for foreground schedule checks
                     // and local notification fallback at the next scheduled start time.

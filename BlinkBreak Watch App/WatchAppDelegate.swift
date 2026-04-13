@@ -33,7 +33,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
         // Trigger a reconcile so the controller picks up the state transition
         // (e.g. running → breakPending) when a notification fires while foregrounded.
         Task { @MainActor in
-            await controller?.reconcileOnLaunch()
+            await controller?.reconcile()
         }
         completionHandler([.banner, .sound, .list])
     }

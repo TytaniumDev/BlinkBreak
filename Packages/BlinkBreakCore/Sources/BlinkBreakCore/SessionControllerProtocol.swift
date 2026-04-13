@@ -42,9 +42,9 @@ public protocol SessionControllerProtocol: ObservableObject {
     /// Views don't need to know about cycleIds.
     func acknowledgeCurrentBreak()
 
-    /// Called from onAppear / applicationDidBecomeActive. Rebuilds the in-memory state
-    /// from UserDefaults + pending notifications. Never trusts in-memory state.
-    func reconcileOnLaunch() async
+    /// Rebuilds in-memory state from persistence + clock. Called on app launch,
+    /// foregrounding, and notification delivery. Never trusts in-memory state.
+    func reconcile() async
 
     /// The current weekly schedule. Views observe this to display schedule settings.
     var weeklySchedule: WeeklySchedule { get }

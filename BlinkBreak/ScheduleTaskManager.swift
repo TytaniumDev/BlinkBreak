@@ -56,7 +56,7 @@ final class ScheduleTaskManager {
     ) {
         let workTask = Task { @MainActor in
             if let controller = controllerProvider() {
-                await controller.reconcileOnLaunch()
+                await controller.reconcile()
             }
             guard !Task.isCancelled else { return }
 

@@ -2,7 +2,7 @@
 //  ReconciliationTests.swift
 //  BlinkBreakCoreTests
 //
-//  Targeted tests for `SessionController.reconcileOnLaunch()` — the method that
+//  Targeted tests for `SessionController.reconcile()` — the method that
 //  rebuilds UI state from persisted record + pending notifications + clock.
 //
 
@@ -52,7 +52,7 @@ struct ReconciliationTests {
         let f = Fixture()
         f.persistence.save(.idle)
 
-        await f.controller.reconcileOnLaunch()
+        await f.controller.reconcile()
 
         #expect(f.controller.state == .idle)
     }
@@ -69,7 +69,7 @@ struct ReconciliationTests {
         ))
         f.scheduler.stubPendingIdentifiers = CascadeBuilder.identifiers(for: cycleId)
 
-        await f.controller.reconcileOnLaunch()
+        await f.controller.reconcile()
 
         guard case .running(let startedAt) = f.controller.state else {
             Issue.record("expected running, got \(f.controller.state)")
@@ -93,7 +93,7 @@ struct ReconciliationTests {
 
         f.advance(by: BlinkBreakConstants.breakInterval + 10)
 
-        await f.controller.reconcileOnLaunch()
+        await f.controller.reconcile()
 
         guard case .breakPending(let startedAt) = f.controller.state else {
             Issue.record("expected breakPending, got \(f.controller.state)")
@@ -118,7 +118,7 @@ struct ReconciliationTests {
         // Advance well past the break time.
         f.advance(by: BlinkBreakConstants.breakInterval + 60)
 
-        await f.controller.reconcileOnLaunch()
+        await f.controller.reconcile()
 
         // With the single-notification design, reconcile can't distinguish
         // "notification just fired" from "notification fired a while ago" via
@@ -145,7 +145,7 @@ struct ReconciliationTests {
 
         f.advance(by: BlinkBreakConstants.lookAwayDuration / 2)
 
-        await f.controller.reconcileOnLaunch()
+        await f.controller.reconcile()
 
         guard case .breakActive(let startedAt) = f.controller.state else {
             Issue.record("expected breakActive, got \(f.controller.state)")
@@ -170,7 +170,7 @@ struct ReconciliationTests {
 
         f.advance(by: BlinkBreakConstants.lookAwayDuration + 1)
 
-        await f.controller.reconcileOnLaunch()
+        await f.controller.reconcile()
 
         guard case .running(let startedAt) = f.controller.state else {
             Issue.record("expected running, got \(f.controller.state)")
@@ -190,7 +190,7 @@ struct ReconciliationTests {
             breakActiveStartedAt: nil
         ))
 
-        await f.controller.reconcileOnLaunch()
+        await f.controller.reconcile()
 
         #expect(f.controller.state == .idle)
         #expect(f.persistence.load() == .idle)
@@ -208,7 +208,7 @@ struct ReconciliationTests {
         ))
         f.scheduler.stubPendingIdentifiers = CascadeBuilder.identifiers(for: cycleId)
 
-        await f.controller.reconcileOnLaunch()
+        await f.controller.reconcile()
 
         #expect(f.alarm.lastArmed?.cycleId == cycleId)
         #expect(f.alarm.lastArmed?.fireDate == f.nowBox.value.addingTimeInterval(BlinkBreakConstants.breakInterval))

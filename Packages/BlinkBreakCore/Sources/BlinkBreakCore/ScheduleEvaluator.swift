@@ -7,7 +7,7 @@
 //  2. "When is the next time the answer flips?" (nextTransitionDate)
 //
 //  Has zero dependencies on UIKit, notifications, or SessionController.
-//  SessionController consults this during reconcileOnLaunch().
+//  SessionController consults this during reconcile().
 //
 //  Flutter analogue: a plain Dart class with no Flutter imports, fully unit-testable.
 //

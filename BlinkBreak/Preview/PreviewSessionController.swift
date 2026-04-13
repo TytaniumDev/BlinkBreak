@@ -45,7 +45,7 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
         state = .breakActive(startedAt: Date())
     }
 
-    func reconcileOnLaunch() async {
+    func reconcile() async {
         // No-op in previews.
     }
 

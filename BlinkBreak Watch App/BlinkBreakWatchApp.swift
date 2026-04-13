@@ -39,7 +39,7 @@ struct BlinkBreakWatchApp: App {
                     //   Watch applies via handleRemoteSnapshot.
                     controller.activateConnectivity()
                     controller.wireUpConnectivity()
-                    Task { await controller.reconcileOnLaunch() }
+                    Task { await controller.reconcile() }
                 }
         }
     }

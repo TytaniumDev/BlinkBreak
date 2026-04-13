@@ -210,16 +210,15 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     /// Rebuilds the in-memory `state` from the persisted record + pending notifications +
     /// the current clock. Never trusts in-memory state. Called on launch, on foreground,
-    /// and periodically by views to detect automatic state transitions (running → breakPending,
-    /// breakActive → running). After reconciling persisted state, evaluates the weekly schedule
-    /// to auto-start or auto-stop as appropriate.
-    public func reconcileOnLaunch() async {
+    /// and on notification delivery. After reconciling persisted state, evaluates the weekly
+    /// schedule to auto-start or auto-stop as appropriate.
+    public func reconcile() async {
         reconcileState()
         evaluateSchedule()
     }
 
     /// Core reconciliation logic: rebuilds the in-memory `state` from the persisted record +
-    /// the current clock. Extracted from `reconcileOnLaunch` so `evaluateSchedule` can run
+    /// the current clock. Extracted from `reconcile` so `evaluateSchedule` can run
     /// after reconciliation completes.
     private func reconcileState() {
         let record = persistence.load()
@@ -374,7 +373,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         // state + UI. Without reconcile, the UI wouldn't update until the next
         // 1-second tick from RootView.
         persistence.save(SessionRecord(from: snapshot))
-        Task { await reconcileOnLaunch() }
+        Task { await reconcile() }
     }
 
     // MARK: - Helpers
