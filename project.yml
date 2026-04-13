@@ -37,9 +37,6 @@ targets:
   BlinkBreak:
     type: application
     platform: iOS
-    configFiles:
-      Debug: BlinkBreak/BugReport/BugReport.xcconfig
-      Release: BlinkBreak/BugReport/BugReport.xcconfig
     sources:
       - path: BlinkBreak
     dependencies:

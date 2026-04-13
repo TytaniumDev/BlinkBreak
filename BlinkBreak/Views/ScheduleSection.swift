@@ -32,7 +32,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
                 Text("Schedule")
                     .font(.subheadline.weight(.medium))
                 Spacer()
-                Toggle("", isOn: masterToggleBinding)
+                Toggle("Enable Schedule", isOn: masterToggleBinding)
                     .labelsHidden()
                     .tint(.green)
             }

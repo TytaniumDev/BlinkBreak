@@ -66,7 +66,7 @@ echo ""
 xcodebuild test \
   -project BlinkBreak.xcodeproj \
   -scheme BlinkBreakUITests \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -destination 'platform=iOS Simulator,name=iPhone 16' \
   -quiet
 
 echo ""

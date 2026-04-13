@@ -55,7 +55,7 @@ xcodegen generate
 xcodebuild test \
   -project BlinkBreak.xcodeproj \
   -scheme BlinkBreak \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -destination 'platform=iOS Simulator,name=iPhone 16' \
   -quiet
 echo "  ok — xcodebuild test passed."
 
