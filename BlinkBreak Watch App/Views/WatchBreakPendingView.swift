@@ -2,9 +2,9 @@
 //  WatchBreakPendingView.swift
 //  BlinkBreak Watch App
 //
-//  Break-pending state on the Watch. Full-bleed red with a large Start break button.
-//  This is what the user sees when they raise their wrist after feeling the haptic
-//  cascade. One tap and they're done.
+//  Break-pending state on the Watch. Full-bleed red with a large Start break button
+//  plus a secondary Stop action for ending the session without acknowledging the break.
+//  This is what the user sees when they raise their wrist after feeling the haptic cascade.
 //
 
 import SwiftUI
