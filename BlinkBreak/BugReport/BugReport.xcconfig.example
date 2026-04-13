@@ -1,0 +1,7 @@
+// Copy this file to BugReport.xcconfig (gitignored) and replace the placeholder.
+// The token is injected into Info.plist at build time via project.yml.
+//
+// Create a fine-grained PAT at https://github.com/settings/personal-access-tokens/new
+//   - Repository access: TytaniumDev/BlinkBreak only
+//   - Permissions: Issues → Read and write
+BUG_REPORT_GITHUB_TOKEN = REPLACE_WITH_GITHUB_PAT
