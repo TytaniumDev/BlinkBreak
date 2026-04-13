@@ -27,8 +27,9 @@ final class BreakCycleTests: XCTestCase {
         app.waitForButton(A11y.Idle.startButton).tap()
         _ = app.waitForButton(A11y.Running.stopButton)
 
-        // Wait for auto-transition running → breakPending. The reconcile tick runs
-        // every 1s; break fires at 3s; give it up to 10s to absorb scheduler jitter.
+        // Wait for auto-transition running → breakPending. The transition is driven by
+        // notification delivery (AppDelegate.willPresent → reconcile()); give it up to
+        // 10s to absorb scheduler jitter.
         _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
     }
 

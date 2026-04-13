@@ -18,9 +18,12 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
     @ObservedObject var controller: Controller
     let cycleStartedAt: Date
 
+    private var breakFireTime: Date {
+        cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
+    }
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            let breakFireTime = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
             let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
             let total = Int(remainingSeconds.rounded(.up))
             let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
@@ -49,7 +52,6 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
 
     /// Absolute fire time shown to the user as reassurance ("will interrupt me at 2:47 PM").
     private var breakFireTimeFormatted: String {
-        let breakFireTime = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         return formatter.string(from: breakFireTime)
