@@ -24,6 +24,10 @@
 	<false/>
 	<key>WKApplication</key>
 	<true/>
+	<key>WKBackgroundModes</key>
+	<array>
+		<string>self-care</string>
+	</array>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>com.tytaniumdev.BlinkBreak</string>
 	<key>WKWatchOnly</key>

@@ -119,6 +119,14 @@ targets:
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.tytaniumdev.BlinkBreak
         WKWatchOnly: false
+        # WKExtendedRuntimeSession uses this declaration to pick its session
+        # type. `self-care` matches the 20-20-20 eye-rest use case and
+        # grants ~1 hour of background runtime, enough to bridge the entire
+        # 20-minute cycle + haptic window. Without this declaration the
+        # session immediately invalidates on a real device, so the Watch
+        # haptic loop in WKExtendedRuntimeSessionAlarm.fireAlarm never runs.
+        WKBackgroundModes:
+          - self-care
     entitlements:
       path: "BlinkBreak Watch App/BlinkBreakWatch.entitlements"
       properties:
