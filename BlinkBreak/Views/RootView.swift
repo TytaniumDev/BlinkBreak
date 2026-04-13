@@ -22,9 +22,7 @@ struct RootView<Controller: SessionControllerProtocol>: View {
     /// previews can substitute a PreviewSessionController.
     @ObservedObject var controller: Controller
 
-    /// A periodic tick used to drive countdown UIs and detect automatic state
-    /// transitions (running → breakPending, breakActive → running). Fires once per second.
-    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -52,10 +50,10 @@ struct RootView<Controller: SessionControllerProtocol>: View {
             .animation(.easeInOut(duration: 0.25), value: controller.state)
         }
         .foregroundStyle(.white)
-        .onReceive(tick) { _ in
-            // Every second, ask the controller to reconcile. This picks up the
-            // running → breakPending transition when the clock crosses the threshold.
-            Task { await controller.reconcileOnLaunch() }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                Task { await controller.reconcileOnLaunch() }
+            }
         }
     }
 }

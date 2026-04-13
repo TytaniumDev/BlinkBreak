@@ -30,6 +30,11 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        // Trigger a reconcile so the controller picks up the state transition
+        // (e.g. running → breakPending) when a notification fires while foregrounded.
+        Task { @MainActor in
+            await controller?.reconcileOnLaunch()
+        }
         completionHandler([.banner, .sound, .list])
     }
 

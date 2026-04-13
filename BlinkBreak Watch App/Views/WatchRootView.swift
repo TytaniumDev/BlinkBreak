@@ -14,7 +14,7 @@ struct WatchRootView<Controller: SessionControllerProtocol>: View {
 
     @ObservedObject var controller: Controller
 
-    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -41,8 +41,10 @@ struct WatchRootView<Controller: SessionControllerProtocol>: View {
             .animation(.easeInOut(duration: 0.25), value: controller.state)
         }
         .foregroundStyle(.white)
-        .onReceive(tick) { _ in
-            Task { await controller.reconcileOnLaunch() }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                Task { await controller.reconcileOnLaunch() }
+            }
         }
     }
 }
