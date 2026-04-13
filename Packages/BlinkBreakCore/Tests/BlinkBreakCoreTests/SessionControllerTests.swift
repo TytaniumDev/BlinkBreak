@@ -401,21 +401,21 @@ struct SessionControllerTests {
         // Start
         f.controller.start()
         let firstCycleId = f.persistence.load().currentCycleId!
-        #expect(f.controller.state.name == "running")
+        #expect(f.controller.state.description == "running")
 
         // Break time arrives
         f.advance(by: BlinkBreakConstants.breakInterval)
 
         // User acknowledges
         f.controller.handleStartBreakAction(cycleId: firstCycleId)
-        #expect(f.controller.state.name == "lookAway")
+        #expect(f.controller.state.description == "lookAway")
 
         // Look-away elapses
         f.advance(by: BlinkBreakConstants.lookAwayDuration + 1)
 
         // Reconcile picks up that we've rolled into the next running cycle
         await f.controller.reconcileOnLaunch()
-        #expect(f.controller.state.name == "running")
+        #expect(f.controller.state.description == "running")
 
         let newRecord = f.persistence.load()
         #expect(newRecord.currentCycleId != firstCycleId)

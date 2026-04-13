@@ -59,15 +59,6 @@ extension SessionState {
         }
     }
 
-    /// The name of the current state, for logging and debugging.
-    public var name: String {
-        switch self {
-        case .idle:        return "idle"
-        case .running:     return "running"
-        case .breakActive: return "breakActive"
-        case .lookAway:    return "lookAway"
-        }
-    }
 }
 
 extension SessionState: CustomStringConvertible {
