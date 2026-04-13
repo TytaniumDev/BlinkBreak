@@ -78,6 +78,13 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     /// Starts a new session. Transitions idle → running. Schedules the first break cascade.
     public func start() {
+        startSession(wasAutoStarted: false)
+    }
+
+    /// Core start logic. Used by both `start()` (manual) and `evaluateSchedule()` (auto).
+    /// - Parameter wasAutoStarted: Pass `true` when the session is started by the weekly
+    ///   schedule so it can be auto-stopped later. Manual starts pass `false`.
+    private func startSession(wasAutoStarted: Bool = false) {
         // Clean up any stale state from a previous (possibly crashed) session.
         scheduler.cancelAll()
 
@@ -89,7 +96,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             currentCycleId: cycleId,
             cycleStartedAt: cycleStartedAt,
             breakActiveStartedAt: nil,
-            lastUpdatedAt: cycleStartedAt
+            lastUpdatedAt: cycleStartedAt,
+            wasAutoStarted: wasAutoStarted ? true : nil
         )
         persistence.save(record)
 
@@ -292,14 +300,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             calendar: calendar
         )
         if shouldBeActive && state == .idle {
-            start()
-            // Mark the session as schedule-initiated so we can auto-stop it later.
-            // Manual starts leave wasAutoStarted as nil/false. Two writes (start()
-            // saves the record, then we patch it) to avoid changing start()'s public
-            // API with an internal-only parameter.
-            var updated = persistence.load()
-            updated.wasAutoStarted = true
-            persistence.save(updated)
+            startSession(wasAutoStarted: true)
         } else if !shouldBeActive && state.isActive && (record.wasAutoStarted ?? false) {
             stop()
         }
