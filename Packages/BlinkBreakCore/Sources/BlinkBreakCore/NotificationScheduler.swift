@@ -185,7 +185,18 @@ public final class UNNotificationScheduler: NotificationSchedulerProtocol, @unch
             intentIdentifiers: [],
             options: []
         )
-        center.setNotificationCategories([breakCategory])
+        let scheduleAction = UNNotificationAction(
+            identifier: BlinkBreakConstants.scheduleStartActionId,
+            title: "Open",
+            options: [.foreground]
+        )
+        let scheduleCategory = UNNotificationCategory(
+            identifier: BlinkBreakConstants.scheduleCategoryId,
+            actions: [scheduleAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        center.setNotificationCategories([breakCategory, scheduleCategory])
     }
 
     public func schedule(_ notification: ScheduledNotification) {
