@@ -5,9 +5,11 @@
 //  Protocol abstraction over WCSession, plus a real implementation guarded by
 //  `#if canImport(WatchConnectivity)` so the package still builds on macOS (for tests).
 //
-//  The iPhone is the source of truth in V1:
+//  The iPhone is the source of truth:
 //  - iPhone broadcasts state changes via `updateApplicationContext` (latest-wins).
 //  - Watch forwards user commands via `sendMessage` (live request/response).
+//  - On activation, the Watch reads `receivedApplicationContext` to pick up any
+//    state the iPhone sent while the Watch app wasn't running.
 //
 //  Flutter analogue: think of this as a platform-channel wrapper you'd have one
 //  implementation on iOS and a no-op on web/desktop.
@@ -183,7 +185,18 @@ extension WCSessionConnectivity: WCSessionDelegate {
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
     ) {
-        // No-op. Activation success is queried via `isActivated`.
+        guard activationState == .activated else { return }
+        // Read any application context the paired device sent while this app wasn't
+        // running. Without this, a freshly-installed Watch app won't pick up the
+        // iPhone's current state until the iPhone sends a NEW snapshot.
+        // Dispatch to main so wireUpConnectivity() (which sets onSnapshotReceived)
+        // has completed before we fire the callback.
+        let context = session.receivedApplicationContext
+        guard let data = context["snapshot"] as? Data,
+              let snapshot = try? decoder.decode(SessionSnapshot.self, from: data) else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.onSnapshotReceived?(snapshot)
+        }
     }
 
     #if os(iOS)

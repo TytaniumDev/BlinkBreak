@@ -118,7 +118,7 @@ public enum CascadeBuilder {
         ScheduledNotification(
             identifier: BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString,
             title: "Time to look away",
-            body: "Focus on something 20 feet away for 20 seconds.",
+            body: "Tap to start your 20-second break.",
             fireDate: cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval),
             isTimeSensitive: true,
             threadIdentifier: cycleId.uuidString,
