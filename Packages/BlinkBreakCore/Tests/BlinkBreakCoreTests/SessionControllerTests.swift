@@ -372,6 +372,33 @@ struct SessionControllerTests {
         #expect(recordAfterFirst == recordAfterSecond)
     }
 
+    @Test("handleRemoteSnapshot with a remote ack schedules a local done notification")
+    func remoteAckSchedulesDoneNotification() {
+        let f = Fixture()
+        f.controller.start()
+        let cycleId = f.persistence.load().currentCycleId!
+        f.advance(by: BlinkBreakConstants.breakInterval)
+
+        // Simulate the remote device acknowledging the break.
+        let lookAwayStartedAt = f.nowBox.value
+        let remoteSnapshot = SessionSnapshot(
+            sessionActive: true,
+            currentCycleId: UUID(),
+            cycleStartedAt: lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
+            lookAwayStartedAt: lookAwayStartedAt,
+            updatedAt: f.nowBox.value
+        )
+        f.controller.handleRemoteSnapshot(remoteSnapshot)
+
+        // The local device should schedule a done notification so it can alert
+        // the user when the look-away period ends, regardless of which device
+        // handled the ack.
+        let doneId = BlinkBreakConstants.doneIdPrefix + cycleId.uuidString
+        let doneNotification = f.scheduler.scheduledNotifications.first { $0.identifier == doneId }
+        #expect(doneNotification != nil, "expected a done notification to be scheduled locally")
+        #expect(doneNotification?.fireDate == lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
+    }
+
     @Test("handleRemoteSnapshot ignores snapshots older than the local lastUpdatedAt")
     func remoteSnapshotStaleIgnored() {
         let f = Fixture()

@@ -367,6 +367,15 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             if remoteStopped {
                 scheduler.cancelAll()
             }
+            // When the remote device acknowledged the break, schedule a local done
+            // notification so this device also alerts the user when the look-away
+            // ends. Without this, the done notification only exists on whichever
+            // device handled the ack, and mirroring is unreliable.
+            if remoteAckedBreak, let lookAwayStartedAt = snapshot.lookAwayStartedAt {
+                scheduler.schedule(
+                    CascadeBuilder.buildDoneNotification(cycleId: cycleId, lookAwayStartedAt: lookAwayStartedAt)
+                )
+            }
         }
 
         // Persist the new snapshot locally and reconcile to update the in-memory

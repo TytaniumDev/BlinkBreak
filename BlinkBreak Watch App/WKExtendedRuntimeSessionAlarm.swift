@@ -58,8 +58,16 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
         newSession.start()
         session = newSession
 
+        // Schedule the Watch-local notification NOW with a system-managed trigger,
+        // rather than waiting for fireAlarm(). This guarantees the notification
+        // fires even if the WKExtendedRuntimeSession expires before the 20-minute
+        // mark (selfCare sessions are limited to ~10 minutes). The notification
+        // carries the "Start break" action category, which mirrored iPhone
+        // notifications don't reliably show on the Watch.
+        scheduleWatchLocalNotification(cycleId: cycleId, fireDate: fireDate)
+
         // Schedule a DispatchSourceTimer for the break fire date. When it fires, we
-        // kick off the repeating haptic + post the Watch-local notification.
+        // kick off the repeating haptic. The notification is already scheduled above.
         let delay = max(fireDate.timeIntervalSinceNow, 0.1)
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + delay)
@@ -140,11 +148,11 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
 
             return 1.0
         }
-
-        postWatchLocalNotification(cycleId: cycleId)
     }
 
-    private func postWatchLocalNotification(cycleId: UUID) {
+    /// Schedule a Watch-local notification with a system-managed trigger so it fires
+    /// even if the WKExtendedRuntimeSession expires. Called from arm(), not fireAlarm().
+    private func scheduleWatchLocalNotification(cycleId: UUID, fireDate: Date) {
         let content = UNMutableNotificationContent()
         content.title = "Time to look away"
         content.body = "Focus on something 20 feet away for 20 seconds."
@@ -153,7 +161,8 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
         content.threadIdentifier = cycleId.uuidString
         content.interruptionLevel = .timeSensitive
 
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+        let delay = max(fireDate.timeIntervalSinceNow, 0.1)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: delay, repeats: false)
         let request = UNNotificationRequest(
             identifier: BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString,
             content: content,
@@ -161,7 +170,7 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
         )
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("[WKExtendedRuntimeSessionAlarm] notification add failed: \(error)")
+                print("[WKExtendedRuntimeSessionAlarm] notification schedule failed: \(error)")
             }
         }
     }
