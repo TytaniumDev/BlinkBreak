@@ -189,10 +189,14 @@ extension WCSessionConnectivity: WCSessionDelegate {
         // Read any application context the paired device sent while this app wasn't
         // running. Without this, a freshly-installed Watch app won't pick up the
         // iPhone's current state until the iPhone sends a NEW snapshot.
+        // Dispatch to main so wireUpConnectivity() (which sets onSnapshotReceived)
+        // has completed before we fire the callback.
         let context = session.receivedApplicationContext
         guard let data = context["snapshot"] as? Data,
               let snapshot = try? decoder.decode(SessionSnapshot.self, from: data) else { return }
-        onSnapshotReceived?(snapshot)
+        DispatchQueue.main.async { [weak self] in
+            self?.onSnapshotReceived?(snapshot)
+        }
     }
 
     #if os(iOS)
