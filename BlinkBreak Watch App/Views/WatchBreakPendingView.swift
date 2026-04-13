@@ -37,9 +37,3 @@ struct WatchBreakPendingView<Controller: SessionControllerProtocol>: View {
         .padding(.vertical, 10)
     }
 }
-
-#Preview {
-    WatchBreakPendingView(controller: PreviewSessionController(
-        state: .breakPending(cycleStartedAt: Date().addingTimeInterval(-20 * 60))
-    ))
-}
