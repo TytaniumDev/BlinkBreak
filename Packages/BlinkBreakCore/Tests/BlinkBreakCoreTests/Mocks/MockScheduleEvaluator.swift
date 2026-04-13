@@ -12,6 +12,7 @@ final class MockScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Sendabl
 
     var stubbedShouldBeActive: Bool = false
     var stubbedNextTransitionDate: Date?
+    var stubbedStatusText: String?
     var shouldBeActiveCalls: [(date: Date, manualStopDate: Date?)] = []
 
     func shouldBeActive(at date: Date, manualStopDate: Date?, calendar: Calendar) -> Bool {
@@ -21,5 +22,9 @@ final class MockScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Sendabl
 
     func nextTransitionDate(from date: Date, calendar: Calendar) -> Date? {
         stubbedNextTransitionDate
+    }
+
+    func statusText(at date: Date, calendar: Calendar) -> String? {
+        stubbedStatusText
     }
 }

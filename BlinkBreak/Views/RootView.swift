@@ -21,6 +21,7 @@ struct RootView<Controller: SessionControllerProtocol>: View {
     /// The session controller driving the app. Injected from BlinkBreakApp so that
     /// previews can substitute a PreviewSessionController.
     @ObservedObject var controller: Controller
+    var scheduleEvaluator: ScheduleEvaluatorProtocol = NoopScheduleEvaluator()
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -38,7 +39,10 @@ struct RootView<Controller: SessionControllerProtocol>: View {
             Group {
                 switch controller.state {
                 case .idle:
-                    IdleView(controller: controller)
+                    IdleView(
+                        controller: controller,
+                        scheduleStatusText: scheduleEvaluator.statusText(at: Date(), calendar: .current)
+                    )
                 case .running(let cycleStartedAt):
                     RunningView(controller: controller, cycleStartedAt: cycleStartedAt)
                 case .breakPending:

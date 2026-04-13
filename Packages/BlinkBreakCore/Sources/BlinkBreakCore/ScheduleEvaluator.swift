@@ -17,12 +17,14 @@ import Foundation
 public protocol ScheduleEvaluatorProtocol: Sendable {
     func shouldBeActive(at date: Date, manualStopDate: Date?, calendar: Calendar) -> Bool
     func nextTransitionDate(from date: Date, calendar: Calendar) -> Date?
+    func statusText(at date: Date, calendar: Calendar) -> String?
 }
 
 public struct NoopScheduleEvaluator: ScheduleEvaluatorProtocol {
     public init() {}
     public func shouldBeActive(at date: Date, manualStopDate: Date?, calendar: Calendar) -> Bool { false }
     public func nextTransitionDate(from date: Date, calendar: Calendar) -> Date? { nil }
+    public func statusText(at date: Date, calendar: Calendar) -> String? { nil }
 }
 
 public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Sendable {
@@ -65,6 +67,43 @@ public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Send
         }
 
         return true
+    }
+
+    public func statusText(at date: Date, calendar: Calendar) -> String? {
+        let sched = schedule()
+        guard sched.isEnabled else { return nil }
+
+        let weekday = calendar.component(.weekday, from: date)
+        if let day = sched.days[weekday], day.isEnabled,
+           let startHour = day.startTime.hour, let startMinute = day.startTime.minute,
+           let endHour = day.endTime.hour, let endMinute = day.endTime.minute {
+
+            let currentMinutes = calendar.component(.hour, from: date) * 60
+                + calendar.component(.minute, from: date)
+            let startMinutes = startHour * 60 + startMinute
+            let endMinutes = endHour * 60 + endMinute
+
+            if currentMinutes < startMinutes {
+                return "Starts at \(formatScheduleTime(hour: startHour, minute: startMinute))"
+            } else if currentMinutes < endMinutes {
+                return "Active until \(formatScheduleTime(hour: endHour, minute: endMinute))"
+            }
+        }
+
+        return nextStartText(from: date, schedule: sched, calendar: calendar)
+    }
+
+    private func nextStartText(from date: Date, schedule sched: WeeklySchedule, calendar: Calendar) -> String? {
+        for dayOffset in 1...7 {
+            guard let future = calendar.date(byAdding: .day, value: dayOffset, to: date) else { continue }
+            let wd = calendar.component(.weekday, from: future)
+            if let d = sched.days[wd], d.isEnabled,
+               let h = d.startTime.hour, let m = d.startTime.minute {
+                let dayName = calendar.shortWeekdaySymbols[wd - 1]
+                return "Next: \(dayName) \(formatScheduleTime(hour: h, minute: m))"
+            }
+        }
+        return nil
     }
 
     public func nextTransitionDate(from date: Date, calendar: Calendar) -> Date? {

@@ -187,3 +187,72 @@ struct ScheduleEvaluatorNextTransitionTests {
                                          calendar: calendar) == nil)
     }
 }
+
+@Suite("ScheduleEvaluator — statusText")
+struct ScheduleEvaluatorStatusTextTests {
+
+    let calendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "GMT")!
+        return cal
+    }()
+
+    func date(weekday: Int, hour: Int, minute: Int) -> Date {
+        var comps = DateComponents()
+        comps.year = 2026; comps.month = 4
+        comps.day = 5 + (weekday - 1)
+        comps.hour = hour; comps.minute = minute; comps.second = 0
+        return calendar.date(from: comps)!
+    }
+
+    func evaluator(schedule: WeeklySchedule) -> ScheduleEvaluator {
+        ScheduleEvaluator(schedule: { schedule })
+    }
+
+    @Test("Returns nil when schedule is disabled")
+    func disabledSchedule() {
+        var schedule = WeeklySchedule.default
+        schedule.isEnabled = false
+        let eval = evaluator(schedule: schedule)
+        #expect(eval.statusText(at: date(weekday: 2, hour: 10, minute: 0), calendar: calendar) == nil)
+    }
+
+    @Test("Returns 'Starts at...' when before today's window")
+    func beforeWindow() {
+        let eval = evaluator(schedule: .default)
+        let text = eval.statusText(at: date(weekday: 2, hour: 7, minute: 0), calendar: calendar)
+        #expect(text != nil)
+        #expect(text!.hasPrefix("Starts at"))
+    }
+
+    @Test("Returns 'Active until...' when inside today's window")
+    func insideWindow() {
+        let eval = evaluator(schedule: .default)
+        let text = eval.statusText(at: date(weekday: 2, hour: 12, minute: 0), calendar: calendar)
+        #expect(text != nil)
+        #expect(text!.hasPrefix("Active until"))
+    }
+
+    @Test("Returns 'Next:...' when after today's window")
+    func afterWindow() {
+        let eval = evaluator(schedule: .default)
+        let text = eval.statusText(at: date(weekday: 2, hour: 18, minute: 0), calendar: calendar)
+        #expect(text != nil)
+        #expect(text!.hasPrefix("Next:"))
+    }
+
+    @Test("Returns 'Next:...' on a disabled day")
+    func disabledDay() {
+        let eval = evaluator(schedule: .default)
+        let text = eval.statusText(at: date(weekday: 1, hour: 10, minute: 0), calendar: calendar) // Sunday
+        #expect(text != nil)
+        #expect(text!.hasPrefix("Next:"))
+    }
+
+    @Test("Returns nil when no days are enabled")
+    func noDaysEnabled() {
+        let schedule = WeeklySchedule(isEnabled: true, days: [:])
+        let eval = evaluator(schedule: schedule)
+        #expect(eval.statusText(at: date(weekday: 2, hour: 10, minute: 0), calendar: calendar) == nil)
+    }
+}
