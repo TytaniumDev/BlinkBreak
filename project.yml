@@ -45,6 +45,9 @@ targets:
       # both for TestFlight upload. xcodegen infers the correct embed destination
       # (Watch) because the target's platform is watchOS.
       - target: "BlinkBreak Watch App"
+    configFiles:
+      Debug: BlinkBreak/BugReport/BugReport.xcconfig
+      Release: BlinkBreak/BugReport/BugReport.xcconfig
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
