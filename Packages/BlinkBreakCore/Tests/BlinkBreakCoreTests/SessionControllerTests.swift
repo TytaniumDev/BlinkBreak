@@ -397,6 +397,12 @@ struct SessionControllerTests {
         let doneNotification = f.scheduler.scheduledNotifications.first { $0.identifier == doneId }
         #expect(doneNotification != nil, "expected a done notification to be scheduled locally")
         #expect(doneNotification?.fireDate == lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
+
+        // The next cycle's break notification should also be scheduled so the
+        // iPhone fallback remains active regardless of which device handled the ack.
+        let nextBreakId = BlinkBreakConstants.breakPrimaryIdPrefix + remoteSnapshot.currentCycleId!.uuidString
+        let nextBreakNotification = f.scheduler.scheduledNotifications.first { $0.identifier == nextBreakId }
+        #expect(nextBreakNotification != nil, "expected the next break notification to be scheduled locally")
     }
 
     @Test("handleRemoteSnapshot ignores snapshots older than the local lastUpdatedAt")
