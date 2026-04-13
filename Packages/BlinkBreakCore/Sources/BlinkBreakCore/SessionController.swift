@@ -174,13 +174,16 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         )
 
         // 7. Persist the new state. currentCycleId is the NEW one; cycleStartedAt is the NEW one.
-        //    lookAwayStartedAt records the start of the current 20s window.
+        //    lookAwayStartedAt records the start of the current 20s window. Forward
+        //    wasAutoStarted so schedule-started sessions remain eligible for auto-stop
+        //    across break cycles.
         let newRecord = SessionRecord(
             sessionActive: true,
             currentCycleId: nextCycleId,
             cycleStartedAt: nextCycleStartedAt,
             lookAwayStartedAt: lookAwayStartedAt,
-            lastUpdatedAt: clock()
+            lastUpdatedAt: clock(),
+            wasAutoStarted: record.wasAutoStarted
         )
         persistence.save(newRecord)
 
@@ -291,7 +294,9 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         if shouldBeActive && state == .idle {
             start()
             // Mark the session as schedule-initiated so we can auto-stop it later.
-            // Manual starts leave wasAutoStarted as nil/false.
+            // Manual starts leave wasAutoStarted as nil/false. Two writes (start()
+            // saves the record, then we patch it) to avoid changing start()'s public
+            // API with an internal-only parameter.
             var updated = persistence.load()
             updated.wasAutoStarted = true
             persistence.save(updated)

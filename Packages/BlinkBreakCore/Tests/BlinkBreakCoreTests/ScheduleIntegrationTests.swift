@@ -142,6 +142,35 @@ struct ScheduleIntegrationTests {
         #expect(f.controller.state != .idle)
     }
 
+    @Test("auto-started session remains auto-stoppable after a break cycle")
+    func autoStartSurvivesBreakCycle() async {
+        let f = Fixture()
+        f.controller.updateSchedule(.default)
+        // Auto-start via schedule.
+        f.evaluator.stubbedShouldBeActive = true
+        await f.controller.reconcileOnLaunch()
+        #expect(f.controller.state != .idle)
+
+        // Advance past the break interval so reconcile transitions to breakActive.
+        f.advance(by: BlinkBreakConstants.breakInterval + 1)
+        await f.controller.reconcileOnLaunch()
+
+        // Acknowledge the break to transition through lookAway → running.
+        let cycleId = f.persistence.load().currentCycleId!
+        f.controller.handleStartBreakAction(cycleId: cycleId)
+
+        // Advance past the look-away window.
+        f.advance(by: BlinkBreakConstants.lookAwayDuration + 1)
+        await f.controller.reconcileOnLaunch()
+        #expect(f.controller.state != .idle)
+
+        // Now schedule says inactive → should still auto-stop because the session
+        // was schedule-started, even though we went through a full break cycle.
+        f.evaluator.stubbedShouldBeActive = false
+        await f.controller.reconcileOnLaunch()
+        #expect(f.controller.state == .idle)
+    }
+
     @Test("updateSchedule saves to persistence and updates published property")
     func updateSchedule() {
         let f = Fixture()
