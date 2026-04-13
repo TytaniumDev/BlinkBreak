@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BlinkBreak is an iOS + watchOS app that enforces the 20-20-20 rule for eye strain: every 20 minutes, the user is alerted to look at something 20 feet away for 20 seconds. The alert is delivered as a 30-second alarm-style Watch haptic cascade so it's hard to miss while the user is on a PC or gaming. Hardcoded 20/20/20 durations; no scheduling; manual Start/Stop only in V1.
+BlinkBreak is an iOS + watchOS app that enforces the 20-20-20 rule for eye strain: every 20 minutes, the user is alerted to look at something 20 feet away for 20 seconds. The alert is delivered as a 30-second alarm-style Watch haptic plus a notification with a "Start break" action button. Supports an optional weekly schedule for automatic start/stop.
 
 Tyler is a Flutter expert new to iOS/Swift — code comments frame SwiftUI concepts in terms of Flutter analogues where helpful.
 
@@ -71,13 +71,13 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 Four states: `idle`, `running`, `breakActive`, `lookAway`. Two user transitions: `Start` and `Stop`. Two automatic transitions driven by scheduled notifications: `running → breakActive` when the 20-minute primary fires, `lookAway → running` when the 20-second done notification fires.
 
-The iPhone is the source of truth in V1. The Watch forwards user commands (`Start`, `Stop`, `startBreak`) via `WCSession.sendMessage` and receives state snapshots via `WCSession.updateApplicationContext`.
+The iPhone is the source of truth. The Watch forwards user commands (`Start`, `Stop`, `startBreak`) via `WCSession.sendMessage` and receives state snapshots via `WCSession.updateApplicationContext`.
 
-### Notification cascade
+### Notification + Watch alarm
 
-When entering `running`, `SessionController` schedules **six local notifications** for the current cycle: 1 primary at T+20:00 plus 5 nudges at T+20:05 through T+20:25, all sharing a `thread-identifier = cycleId.uuidString` so Notification Center collapses them into a single visual entry. The cascade creates ~30 seconds of repeated Watch haptic until the user acknowledges. Tapping "Start break" on any of the six cancels the remaining pending ones, schedules a soft `done` notification at `now + 20 s`, and schedules the next cycle's full cascade.
+When entering `running`, `SessionController` schedules **one local notification** at T+20:00 with the `BLINKBREAK_BREAK_CATEGORY` category (which attaches the "Start break" action button). On the Watch, `WKExtendedRuntimeSessionAlarm` also arms a `WKExtendedRuntimeSession` that fires a ~30-second repeating haptic at break time, plus a Watch-local notification scheduled upfront (survives session expiry).
 
-This cascade approach is necessary because **iOS has no "keep retrying haptic until acknowledged" API** — scheduled notifications are the only tool for reliable alerts when the app is backgrounded. From the user's perspective it feels like one alarm; under the hood it's six scheduled notifications.
+Tapping "Start break" cancels the break notification, schedules a `done` notification at `now + 20s`, and schedules the next cycle's break notification.
 
 ### Persistence + reconciliation
 
@@ -113,10 +113,6 @@ Two layers. **Run unit tests during iteration; run integration tests only as fin
 
 All four of these are in the **on-device manual verification checklist** in `docs/superpowers/plans/2026-04-11-notification-alarm-redesign.md` (Task 13, Step 5). Any PR that affects alarm behavior must exercise the manual checklist before merging.
 
-### watchOS integration tests — deliberately not included in V1
-
-Apple's XCUITest support on watchOS is limited and flaky. The watchOS views are thin mirrors of the iOS views that share the same `SessionControllerProtocol`, so the iOS integration tests provide transitive coverage of the state machine logic the watchOS target depends on. Adding a `BlinkBreakWatchUITests` target was evaluated and deferred — the cost/benefit didn't justify it for V1.
-
 ## Platform constraints
 
 - **iOS 17+ / watchOS 10+.** Required for Time Sensitive notifications and modern SwiftUI.
@@ -129,7 +125,7 @@ Matches the `TytaniumDev` repo pattern established by Wheelson / HeadsUpCDM / My
 - `.github/workflows/ci.yml` (`pull_request` trigger) calls `.github/workflows/ci-shared.yml` (reusable `workflow_call`).
 - `ci-shared.yml` has three jobs: `Lint`, `Build`, `Test` — all on `macos-15` because iOS SDK requires macOS + Xcode. Branch protection requires check names `CI / Lint`, `CI / Build`, `CI / Test`. **Do not rename the calling job ID (`CI`) in `ci.yml` or the reusable job IDs (`Lint`, `Build`, `Test`) in `ci-shared.yml`, and do not add extra triggers to `ci.yml`.**
 - `.github/workflows/claude.yml` and `claude-code-review.yml` call the shared workflows in `TytaniumDev/.github/.github/workflows/` (same pattern as Wheelson).
-- `.github/workflows/deploy-testflight.yml` is `workflow_dispatch`-only in V1. Enable automatic deploys only after enrolling in the Apple Developer Program and populating the `APPSTORE_API_KEY_*` + `BUILD_CERTIFICATE_*` repo secrets — see `README.md → TestFlight deployment`.
+- `.github/workflows/deploy-testflight.yml` is `workflow_dispatch`-only. Enable automatic deploys only after enrolling in the Apple Developer Program and populating the `APPSTORE_API_KEY_*` + `BUILD_CERTIFICATE_*` repo secrets — see `README.md → TestFlight deployment`.
 
 ## Git workflow
 
