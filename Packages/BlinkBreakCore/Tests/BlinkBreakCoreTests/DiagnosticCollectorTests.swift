@@ -49,7 +49,7 @@ struct DiagnosticCollectorTests {
             scheduler: scheduler,
             persistence: persistence,
             logBuffer: logBuffer,
-            sessionState: "running",
+            sessionState: .running(cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000)),
             watchIsPaired: true,
             watchIsReachable: false
         )
@@ -79,7 +79,7 @@ struct DiagnosticCollectorTests {
             scheduler: MockNotificationScheduler(),
             persistence: persistence,
             logBuffer: LogBuffer(capacity: 10),
-            sessionState: "idle",
+            sessionState: .idle,
             watchIsPaired: false,
             watchIsReachable: false
         )
@@ -105,7 +105,7 @@ struct DiagnosticCollectorTests {
             scheduler: MockNotificationScheduler(),
             persistence: persistence,
             logBuffer: LogBuffer(capacity: 10),
-            sessionState: "running",
+            sessionState: .running(cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000)),
             watchIsPaired: true,
             watchIsReachable: true
         )

@@ -19,7 +19,7 @@ public struct DiagnosticCollector: Sendable {
     private let scheduler: NotificationSchedulerProtocol
     private let persistence: PersistenceProtocol
     private let logBuffer: LogBuffer
-    private let sessionState: String
+    private let sessionState: SessionState
     private let watchIsPaired: Bool
     private let watchIsReachable: Bool
 
@@ -27,7 +27,7 @@ public struct DiagnosticCollector: Sendable {
         scheduler: NotificationSchedulerProtocol,
         persistence: PersistenceProtocol,
         logBuffer: LogBuffer,
-        sessionState: String,
+        sessionState: SessionState,
         watchIsPaired: Bool,
         watchIsReachable: Bool
     ) {
@@ -50,7 +50,7 @@ public struct DiagnosticCollector: Sendable {
         return DiagnosticReport(
             timestamp: Date(),
             deviceInfo: deviceInfo,
-            sessionState: sessionState,
+            sessionState: sessionState.description,
             sessionRecord: record,
             weeklySchedule: schedule,
             pendingNotifications: pending,

@@ -63,7 +63,7 @@ struct BlinkBreakApp: App {
                 content: RootView(controller: controller, scheduleEvaluator: Self.sharedEvaluator),
                 scheduler: Self.sharedScheduler,
                 persistence: Self.sharedPersistence,
-                sessionState: controller.state.description,
+                sessionState: controller.state,
                 watchIsPaired: WCSession.isSupported() ? WCSession.default.isPaired : false,
                 watchIsReachable: WCSession.isSupported() ? WCSession.default.isReachable : false
             )
