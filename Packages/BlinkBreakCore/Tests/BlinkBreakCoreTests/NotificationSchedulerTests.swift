@@ -89,3 +89,33 @@ struct NotificationSchedulerTests {
         #expect(n.soundName == "break-alarm.caf")
     }
 }
+
+@Suite("MockNotificationScheduler — pendingRequests")
+struct MockPendingRequestsTests {
+
+    @Test("pendingRequests returns identifier and fireDate for scheduled notifications")
+    func pendingRequestsReturnsScheduledInfo() async {
+        let mock = MockNotificationScheduler()
+        mock.schedule(ScheduledNotification(
+            identifier: "test.1",
+            title: "T",
+            body: "B",
+            fireDate: Date(timeIntervalSince1970: 1_700_001_000),
+            isTimeSensitive: false,
+            threadIdentifier: "thread",
+            categoryIdentifier: nil
+        ))
+
+        let requests = await mock.pendingRequests()
+        #expect(requests.count == 1)
+        #expect(requests[0].identifier == "test.1")
+        #expect(requests[0].fireDate == Date(timeIntervalSince1970: 1_700_001_000))
+    }
+
+    @Test("pendingRequests returns empty array when nothing scheduled")
+    func pendingRequestsEmptyWhenNothingScheduled() async {
+        let mock = MockNotificationScheduler()
+        let requests = await mock.pendingRequests()
+        #expect(requests.isEmpty)
+    }
+}
