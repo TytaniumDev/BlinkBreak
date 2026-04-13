@@ -8,7 +8,7 @@
 import Foundation
 @testable import BlinkBreakCore
 
-final class MockScheduleEvaluator: ScheduleEvaluating, @unchecked Sendable {
+final class MockScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Sendable {
 
     var stubbedShouldBeActive: Bool = false
     var stubbedNextTransitionDate: Date?

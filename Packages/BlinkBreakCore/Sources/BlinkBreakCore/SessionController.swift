@@ -39,7 +39,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     private let persistence: PersistenceProtocol
     private let alarm: SessionAlarmProtocol
     private let clock: @Sendable () -> Date
-    private let scheduleEvaluator: ScheduleEvaluating
+    private let scheduleEvaluator: ScheduleEvaluatorProtocol
     private let calendar: Calendar
 
     // MARK: - Init
@@ -60,7 +60,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         connectivity: WatchConnectivityProtocol,
         persistence: PersistenceProtocol,
         alarm: SessionAlarmProtocol,
-        scheduleEvaluator: ScheduleEvaluating = NoopScheduleEvaluator(),
+        scheduleEvaluator: ScheduleEvaluatorProtocol = NoopScheduleEvaluator(),
         calendar: Calendar = .current,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {

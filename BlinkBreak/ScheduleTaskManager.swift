@@ -18,12 +18,12 @@ import BlinkBreakCore
 final class ScheduleTaskManager {
 
     private let persistence: PersistenceProtocol
-    private let evaluator: ScheduleEvaluating
+    private let evaluator: ScheduleEvaluatorProtocol
     private let controllerProvider: @MainActor () -> SessionController?
 
     init(
         persistence: PersistenceProtocol,
-        evaluator: ScheduleEvaluating,
+        evaluator: ScheduleEvaluatorProtocol,
         controllerProvider: @escaping @MainActor () -> SessionController?
     ) {
         self.persistence = persistence

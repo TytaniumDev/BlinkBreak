@@ -14,18 +14,18 @@
 
 import Foundation
 
-public protocol ScheduleEvaluating: Sendable {
+public protocol ScheduleEvaluatorProtocol: Sendable {
     func shouldBeActive(at date: Date, manualStopDate: Date?, calendar: Calendar) -> Bool
     func nextTransitionDate(from date: Date, calendar: Calendar) -> Date?
 }
 
-public struct NoopScheduleEvaluator: ScheduleEvaluating {
+public struct NoopScheduleEvaluator: ScheduleEvaluatorProtocol {
     public init() {}
     public func shouldBeActive(at date: Date, manualStopDate: Date?, calendar: Calendar) -> Bool { false }
     public func nextTransitionDate(from date: Date, calendar: Calendar) -> Date? { nil }
 }
 
-public final class ScheduleEvaluator: ScheduleEvaluating, @unchecked Sendable {
+public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Sendable {
 
     private let schedule: @Sendable () -> WeeklySchedule
 
