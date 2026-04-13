@@ -15,7 +15,7 @@ struct WatchBreakPendingView<Controller: SessionControllerProtocol>: View {
     @ObservedObject var controller: Controller
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             Text("LOOK AWAY")
                 .font(.caption2)
                 .tracking(1.2)
@@ -33,6 +33,14 @@ struct WatchBreakPendingView<Controller: SessionControllerProtocol>: View {
             .tint(.white)
             .foregroundStyle(Color(red: 0.69, green: 0, blue: 0.13))
             .accessibilityIdentifier("button.breakPending.startBreak")
+
+            Button("Stop") {
+                controller.stop()
+            }
+            .buttonStyle(.plain)
+            .font(.footnote)
+            .foregroundStyle(.white.opacity(0.85))
+            .accessibilityIdentifier("button.breakPending.stop")
         }
         .padding(.vertical, 10)
     }
