@@ -155,7 +155,7 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
     private func scheduleWatchLocalNotification(cycleId: UUID, fireDate: Date) {
         let content = UNMutableNotificationContent()
         content.title = "Time to look away"
-        content.body = "Focus on something 20 feet away for 20 seconds."
+        content.body = "Tap to start your 20-second break."
         content.sound = .default
         content.categoryIdentifier = BlinkBreakConstants.breakCategoryId
         content.threadIdentifier = cycleId.uuidString
