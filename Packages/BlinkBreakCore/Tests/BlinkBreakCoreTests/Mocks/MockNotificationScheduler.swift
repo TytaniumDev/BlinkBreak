@@ -73,6 +73,14 @@ final class MockNotificationScheduler: NotificationSchedulerProtocol, @unchecked
         return scheduledNotifications.map { $0.identifier }
     }
 
+    func pendingRequests() async -> [PendingNotificationInfo] {
+        lock.lock()
+        defer { lock.unlock() }
+        return scheduledNotifications.map {
+            PendingNotificationInfo(identifier: $0.identifier, fireDate: $0.fireDate)
+        }
+    }
+
     // MARK: - Test helpers
 
     /// The last set of identifiers passed to `cancel(identifiers:)`, or `nil` if never called.

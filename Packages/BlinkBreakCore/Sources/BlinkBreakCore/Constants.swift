@@ -54,7 +54,13 @@ public enum BlinkBreakConstants {
 
     /// Filename (without directory path) of the bundled custom alarm sound for the break
     /// notification. iOS looks for this in the app bundle and truncates at 30 seconds.
-    public static let breakSoundFileName = "break-alarm.caf"
+    /// Returns nil when running under the XCUITest environment so simulator tests are silent.
+    public static let breakSoundFileName: String? = {
+        if ProcessInfo.processInfo.environment["BB_BREAK_INTERVAL"] != nil {
+            return nil
+        }
+        return "break-alarm.caf"
+    }()
 
     /// Notification category ID for the break-alert action ("Start break" button).
     public static let breakCategoryId = "BLINKBREAK_BREAK_CATEGORY"

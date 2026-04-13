@@ -69,3 +69,14 @@ extension SessionState {
         }
     }
 }
+
+extension SessionState: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .idle: return "idle"
+        case .running: return "running"
+        case .breakActive: return "breakActive"
+        case .lookAway: return "lookAway"
+        }
+    }
+}

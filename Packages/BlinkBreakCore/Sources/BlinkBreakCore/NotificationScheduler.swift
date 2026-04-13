@@ -92,6 +92,11 @@ public protocol NotificationSchedulerProtocol: Sendable {
     /// Return the identifiers of all currently-pending notifications.
     /// Used by reconciliation on launch. Async because UNUserNotificationCenter's API is async.
     func pendingIdentifiers() async -> [String]
+
+    /// Return identifier + fire date for all currently-pending notifications.
+    /// Used by DiagnosticCollector for bug reports. Async because UNUserNotificationCenter's
+    /// API is async.
+    func pendingRequests() async -> [PendingNotificationInfo]
 }
 
 // MARK: - Cascade builder
@@ -189,12 +194,11 @@ public final class UNNotificationScheduler: NotificationSchedulerProtocol, @unch
         content.body = notification.body
         // Custom notification sounds are iOS-only; watchOS uses system haptics and
         // ignores custom sound files. On watchOS we fall back to .default so the same
-        // ScheduledNotification struct builds everywhere.
+        // ScheduledNotification struct builds everywhere. When soundName is nil (e.g.
+        // during XCUITests), sound is omitted entirely so simulator tests are silent.
         #if os(iOS)
         if let soundName = notification.soundName {
             content.sound = UNNotificationSound(named: UNNotificationSoundName(soundName))
-        } else {
-            content.sound = .default
         }
         #else
         content.sound = .default
@@ -240,6 +244,21 @@ public final class UNNotificationScheduler: NotificationSchedulerProtocol, @unch
         await withCheckedContinuation { continuation in
             center.getPendingNotificationRequests { requests in
                 continuation.resume(returning: requests.map { $0.identifier })
+            }
+        }
+    }
+
+    public func pendingRequests() async -> [PendingNotificationInfo] {
+        await withCheckedContinuation { continuation in
+            center.getPendingNotificationRequests { requests in
+                let infos = requests.map { request in
+                    PendingNotificationInfo(
+                        identifier: request.identifier,
+                        fireDate: (request.trigger as? UNTimeIntervalNotificationTrigger)
+                            .flatMap { $0.nextTriggerDate() }
+                    )
+                }
+                continuation.resume(returning: infos)
             }
         }
     }

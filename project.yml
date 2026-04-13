@@ -76,6 +76,9 @@ targets:
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # Bug report PAT, injected via BugReport.xcconfig (gitignored).
+        # Falls back gracefully if the xcconfig is missing.
+        BugReportGitHubToken: $(BUG_REPORT_GITHUB_TOKEN)
     entitlements:
       path: BlinkBreak/BlinkBreak.entitlements
       properties:

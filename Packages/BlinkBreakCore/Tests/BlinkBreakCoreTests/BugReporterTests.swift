@@ -1,0 +1,111 @@
+//
+//  BugReporterTests.swift
+//  BlinkBreakCoreTests
+//
+//  Tests for the GitHub issue Markdown formatting logic. The actual POST is not tested
+//  (it's a single URLSession call verified by construction); we test the formatting
+//  because that's where bugs hide.
+//
+
+import Testing
+@testable import BlinkBreakCore
+
+@Suite("GitHubIssueReporter — formatting")
+struct BugReporterFormattingTests {
+
+    private func makeReport(
+        sessionState: String = "running",
+        logCount: Int = 0
+    ) -> DiagnosticReport {
+        let logs = (0..<logCount).map { i in
+            LogEntry(
+                timestamp: Date(timeIntervalSince1970: 1_700_000_000 + Double(i)),
+                level: .info,
+                message: "log \(i)"
+            )
+        }
+        return DiagnosticReport(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_100),
+            deviceInfo: DeviceInfo(
+                iosVersion: "17.4",
+                deviceModel: "iPhone15,2",
+                appVersion: "0.1.0",
+                buildNumber: "42",
+                isTestFlight: true
+            ),
+            sessionState: sessionState,
+            sessionRecord: .idle,
+            weeklySchedule: .empty,
+            pendingNotifications: [
+                PendingNotificationInfo(
+                    identifier: "break.primary.abc",
+                    fireDate: Date(timeIntervalSince1970: 1_700_001_200)
+                )
+            ],
+            watchIsPaired: true,
+            watchIsReachable: false,
+            watchLastSyncedAt: nil,
+            logEntries: logs
+        )
+    }
+
+    @Test("title truncates long descriptions to ~60 chars")
+    func titleTruncation() {
+        let longDesc = String(repeating: "a", count: 100)
+        let title = GitHubIssueReporter.formatTitle(userDescription: longDesc)
+        #expect(title.count <= 75) // "[Bug Report] " prefix + 60 chars + "..."
+        #expect(title.hasPrefix("[Bug Report] "))
+        #expect(title.hasSuffix("..."))
+    }
+
+    @Test("title uses full description when short enough")
+    func titleShortDescription() {
+        let title = GitHubIssueReporter.formatTitle(userDescription: "Timer skips")
+        #expect(title == "[Bug Report] Timer skips")
+    }
+
+    @Test("body contains all diagnostic sections")
+    func bodyContainsAllSections() {
+        let report = makeReport(logCount: 2)
+        let body = GitHubIssueReporter.formatBody(
+            userDescription: "Something broke",
+            report: report
+        )
+
+        // User description section
+        #expect(body.contains("Something broke"))
+        // Device info section
+        #expect(body.contains("iPhone15,2"))
+        #expect(body.contains("17.4"))
+        #expect(body.contains("0.1.0"))
+        // App state section
+        #expect(body.contains("running"))
+        // Pending notifications
+        #expect(body.contains("break.primary.abc"))
+        // Watch section
+        #expect(body.contains("Paired: true"))
+        // Log entries in a details block
+        #expect(body.contains("<details>"))
+        #expect(body.contains("log 0"))
+        #expect(body.contains("log 1"))
+    }
+
+    @Test("body omits log section when no entries")
+    func bodyOmitsEmptyLogs() {
+        let report = makeReport(logCount: 0)
+        let body = GitHubIssueReporter.formatBody(
+            userDescription: "Bug",
+            report: report
+        )
+        #expect(!body.contains("<details>"))
+    }
+
+    @Test("NoopBugReporter does not throw")
+    func noopDoesNotThrow() async throws {
+        let noop = NoopBugReporter()
+        try await noop.submit(
+            report: makeReport(),
+            userDescription: "test"
+        )
+    }
+}

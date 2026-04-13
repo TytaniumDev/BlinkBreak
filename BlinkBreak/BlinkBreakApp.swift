@@ -12,6 +12,7 @@
 
 import SwiftUI
 import BlinkBreakCore
+import WatchConnectivity
 
 @main
 struct BlinkBreakApp: App {
@@ -37,15 +38,16 @@ struct BlinkBreakApp: App {
         sharedPersistence.loadSchedule() ?? .empty
     })
 
+    private static let sharedScheduler = UNNotificationScheduler()
+
     // @StateObject owns an observable object for the entire lifetime of the app.
     // Flutter analogue: a top-level ChangeNotifierProvider that lives for as long
     // as the app runs. Views deeper in the tree observe this via @ObservedObject /
     // @EnvironmentObject.
     @StateObject private var controller: SessionController = {
-        let scheduler = UNNotificationScheduler()
-        scheduler.registerCategories()
+        sharedScheduler.registerCategories()
         return SessionController(
-            scheduler: scheduler,
+            scheduler: sharedScheduler,
             connectivity: WCSessionConnectivity(),
             persistence: sharedPersistence,
             alarm: NoopSessionAlarm(),
@@ -57,7 +59,14 @@ struct BlinkBreakApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(controller: controller)
+            ShakeDetectorView(
+                content: RootView(controller: controller),
+                scheduler: Self.sharedScheduler,
+                persistence: Self.sharedPersistence,
+                sessionState: controller.state.description,
+                watchIsPaired: WCSession.isSupported() ? WCSession.default.isPaired : false,
+                watchIsReachable: WCSession.isSupported() ? WCSession.default.isReachable : false
+            )
                 .onAppear {
                     // Hand the controller to the AppDelegate so notification action
                     // taps can be routed to SessionController.handleStartBreakAction.
