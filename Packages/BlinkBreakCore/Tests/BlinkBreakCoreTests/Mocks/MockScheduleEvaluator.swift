@@ -8,10 +8,11 @@
 import Foundation
 @testable import BlinkBreakCore
 
-final class MockScheduleEvaluator: ScheduleEvaluating, @unchecked Sendable {
+final class MockScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Sendable {
 
     var stubbedShouldBeActive: Bool = false
     var stubbedNextTransitionDate: Date?
+    var stubbedStatusText: String?
     var shouldBeActiveCalls: [(date: Date, manualStopDate: Date?)] = []
 
     func shouldBeActive(at date: Date, manualStopDate: Date?, calendar: Calendar) -> Bool {
@@ -21,5 +22,9 @@ final class MockScheduleEvaluator: ScheduleEvaluating, @unchecked Sendable {
 
     func nextTransitionDate(from date: Date, calendar: Calendar) -> Date? {
         stubbedNextTransitionDate
+    }
+
+    func statusText(at date: Date, calendar: Calendar) -> String? {
+        stubbedStatusText
     }
 }

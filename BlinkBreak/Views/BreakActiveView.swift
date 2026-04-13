@@ -2,13 +2,13 @@
 //  BreakActiveView.swift
 //  BlinkBreak
 //
-//  The breakActive-state view. Full-bleed red alert with a large "Start break"
-//  button. Only shown when the app is foregrounded during the cascade — backgrounded
-//  users see the notifications instead.
+//  The breakActive-state view. Calm dark theme. No countdown UI — the entire point
+//  of the 20-second rest is to stop looking at screens. The user doesn't need
+//  to see this view; it's here only for the rare case they foreground the app
+//  mid-break. A haptic on the Watch will tell them when the 20 seconds are up.
 //
-//  Contains zero business logic: the "Start break" button calls
-//  `controller.acknowledgeCurrentBreak()` and the controller looks up its own
-//  cycleId from persistence. The view doesn't know or care about cycleIds.
+//  The only interactive element is the Stop button, in case the user is ending
+//  their session entirely.
 //
 
 import SwiftUI
@@ -20,44 +20,31 @@ struct BreakActiveView<Controller: SessionControllerProtocol>: View {
 
     var body: some View {
         VStack(spacing: 16) {
+            EyebrowLabel(text: "Looking away")
+
             Spacer()
 
-            EyebrowLabel(text: "Break time")
-
-            Text("Look at something\n20 feet away")
-                .font(.largeTitle.weight(.semibold))
+            Text("Don't look at this screen.\nWe'll haptic you when your 20 seconds are up.")
+                .font(.headline)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.white)
-
-            Text("Focus on a distant object for 20 seconds to rest your eyes.")
-                .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 32)
+                .accessibilityIdentifier("label.breakActive.message")
 
             Spacer()
 
-            Button {
-                controller.acknowledgeCurrentBreak()
-            } label: {
-                Text("Start break")
-                    .font(.headline)
-                    .foregroundStyle(Color(red: 0.69, green: 0.00, blue: 0.13))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Capsule().fill(Color.white))
+            DestructiveButton(title: "Stop") {
+                controller.stop()
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("button.breakActive.startBreak")
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            .accessibilityIdentifier("button.breakActive.stop")
         }
+        .padding(24)
     }
 }
 
 #Preview {
     ZStack {
-        AlertBackground()
+        CalmBackground()
         BreakActiveView(controller: PreviewSessionController.breakActive)
     }
 }

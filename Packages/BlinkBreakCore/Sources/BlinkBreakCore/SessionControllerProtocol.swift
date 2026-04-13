@@ -37,14 +37,14 @@ public protocol SessionControllerProtocol: ObservableObject {
     func handleStartBreakAction(cycleId: UUID)
 
     /// Acknowledge the currently-active break from inside the app. Used by
-    /// `BreakActiveView` when the user taps the in-app "Start break" button.
+    /// `BreakPendingView` when the user taps the in-app "Start break" button.
     /// The controller looks up its own current cycleId and calls `handleStartBreakAction`.
     /// Views don't need to know about cycleIds.
     func acknowledgeCurrentBreak()
 
-    /// Called from onAppear / applicationDidBecomeActive. Rebuilds the in-memory state
-    /// from UserDefaults + pending notifications. Never trusts in-memory state.
-    func reconcileOnLaunch() async
+    /// Rebuilds in-memory state from persistence + clock. Called on app launch,
+    /// foregrounding, and notification delivery. Never trusts in-memory state.
+    func reconcile() async
 
     /// The current weekly schedule. Views observe this to display schedule settings.
     var weeklySchedule: WeeklySchedule { get }

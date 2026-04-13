@@ -39,7 +39,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     private let persistence: PersistenceProtocol
     private let alarm: SessionAlarmProtocol
     private let clock: @Sendable () -> Date
-    private let scheduleEvaluator: ScheduleEvaluating
+    private let scheduleEvaluator: ScheduleEvaluatorProtocol
     private let calendar: Calendar
 
     // MARK: - Init
@@ -60,7 +60,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         connectivity: WatchConnectivityProtocol,
         persistence: PersistenceProtocol,
         alarm: SessionAlarmProtocol,
-        scheduleEvaluator: ScheduleEvaluating = NoopScheduleEvaluator(),
+        scheduleEvaluator: ScheduleEvaluatorProtocol = NoopScheduleEvaluator(),
         calendar: Calendar = .current,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -78,6 +78,13 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     /// Starts a new session. Transitions idle → running. Schedules the first break cascade.
     public func start() {
+        startSession(wasAutoStarted: false)
+    }
+
+    /// Core start logic. Used by both `start()` (manual) and `evaluateSchedule()` (auto).
+    /// - Parameter wasAutoStarted: Pass `true` when the session is started by the weekly
+    ///   schedule so it can be auto-stopped later. Manual starts pass `false`.
+    private func startSession(wasAutoStarted: Bool = false) {
         // Clean up any stale state from a previous (possibly crashed) session.
         scheduler.cancelAll()
 
@@ -88,8 +95,9 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             sessionActive: true,
             currentCycleId: cycleId,
             cycleStartedAt: cycleStartedAt,
-            lookAwayStartedAt: nil,
-            lastUpdatedAt: cycleStartedAt
+            breakActiveStartedAt: nil,
+            lastUpdatedAt: cycleStartedAt,
+            wasAutoStarted: wasAutoStarted ? true : nil
         )
         persistence.save(record)
 
@@ -150,16 +158,16 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         // 2. Cancel all notifications for this cycle (pending and delivered).
         scheduler.cancel(identifiers: CascadeBuilder.identifiers(for: cycleId))
 
-        // 3. The user is about to start looking away. Generate a new cycleId for the NEXT cycle.
-        let lookAwayStartedAt = clock()
+        // 3. The user is starting the break. Generate a new cycleId for the NEXT cycle.
+        let breakActiveStartedAt = clock()
         let nextCycleId = UUID()
-        let nextCycleStartedAt = lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration)
+        let nextCycleStartedAt = breakActiveStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration)
 
         // 4. Schedule the "done, back to work" notification. Uses the OLD cycleId so it shares
         //    the thread-identifier with the cascade it completes — groups cleanly in Notification
         //    Center.
         scheduler.schedule(
-            CascadeBuilder.buildDoneNotification(cycleId: cycleId, lookAwayStartedAt: lookAwayStartedAt)
+            CascadeBuilder.buildDoneNotification(cycleId: cycleId, breakActiveStartedAt: breakActiveStartedAt)
         )
 
         // 5. Schedule the next cycle's single break notification.
@@ -174,26 +182,26 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         )
 
         // 7. Persist the new state. currentCycleId is the NEW one; cycleStartedAt is the NEW one.
-        //    lookAwayStartedAt records the start of the current 20s window. Forward
+        //    breakActiveStartedAt records the start of the current 20s window. Forward
         //    wasAutoStarted so schedule-started sessions remain eligible for auto-stop
         //    across break cycles.
         let newRecord = SessionRecord(
             sessionActive: true,
             currentCycleId: nextCycleId,
             cycleStartedAt: nextCycleStartedAt,
-            lookAwayStartedAt: lookAwayStartedAt,
+            breakActiveStartedAt: breakActiveStartedAt,
             lastUpdatedAt: clock(),
             wasAutoStarted: record.wasAutoStarted
         )
         persistence.save(newRecord)
 
         // 8. Update UI state and broadcast to the Watch.
-        state = .lookAway(lookAwayStartedAt: lookAwayStartedAt)
+        state = .breakActive(startedAt: breakActiveStartedAt)
         broadcastSnapshot(for: newRecord)
     }
 
     /// Acknowledges the current break cycle from inside the app (e.g. the user tapped
-    /// "Start break" on the foregrounded `BreakActiveView` instead of on a notification).
+    /// "Start break" on the foregrounded `BreakPendingView` instead of on a notification).
     /// Resolves the current cycleId from persistence and forwards to `handleStartBreakAction`.
     public func acknowledgeCurrentBreak() {
         guard let cycleId = persistence.load().currentCycleId else { return }
@@ -202,16 +210,15 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     /// Rebuilds the in-memory `state` from the persisted record + pending notifications +
     /// the current clock. Never trusts in-memory state. Called on launch, on foreground,
-    /// and periodically by views to detect automatic state transitions (running → breakActive,
-    /// lookAway → running). After reconciling persisted state, evaluates the weekly schedule
-    /// to auto-start or auto-stop as appropriate.
-    public func reconcileOnLaunch() async {
+    /// and on notification delivery. After reconciling persisted state, evaluates the weekly
+    /// schedule to auto-start or auto-stop as appropriate.
+    public func reconcile() async {
         reconcileState()
         evaluateSchedule()
     }
 
     /// Core reconciliation logic: rebuilds the in-memory `state` from the persisted record +
-    /// the current clock. Extracted from `reconcileOnLaunch` so `evaluateSchedule` can run
+    /// the current clock. Extracted from `reconcile` so `evaluateSchedule` can run
     /// after reconciliation completes.
     private func reconcileState() {
         let record = persistence.load()
@@ -231,18 +238,18 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             return
         }
 
-        // Case 3: if we're still inside the lookAway window, show lookAway.
-        if let lookAwayStartedAt = record.lookAwayStartedAt {
-            let lookAwayEnd = lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration)
-            if now < lookAwayEnd {
-                state = .lookAway(lookAwayStartedAt: lookAwayStartedAt)
+        // Case 3: if we're still inside the breakActive window, show breakActive.
+        if let breakActiveStartedAt = record.breakActiveStartedAt {
+            let breakActiveEnd = breakActiveStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration)
+            if now < breakActiveEnd {
+                state = .breakActive(startedAt: breakActiveStartedAt)
                 return
             }
-            // lookAway has already elapsed. Clear the stale field in persistence and fall
-            // through to the running/breakActive check below. The persisted cycleStartedAt
+            // breakActive has already elapsed. Clear the stale field in persistence and fall
+            // through to the running/breakPending check below. The persisted cycleStartedAt
             // already points to the next cycle (set when handleStartBreakAction ran).
             var cleared = record
-            cleared.lookAwayStartedAt = nil
+            cleared.breakActiveStartedAt = nil
             persistence.save(cleared)
             broadcastSnapshot(for: cleared)
         }
@@ -258,18 +265,18 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             return
         }
 
-        // Case 5: break time has arrived (or passed) without a look-away start.
-        // State is breakActive — the user needs to acknowledge the break. This is
+        // Case 5: break time has arrived (or passed) without a break acknowledgment.
+        // State is breakPending — the user needs to acknowledge the break. This is
         // unconditional: with the single-notification design, the notification
         // either transitions from pending to delivered at break time (no overlap
         // window), so we can't distinguish "just fired" from "fired a while ago"
         // by inspecting the scheduler. Instead we rely on the persisted session
         // record: if the user never acknowledged, they're still owed a break.
         //
-        // The user can always Stop the session from the breakActive screen path
-        // (ack, then stop from lookAway) or by swiping away the notification and
+        // The user can always Stop the session from the breakPending screen path
+        // (ack, then stop from breakActive) or by swiping away the notification and
         // reopening the app. There's no timeout-to-idle fallback.
-        state = .breakActive(cycleStartedAt: cycleStartedAt)
+        state = .breakPending(cycleStartedAt: cycleStartedAt)
         // Re-arm the alarm so the Watch can restart the haptic loop after an app
         // kill/relaunch during an active break. Uses breakFireTime (which is in the
         // past) — the alarm implementation's DispatchSourceTimer fires immediately
@@ -292,14 +299,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             calendar: calendar
         )
         if shouldBeActive && state == .idle {
-            start()
-            // Mark the session as schedule-initiated so we can auto-stop it later.
-            // Manual starts leave wasAutoStarted as nil/false. Two writes (start()
-            // saves the record, then we patch it) to avoid changing start()'s public
-            // API with an internal-only parameter.
-            var updated = persistence.load()
-            updated.wasAutoStarted = true
-            persistence.save(updated)
+            startSession(wasAutoStarted: true)
         } else if !shouldBeActive && state.isActive && (record.wasAutoStarted ?? false) {
             stop()
         }
@@ -343,7 +343,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     }
 
     /// Processes an incoming WCSession snapshot from the paired device. Implements the
-    /// acknowledgment-sync rule: if a remote ack just happened (incoming `lookAwayStartedAt`
+    /// acknowledgment-sync rule: if a remote ack just happened (incoming `breakActiveStartedAt`
     /// newly set), cancel our delivered notification for the acked cycle and disarm our
     /// local alarm.
     ///
@@ -358,7 +358,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         guard snapshot.updatedAt > localStamp else { return }
 
         // Detect remote state changes that require local cleanup.
-        let remoteAckedBreak = snapshot.lookAwayStartedAt != nil && local.lookAwayStartedAt == nil
+        let remoteAckedBreak = snapshot.breakActiveStartedAt != nil && local.breakActiveStartedAt == nil
         let remoteStopped = !snapshot.sessionActive && local.sessionActive
 
         if (remoteAckedBreak || remoteStopped), let cycleId = local.currentCycleId {
@@ -369,12 +369,12 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             }
             // When the remote device acknowledged the break, schedule local
             // notifications so this device stays in sync: a done notification for
-            // the current look-away, and the next cycle's break notification so
+            // the current break, and the next cycle's break notification so
             // the iPhone fallback remains active. Without this, notifications only
             // exist on whichever device handled the ack, and mirroring is unreliable.
-            if remoteAckedBreak, let lookAwayStartedAt = snapshot.lookAwayStartedAt {
+            if remoteAckedBreak, let breakActiveStartedAt = snapshot.breakActiveStartedAt {
                 scheduler.schedule(
-                    CascadeBuilder.buildDoneNotification(cycleId: cycleId, lookAwayStartedAt: lookAwayStartedAt)
+                    CascadeBuilder.buildDoneNotification(cycleId: cycleId, breakActiveStartedAt: breakActiveStartedAt)
                 )
                 if let nextCycleId = snapshot.currentCycleId,
                    let nextCycleStartedAt = snapshot.cycleStartedAt {
@@ -389,7 +389,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         // state + UI. Without reconcile, the UI wouldn't update until the next
         // 1-second tick from RootView.
         persistence.save(SessionRecord(from: snapshot))
-        Task { await reconcileOnLaunch() }
+        Task { await reconcile() }
     }
 
     // MARK: - Helpers
@@ -399,7 +399,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             sessionActive: record.sessionActive,
             currentCycleId: record.currentCycleId,
             cycleStartedAt: record.cycleStartedAt,
-            lookAwayStartedAt: record.lookAwayStartedAt,
+            breakActiveStartedAt: record.breakActiveStartedAt,
             updatedAt: clock()
         )
         connectivity.broadcast(snapshot)

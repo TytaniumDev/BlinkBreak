@@ -116,7 +116,7 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
         | Session Active | \(r.sessionActive) |
         | Cycle ID | \(r.currentCycleId?.uuidString ?? "none") |
         | Cycle Started | \(r.cycleStartedAt.map { iso.string(from: $0) } ?? "none") |
-        | Look Away Started | \(r.lookAwayStartedAt.map { iso.string(from: $0) } ?? "none") |
+        | Break Active Started | \(r.breakActiveStartedAt.map { iso.string(from: $0) } ?? "none") |
         | Schedule Enabled | \(report.weeklySchedule.isEnabled) |
         """)
 

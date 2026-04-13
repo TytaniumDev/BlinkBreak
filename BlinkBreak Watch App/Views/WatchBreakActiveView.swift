@@ -2,38 +2,28 @@
 //  WatchBreakActiveView.swift
 //  BlinkBreak Watch App
 //
-//  Break-active state on the Watch. Full-bleed red with a large Start break button.
-//  This is what the user sees when they raise their wrist after feeling the haptic
-//  cascade. One tap and they're done.
+//  Break-active state on the Watch. Minimal — the user should NOT be staring at
+//  their wrist during the 20-second break. A gentle "look 20 ft away" message
+//  plus a subtle "we'll tap you when done" reassurance is all we need.
 //
 
 import SwiftUI
-import BlinkBreakCore
 
-struct WatchBreakActiveView<Controller: SessionControllerProtocol>: View {
-
-    @ObservedObject var controller: Controller
+struct WatchBreakActiveView: View {
 
     var body: some View {
-        VStack(spacing: 10) {
-            Text("LOOK AWAY")
-                .font(.caption2)
-                .tracking(1.2)
+        VStack(spacing: 8) {
+            Text("Look 20 ft away")
+                .font(.headline)
                 .foregroundStyle(.white.opacity(0.9))
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("label.breakActive.message")
 
-            Text("20 ft")
-                .font(.title.weight(.semibold))
-
-            Spacer()
-
-            Button("Start break") {
-                controller.acknowledgeCurrentBreak()
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.white)
-            .foregroundStyle(Color(red: 0.69, green: 0, blue: 0.13))
-            .accessibilityIdentifier("button.breakActive.startBreak")
+            Text("We'll tap you when it's time")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.55))
+                .multilineTextAlignment(.center)
         }
-        .padding(.vertical, 10)
+        .padding()
     }
 }

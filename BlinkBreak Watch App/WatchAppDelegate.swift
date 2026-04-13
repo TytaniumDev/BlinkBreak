@@ -30,6 +30,11 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        // Trigger a reconcile so the controller picks up the state transition
+        // (e.g. running → breakPending) when a notification fires while foregrounded.
+        Task { @MainActor in
+            await controller?.reconcile()
+        }
         completionHandler([.banner, .sound, .list])
     }
 
@@ -40,7 +45,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
     ) {
         // Only handle the explicit "Start break" action button — NOT the default
         // action (tapping the notification body). Tapping the body opens the app,
-        // where reconcileOnLaunch sets state to breakActive and the user can press
+        // where reconcile() sets state to breakPending and the user can press
         // "Start break" explicitly. Without this guard, tapping a notification that
         // only shows "Dismiss" would silently auto-start the break.
         guard response.actionIdentifier == BlinkBreakConstants.startBreakActionId else {

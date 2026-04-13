@@ -102,7 +102,7 @@ struct SessionControllerTests {
         #expect(record.sessionActive)
         #expect(record.currentCycleId != nil)
         #expect(record.cycleStartedAt == f.nowBox.value)
-        #expect(record.lookAwayStartedAt == nil)
+        #expect(record.breakActiveStartedAt == nil)
     }
 
     @Test("start() broadcasts a snapshot to the Watch")
@@ -183,8 +183,8 @@ struct SessionControllerTests {
 
     // MARK: - handleStartBreakAction()
 
-    @Test("handleStartBreakAction with current cycleId transitions running → lookAway")
-    func ackTransitionsToLookAway() {
+    @Test("handleStartBreakAction with current cycleId transitions running → breakActive")
+    func ackTransitionsToBreakActive() {
         let f = Fixture()
         f.controller.start()
         let cycleId = f.persistence.load().currentCycleId!
@@ -192,8 +192,8 @@ struct SessionControllerTests {
 
         f.controller.handleStartBreakAction(cycleId: cycleId)
 
-        guard case .lookAway(let startedAt) = f.controller.state else {
-            Issue.record("expected lookAway, got \(f.controller.state)")
+        guard case .breakActive(let startedAt) = f.controller.state else {
+            Issue.record("expected breakActive, got \(f.controller.state)")
             return
         }
         #expect(startedAt == f.nowBox.value)
@@ -264,7 +264,7 @@ struct SessionControllerTests {
         let record = f.persistence.load()
         #expect(record.sessionActive)
         #expect(record.currentCycleId != oldCycleId)
-        #expect(record.lookAwayStartedAt == f.nowBox.value)
+        #expect(record.breakActiveStartedAt == f.nowBox.value)
         #expect(record.cycleStartedAt == f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
     }
 
@@ -322,7 +322,7 @@ struct SessionControllerTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            lookAwayStartedAt: f.nowBox.value,
+            breakActiveStartedAt: f.nowBox.value,
             updatedAt: f.nowBox.value
         )
         f.controller.handleRemoteSnapshot(remoteSnapshot)
@@ -343,7 +343,7 @@ struct SessionControllerTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            lookAwayStartedAt: f.nowBox.value,
+            breakActiveStartedAt: f.nowBox.value,
             updatedAt: f.nowBox.value
         )
         f.controller.handleRemoteSnapshot(remoteSnapshot)
@@ -361,7 +361,7 @@ struct SessionControllerTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            lookAwayStartedAt: f.nowBox.value,
+            breakActiveStartedAt: f.nowBox.value,
             updatedAt: f.nowBox.value
         )
         f.controller.handleRemoteSnapshot(snapshot)
@@ -380,23 +380,23 @@ struct SessionControllerTests {
         f.advance(by: BlinkBreakConstants.breakInterval)
 
         // Simulate the remote device acknowledging the break.
-        let lookAwayStartedAt = f.nowBox.value
+        let breakActiveStartedAt = f.nowBox.value
         let remoteSnapshot = SessionSnapshot(
             sessionActive: true,
             currentCycleId: UUID(),
-            cycleStartedAt: lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            lookAwayStartedAt: lookAwayStartedAt,
+            cycleStartedAt: breakActiveStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
+            breakActiveStartedAt: breakActiveStartedAt,
             updatedAt: f.nowBox.value
         )
         f.controller.handleRemoteSnapshot(remoteSnapshot)
 
         // The local device should schedule a done notification so it can alert
-        // the user when the look-away period ends, regardless of which device
+        // the user when the break period ends, regardless of which device
         // handled the ack.
         let doneId = BlinkBreakConstants.doneIdPrefix + cycleId.uuidString
         let doneNotification = f.scheduler.scheduledNotifications.first { $0.identifier == doneId }
         #expect(doneNotification != nil, "expected a done notification to be scheduled locally")
-        #expect(doneNotification?.fireDate == lookAwayStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
+        #expect(doneNotification?.fireDate == breakActiveStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
 
         // The next cycle's break notification should also be scheduled so the
         // iPhone fallback remains active regardless of which device handled the ack.
@@ -419,7 +419,7 @@ struct SessionControllerTests {
             sessionActive: false,
             currentCycleId: nil,
             cycleStartedAt: nil,
-            lookAwayStartedAt: nil,
+            breakActiveStartedAt: nil,
             updatedAt: f.nowBox.value.addingTimeInterval(50)
         )
         f.controller.handleRemoteSnapshot(stale)
@@ -434,21 +434,21 @@ struct SessionControllerTests {
         // Start
         f.controller.start()
         let firstCycleId = f.persistence.load().currentCycleId!
-        #expect(f.controller.state.name == "running")
+        #expect(f.controller.state.description == "running")
 
         // Break time arrives
         f.advance(by: BlinkBreakConstants.breakInterval)
 
         // User acknowledges
         f.controller.handleStartBreakAction(cycleId: firstCycleId)
-        #expect(f.controller.state.name == "lookAway")
+        #expect(f.controller.state.description == "breakActive")
 
         // Look-away elapses
         f.advance(by: BlinkBreakConstants.lookAwayDuration + 1)
 
         // Reconcile picks up that we've rolled into the next running cycle
-        await f.controller.reconcileOnLaunch()
-        #expect(f.controller.state.name == "running")
+        await f.controller.reconcile()
+        #expect(f.controller.state.description == "running")
 
         let newRecord = f.persistence.load()
         #expect(newRecord.currentCycleId != firstCycleId)

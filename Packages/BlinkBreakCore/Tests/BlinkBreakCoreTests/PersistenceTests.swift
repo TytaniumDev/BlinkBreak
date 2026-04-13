@@ -24,7 +24,7 @@ struct PersistenceTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: Date(timeIntervalSince1970: 123_456),
-            lookAwayStartedAt: Date(timeIntervalSince1970: 123_477)
+            breakActiveStartedAt: Date(timeIntervalSince1970: 123_477)
         )
 
         store.save(record)
@@ -38,7 +38,7 @@ struct PersistenceTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: Date(),
-            lookAwayStartedAt: nil
+            breakActiveStartedAt: nil
         ))
 
         store.clear()
@@ -52,7 +52,7 @@ struct PersistenceTests {
             sessionActive: true,
             currentCycleId: UUID(uuidString: "11111111-2222-3333-4444-555555555555"),
             cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            lookAwayStartedAt: Date(timeIntervalSince1970: 1_700_000_100)
+            breakActiveStartedAt: Date(timeIntervalSince1970: 1_700_000_100)
         )
 
         let data = try JSONEncoder().encode(original)
@@ -68,7 +68,7 @@ struct PersistenceTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            lookAwayStartedAt: nil,
+            breakActiveStartedAt: nil,
             lastUpdatedAt: when
         )
         let data = try JSONEncoder().encode(record)
@@ -99,14 +99,14 @@ struct PersistenceTests {
             sessionActive: true,
             currentCycleId: cycleId,
             cycleStartedAt: cycleStart,
-            lookAwayStartedAt: lookAwayStart,
+            breakActiveStartedAt: lookAwayStart,
             updatedAt: Date(timeIntervalSince1970: 1_700_000_200)
         )
         let record = SessionRecord(from: snap)
         #expect(record.sessionActive == true)
         #expect(record.currentCycleId == cycleId)
         #expect(record.cycleStartedAt == cycleStart)
-        #expect(record.lookAwayStartedAt == lookAwayStart)
+        #expect(record.breakActiveStartedAt == lookAwayStart)
         #expect(record.lastUpdatedAt == Date(timeIntervalSince1970: 1_700_000_200))
     }
 

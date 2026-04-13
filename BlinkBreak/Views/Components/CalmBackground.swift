@@ -2,14 +2,14 @@
 //  CalmBackground.swift
 //  BlinkBreak
 //
-//  The dark teal/charcoal background used for idle, running, and lookAway states.
+//  The dark teal/charcoal background used for idle, running, and breakActive states.
 //  Centralized here so a visual iteration PR only touches this one file to
 //  rebrand all the passive screens at once.
 //
 
 import SwiftUI
 
-/// Dark teal background applied to idle, running, and lookAway screens.
+/// Dark teal background applied to idle, running, and breakActive screens.
 /// Edge-to-edge, ignores safe areas.
 ///
 /// Flutter analogue: a `Container` with a fixed decoration used as the scaffold background.

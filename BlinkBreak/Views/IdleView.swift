@@ -12,6 +12,7 @@ import BlinkBreakCore
 struct IdleView<Controller: SessionControllerProtocol>: View {
 
     @ObservedObject var controller: Controller
+    let scheduleStatusText: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -30,7 +31,7 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
 
             Spacer()
 
-            ScheduleStatusLabel(schedule: controller.weeklySchedule, now: Date())
+            ScheduleStatusLabel(text: scheduleStatusText)
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 4)
 
@@ -46,11 +47,14 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
 #Preview {
     ZStack {
         CalmBackground()
-        IdleView(controller: {
-            let c = PreviewSessionController(state: .idle)
-            c.weeklySchedule = .default
-            return c
-        }())
+        IdleView(
+            controller: {
+                let c = PreviewSessionController(state: .idle)
+                c.weeklySchedule = .default
+                return c
+            }(),
+            scheduleStatusText: "Starts at 9:00 AM"
+        )
             .foregroundStyle(.white)
     }
 }

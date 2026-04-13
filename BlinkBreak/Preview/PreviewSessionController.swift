@@ -38,14 +38,14 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
     }
 
     func handleStartBreakAction(cycleId: UUID) {
-        state = .lookAway(lookAwayStartedAt: Date())
+        state = .breakActive(startedAt: Date())
     }
 
     func acknowledgeCurrentBreak() {
-        state = .lookAway(lookAwayStartedAt: Date())
+        state = .breakActive(startedAt: Date())
     }
 
-    func reconcileOnLaunch() async {
+    func reconcile() async {
         // No-op in previews.
     }
 
@@ -64,15 +64,15 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
         )
     }
 
-    static var breakActive: PreviewSessionController {
+    static var breakPending: PreviewSessionController {
         PreviewSessionController(
-            state: .breakActive(cycleStartedAt: Date().addingTimeInterval(-20 * 60))
+            state: .breakPending(cycleStartedAt: Date().addingTimeInterval(-20 * 60))
         )
     }
 
-    static var lookAway: PreviewSessionController {
+    static var breakActive: PreviewSessionController {
         PreviewSessionController(
-            state: .lookAway(lookAwayStartedAt: Date().addingTimeInterval(-5))
+            state: .breakActive(startedAt: Date().addingTimeInterval(-5))
         )
     }
 }

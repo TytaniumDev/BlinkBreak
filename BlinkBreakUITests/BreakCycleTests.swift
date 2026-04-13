@@ -20,47 +20,48 @@ final class BreakCycleTests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func test_runningState_autoTransitionsToBreakActive_afterBreakInterval() {
+    func test_runningState_autoTransitionsToBreakPending_afterBreakInterval() {
         let app = XCUIApplication()
         app.launchForIntegrationTest()
 
         app.waitForButton(A11y.Idle.startButton).tap()
         _ = app.waitForButton(A11y.Running.stopButton)
 
-        // Wait for auto-transition running → breakActive. The reconcile tick runs
-        // every 1s; break fires at 3s; give it up to 10s to absorb scheduler jitter.
-        _ = app.waitForButton(A11y.BreakActive.startBreakButton, timeout: 10)
+        // Wait for auto-transition running → breakPending. The transition is driven by
+        // notification delivery (AppDelegate.willPresent → reconcile()); give it up to
+        // 10s to absorb scheduler jitter.
+        _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
     }
 
-    func test_breakActive_tapStartBreak_transitionsToLookAway() {
+    func test_breakPending_tapStartBreak_transitionsToBreakActive() {
         let app = XCUIApplication()
         app.launchForIntegrationTest()
 
         app.waitForButton(A11y.Idle.startButton).tap()
-        _ = app.waitForButton(A11y.BreakActive.startBreakButton, timeout: 10)
+        _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
 
-        app.buttons[A11y.BreakActive.startBreakButton].tap()
+        app.buttons[A11y.BreakPending.startBreakButton].tap()
 
-        // In lookAway the message label exists and the Stop button is visible.
-        _ = app.waitForElement(A11y.LookAway.message, timeout: 5)
-        XCTAssertTrue(app.buttons[A11y.LookAway.stopButton].exists)
+        // In breakActive the message label exists and the Stop button is visible.
+        _ = app.waitForElement(A11y.BreakActive.message, timeout: 5)
+        XCTAssertTrue(app.buttons[A11y.BreakActive.stopButton].exists)
     }
 
-    func test_lookAway_autoTransitionsBackToRunning_afterLookAwayDuration() {
+    func test_breakActive_autoTransitionsBackToRunning_afterBreakActiveDuration() {
         let app = XCUIApplication()
         app.launchForIntegrationTest()
 
         app.waitForButton(A11y.Idle.startButton).tap()
-        _ = app.waitForButton(A11y.BreakActive.startBreakButton, timeout: 10)
-        app.buttons[A11y.BreakActive.startBreakButton].tap()
-        _ = app.waitForElement(A11y.LookAway.message, timeout: 5)
+        _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
+        app.buttons[A11y.BreakPending.startBreakButton].tap()
+        _ = app.waitForElement(A11y.BreakActive.message, timeout: 5)
 
-        // Wait for auto-transition lookAway → running. lookAwayDuration=1 second.
+        // Wait for auto-transition breakActive → running. lookAwayDuration=1 second.
         _ = app.waitForButton(A11y.Running.stopButton, timeout: 10)
     }
 
     func test_fullCycle_startBreakAckWaitBackToRunningStop() {
-        // Full round trip: idle → running → breakActive → lookAway → running → idle.
+        // Full round trip: idle → running → breakPending → breakActive → running → idle.
         let app = XCUIApplication()
         app.launchForIntegrationTest()
 
@@ -69,13 +70,13 @@ final class BreakCycleTests: XCTestCase {
         _ = app.waitForButton(A11y.Running.stopButton)
 
         // 2. Wait for break
-        _ = app.waitForButton(A11y.BreakActive.startBreakButton, timeout: 10)
+        _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
 
         // 3. Ack break
-        app.buttons[A11y.BreakActive.startBreakButton].tap()
-        _ = app.waitForElement(A11y.LookAway.message, timeout: 5)
+        app.buttons[A11y.BreakPending.startBreakButton].tap()
+        _ = app.waitForElement(A11y.BreakActive.message, timeout: 5)
 
-        // 4. Wait for lookAway to elapse
+        // 4. Wait for breakActive to elapse
         _ = app.waitForButton(A11y.Running.stopButton, timeout: 10)
 
         // 5. Stop session
@@ -83,39 +84,39 @@ final class BreakCycleTests: XCTestCase {
         _ = app.waitForButton(A11y.Idle.startButton)
     }
 
-    func test_stopDuringLookAway_returnsToIdle() {
+    func test_stopDuringBreakActive_returnsToIdle() {
         let app = XCUIApplication()
         app.launchForIntegrationTest()
 
         app.waitForButton(A11y.Idle.startButton).tap()
-        _ = app.waitForButton(A11y.BreakActive.startBreakButton, timeout: 10)
-        app.buttons[A11y.BreakActive.startBreakButton].tap()
-        _ = app.waitForButton(A11y.LookAway.stopButton, timeout: 5)
+        _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
+        app.buttons[A11y.BreakPending.startBreakButton].tap()
+        _ = app.waitForButton(A11y.BreakActive.stopButton, timeout: 5)
 
-        app.buttons[A11y.LookAway.stopButton].tap()
+        app.buttons[A11y.BreakActive.stopButton].tap()
 
         _ = app.waitForButton(A11y.Idle.startButton)
     }
 
-    func test_stopDuringBreakActive_isNotDirectlyExposedInUI_butAckThenStopWorks() {
-        // BreakActiveView doesn't show a Stop button — the red alert has only
-        // "Start break". To stop during breakActive, the user must acknowledge
-        // first (going to lookAway) and then stop from there. This test documents
+    func test_stopDuringBreakPending_isNotDirectlyExposedInUI_butAckThenStopWorks() {
+        // BreakPendingView doesn't show a Stop button — the red alert has only
+        // "Start break". To stop during breakPending, the user must acknowledge
+        // first (going to breakActive) and then stop from there. This test documents
         // that flow.
         let app = XCUIApplication()
         app.launchForIntegrationTest()
 
         app.waitForButton(A11y.Idle.startButton).tap()
-        _ = app.waitForButton(A11y.BreakActive.startBreakButton, timeout: 10)
+        _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
 
-        // Verify no Stop button exists in breakActive.
+        // Verify no Stop button exists in breakPending.
         XCTAssertFalse(app.buttons[A11y.Running.stopButton].exists)
-        XCTAssertFalse(app.buttons[A11y.LookAway.stopButton].exists)
+        XCTAssertFalse(app.buttons[A11y.BreakActive.stopButton].exists)
 
-        // Ack, then stop from lookAway.
-        app.buttons[A11y.BreakActive.startBreakButton].tap()
-        _ = app.waitForButton(A11y.LookAway.stopButton, timeout: 5)
-        app.buttons[A11y.LookAway.stopButton].tap()
+        // Ack, then stop from breakActive.
+        app.buttons[A11y.BreakPending.startBreakButton].tap()
+        _ = app.waitForButton(A11y.BreakActive.stopButton, timeout: 5)
+        app.buttons[A11y.BreakActive.stopButton].tap()
         _ = app.waitForButton(A11y.Idle.startButton)
     }
 
@@ -128,10 +129,10 @@ final class BreakCycleTests: XCTestCase {
 
         for cycle in 1...3 {
             _ = app.waitForButton(
-                A11y.BreakActive.startBreakButton,
+                A11y.BreakPending.startBreakButton,
                 timeout: 10
             )
-            app.buttons[A11y.BreakActive.startBreakButton].tap()
+            app.buttons[A11y.BreakPending.startBreakButton].tap()
             _ = app.waitForButton(
                 A11y.Running.stopButton,
                 timeout: 10

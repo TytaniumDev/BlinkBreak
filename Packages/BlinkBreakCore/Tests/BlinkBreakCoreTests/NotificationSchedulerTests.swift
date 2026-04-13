@@ -17,13 +17,13 @@ struct NotificationSchedulerTests {
     let cycleId = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
     let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
 
-    @Test("buildDoneNotification fires at lookAwayStartedAt + 20 s and is not time-sensitive")
+    @Test("buildDoneNotification fires at breakActiveStartedAt + 20 s and is not time-sensitive")
     func doneNotification() {
-        let lookAwayStart = Date(timeIntervalSince1970: 2_000_000_000)
-        let done = CascadeBuilder.buildDoneNotification(cycleId: cycleId, lookAwayStartedAt: lookAwayStart)
+        let breakActiveStart = Date(timeIntervalSince1970: 2_000_000_000)
+        let done = CascadeBuilder.buildDoneNotification(cycleId: cycleId, breakActiveStartedAt: breakActiveStart)
 
         #expect(done.identifier == BlinkBreakConstants.doneIdPrefix + cycleId.uuidString)
-        #expect(done.fireDate == lookAwayStart.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
+        #expect(done.fireDate == breakActiveStart.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
         #expect(done.isTimeSensitive == false)
         #expect(done.categoryIdentifier == nil)
     }

@@ -28,10 +28,10 @@ final class LaunchAndIdleTests: XCTestCase {
         let app = XCUIApplication()
         app.launchForIntegrationTest()
 
-        // Sanity: the Stop button (running/lookAway state) must NOT exist in idle.
+        // Sanity: the Stop button (running/breakActive state) must NOT exist in idle.
         _ = app.waitForButton(A11y.Idle.startButton)
         XCTAssertFalse(app.buttons[A11y.Running.stopButton].exists)
-        XCTAssertFalse(app.buttons[A11y.LookAway.stopButton].exists)
+        XCTAssertFalse(app.buttons[A11y.BreakActive.stopButton].exists)
     }
 
     func test_appLaunches_idleStateHasNoStartBreakButton() {
@@ -39,6 +39,6 @@ final class LaunchAndIdleTests: XCTestCase {
         app.launchForIntegrationTest()
 
         _ = app.waitForButton(A11y.Idle.startButton)
-        XCTAssertFalse(app.buttons[A11y.BreakActive.startBreakButton].exists)
+        XCTAssertFalse(app.buttons[A11y.BreakPending.startBreakButton].exists)
     }
 }

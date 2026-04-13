@@ -66,40 +66,40 @@ final class ReconciliationUITests: XCTestCase {
 
         // The reconciliation outcome depends on whether iOS retained the pending
         // notifications across the terminate. In practice UN keeps them, so reconcile
-        // may see them as "pending → breakActive". Both outcomes are acceptable
+        // may see them as "pending → breakPending". Both outcomes are acceptable
         // provided the app doesn't crash and shows SOME valid state.
         let idleExists = relaunched.buttons[A11y.Idle.startButton].waitForExistence(timeout: 5)
-        let breakActiveExists = relaunched.buttons[A11y.BreakActive.startBreakButton].waitForExistence(timeout: 1)
+        let breakActiveExists = relaunched.buttons[A11y.BreakPending.startBreakButton].waitForExistence(timeout: 1)
         XCTAssertTrue(
             idleExists || breakActiveExists,
-            "After terminate + wait + relaunch, app should be in idle or breakActive; got neither"
+            "After terminate + wait + relaunch, app should be in idle or breakPending; got neither"
         )
     }
 
-    func test_startThenRelaunchDuringLookAway_preservesLookAwayState() {
-        // Start, wait for break, ack → lookAway, terminate inside lookAway window.
+    func test_startThenRelaunchDuringBreakActive_preservesBreakActiveState() {
+        // Start, wait for break, ack → breakActive, terminate inside breakActive window.
         let app = XCUIApplication()
         app.launchEnvironment["BB_BREAK_INTERVAL"] = "3"
-        // Use a long lookAway so we have time to terminate + relaunch before it expires.
+        // Use a long breakActive duration so we have time to terminate + relaunch before it expires.
         app.launchEnvironment["BB_LOOKAWAY_DURATION"] = "20"
         app.launchArguments.append("-BB_RESET_DEFAULTS")
         app.launch()
 
         app.waitForButton(A11y.Idle.startButton).tap()
-        _ = app.waitForButton(A11y.BreakActive.startBreakButton, timeout: 10)
-        app.buttons[A11y.BreakActive.startBreakButton].tap()
-        _ = app.waitForElement(A11y.LookAway.message, timeout: 5)
+        _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
+        app.buttons[A11y.BreakPending.startBreakButton].tap()
+        _ = app.waitForElement(A11y.BreakActive.message, timeout: 5)
 
         app.terminate()
 
-        // Relaunch without resetting defaults. Persisted record has lookAwayStartedAt
+        // Relaunch without resetting defaults. Persisted record has breakActiveStartedAt
         // set, and we're still within the 20-second window.
         let relaunched = XCUIApplication()
         relaunched.launchEnvironment["BB_BREAK_INTERVAL"] = "3"
         relaunched.launchEnvironment["BB_LOOKAWAY_DURATION"] = "20"
         relaunched.launch()
 
-        _ = relaunched.waitForElement(A11y.LookAway.message, timeout: 5)
+        _ = relaunched.waitForElement(A11y.BreakActive.message, timeout: 5)
     }
 
     func test_launchWithResetDefaults_alwaysStartsFromIdle() {

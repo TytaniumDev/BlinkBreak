@@ -30,8 +30,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// Nil in the idle state.
     public var cycleStartedAt: Date?
 
-    /// When the current look-away window began. Non-nil only in the `lookAway` state.
-    public var lookAwayStartedAt: Date?
+    /// When the current break window began. Non-nil only in the `breakActive` state.
+    public var breakActiveStartedAt: Date?
 
     /// When this record was last written (locally or from an incoming remote snapshot).
     /// Optional so legacy persisted records decode without migration.
@@ -41,6 +41,18 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// stops vs. crashes during reconciliation. Optional so legacy records decode
     /// without migration.
     public var manualStopDate: Date?
+
+    /// Backwards-compatible coding keys: `breakActiveStartedAt` is encoded as
+    /// `"lookAwayStartedAt"` so existing persisted records decode without migration.
+    enum CodingKeys: String, CodingKey {
+        case sessionActive
+        case currentCycleId
+        case cycleStartedAt
+        case breakActiveStartedAt = "lookAwayStartedAt"
+        case lastUpdatedAt
+        case manualStopDate
+        case wasAutoStarted
+    }
 
     /// Whether this session was started automatically by the weekly schedule evaluator
     /// (as opposed to the user manually tapping Start). Only schedule-started sessions
@@ -52,7 +64,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         sessionActive: Bool = false,
         currentCycleId: UUID? = nil,
         cycleStartedAt: Date? = nil,
-        lookAwayStartedAt: Date? = nil,
+        breakActiveStartedAt: Date? = nil,
         lastUpdatedAt: Date? = nil,
         manualStopDate: Date? = nil,
         wasAutoStarted: Bool? = nil
@@ -60,7 +72,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.sessionActive = sessionActive
         self.currentCycleId = currentCycleId
         self.cycleStartedAt = cycleStartedAt
-        self.lookAwayStartedAt = lookAwayStartedAt
+        self.breakActiveStartedAt = breakActiveStartedAt
         self.lastUpdatedAt = lastUpdatedAt
         self.manualStopDate = manualStopDate
         self.wasAutoStarted = wasAutoStarted
@@ -73,7 +85,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.sessionActive = snapshot.sessionActive
         self.currentCycleId = snapshot.currentCycleId
         self.cycleStartedAt = snapshot.cycleStartedAt
-        self.lookAwayStartedAt = snapshot.lookAwayStartedAt
+        self.breakActiveStartedAt = snapshot.breakActiveStartedAt
         self.lastUpdatedAt = snapshot.updatedAt
     }
 
@@ -82,7 +94,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         sessionActive: false,
         currentCycleId: nil,
         cycleStartedAt: nil,
-        lookAwayStartedAt: nil,
+        breakActiveStartedAt: nil,
         lastUpdatedAt: nil
     )
 }

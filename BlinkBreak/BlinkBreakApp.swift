@@ -60,10 +60,10 @@ struct BlinkBreakApp: App {
     var body: some Scene {
         WindowGroup {
             ShakeDetectorView(
-                content: RootView(controller: controller),
+                content: RootView(controller: controller, scheduleEvaluator: Self.sharedEvaluator),
                 scheduler: Self.sharedScheduler,
                 persistence: Self.sharedPersistence,
-                sessionState: controller.state.description,
+                sessionState: controller.state,
                 watchIsPaired: WCSession.isSupported() ? WCSession.default.isPaired : false,
                 watchIsReachable: WCSession.isSupported() ? WCSession.default.isReachable : false
             )
@@ -73,24 +73,6 @@ struct BlinkBreakApp: App {
                     appDelegate.controller = controller
                     appDelegate.requestNotificationAuthorizationIfNeeded()
 
-                    // Register the schedule notification category so iOS can display
-                    // the "Open" action button on schedule start-time notifications.
-                    let scheduleAction = UNNotificationAction(
-                        identifier: BlinkBreakConstants.scheduleStartActionId,
-                        title: "Open",
-                        options: [.foreground]
-                    )
-                    let scheduleCategory = UNNotificationCategory(
-                        identifier: BlinkBreakConstants.scheduleCategoryId,
-                        actions: [scheduleAction],
-                        intentIdentifiers: []
-                    )
-                    UNUserNotificationCenter.current().getNotificationCategories { existing in
-                        var categories = existing
-                        categories.insert(scheduleCategory)
-                        UNUserNotificationCenter.current().setNotificationCategories(categories)
-                    }
-
                     // Activate WatchConnectivity and wire up both directions:
                     // - onCommandReceived: the (rarely-used) Watch→Phone command path.
                     // - onSnapshotReceived: when the Watch broadcasts a break
@@ -98,7 +80,7 @@ struct BlinkBreakApp: App {
                     //   iPhone notification and disarms our (noop) alarm.
                     controller.activateConnectivity()
                     controller.wireUpConnectivity()
-                    Task { await controller.reconcileOnLaunch() }
+                    Task { await controller.reconcile() }
 
                     // Set up the ScheduleTaskManager for foreground schedule checks
                     // and local notification fallback at the next scheduled start time.

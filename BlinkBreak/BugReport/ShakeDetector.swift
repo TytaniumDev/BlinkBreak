@@ -40,7 +40,7 @@ struct ShakeDetectorView<Content: View>: View {
     let content: Content
     let scheduler: NotificationSchedulerProtocol
     let persistence: PersistenceProtocol
-    let sessionState: String
+    let sessionState: SessionState
     let watchIsPaired: Bool
     let watchIsReachable: Bool
 

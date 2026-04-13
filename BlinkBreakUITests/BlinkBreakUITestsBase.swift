@@ -21,8 +21,8 @@ extension XCUIApplication {
     /// Launch the app with the fast-timer environment variables set. Tests that
     /// need to override or clear persisted state can pass additional arguments.
     ///
-    /// Defaults: 3-second break interval, 3-second lookAway duration. The lookAway
-    /// needs to be wide enough for XCUITest to observe the transient lookAway state
+    /// Defaults: 3-second break interval, 3-second breakActive duration. The breakActive
+    /// needs to be wide enough for XCUITest to observe the transient breakActive state
     /// through SwiftUI's 250ms state-change animation and the 1-second reconcile
     /// tick; 1 second was too tight.
     func launchForIntegrationTest(
@@ -75,12 +75,12 @@ enum A11y {
         static let stopButton = "button.running.stop"
         static let countdown = "label.running.countdown"
     }
-    enum BreakActive {
-        static let startBreakButton = "button.breakActive.startBreak"
+    enum BreakPending {
+        static let startBreakButton = "button.breakPending.startBreak"
     }
-    enum LookAway {
-        static let stopButton = "button.lookAway.stop"
-        static let message = "label.lookAway.message"
+    enum BreakActive {
+        static let stopButton = "button.breakActive.stop"
+        static let message = "label.breakActive.message"
     }
     enum Schedule {
         static let section = "section.schedule"
