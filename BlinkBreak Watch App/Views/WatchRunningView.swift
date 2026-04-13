@@ -28,6 +28,8 @@ struct WatchRunningView<Controller: SessionControllerProtocol>: View {
             Text(countdownLabel)
                 .font(.system(size: 34, weight: .ultraLight, design: .default))
                 .monospacedDigit()
+                .accessibilityLabel("Time until break")
+                .accessibilityValue(accessibilityTimeRemaining)
                 .accessibilityIdentifier("label.running.countdown")
 
             Spacer()
@@ -49,4 +51,17 @@ struct WatchRunningView<Controller: SessionControllerProtocol>: View {
         let total = Int(remaining.rounded(.up))
         return String(format: "%02d:%02d", total / 60, total % 60)
     }
+
+    private var accessibilityTimeRemaining: String {
+        let breakFireTime = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        let remaining = max(0, breakFireTime.timeIntervalSince(now))
+        return voiceOverTimeFormatter.string(from: remaining) ?? countdownLabel
+    }
 }
+
+private let voiceOverTimeFormatter: DateComponentsFormatter = {
+    let formatter = DateComponentsFormatter()
+    formatter.unitsStyle = .full
+    formatter.allowedUnits = [.minute, .second]
+    return formatter
+}()

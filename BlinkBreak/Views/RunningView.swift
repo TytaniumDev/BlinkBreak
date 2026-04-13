@@ -28,6 +28,9 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
             EyebrowLabel(text: "Next break in")
 
             CountdownRing(progress: progress, label: countdownLabel)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Time until break")
+                .accessibilityValue(accessibilityTimeRemaining)
                 .accessibilityIdentifier("label.running.countdown")
 
             Text("Fires at \(breakFireTimeFormatted)")
@@ -64,6 +67,11 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
+    /// Spoken label for VoiceOver, formatted as "14 minutes, 32 seconds".
+    private var accessibilityTimeRemaining: String {
+        return voiceOverTimeFormatter.string(from: remainingSeconds) ?? countdownLabel
+    }
+
     /// Progress from 0 (just started) to 1 (break imminent).
     private var progress: Double {
         let total = BlinkBreakConstants.breakInterval
@@ -78,6 +86,13 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
         return formatter.string(from: breakFireTime)
     }
 }
+
+private let voiceOverTimeFormatter: DateComponentsFormatter = {
+    let formatter = DateComponentsFormatter()
+    formatter.unitsStyle = .full
+    formatter.allowedUnits = [.minute, .second]
+    return formatter
+}()
 
 #Preview {
     ZStack {
