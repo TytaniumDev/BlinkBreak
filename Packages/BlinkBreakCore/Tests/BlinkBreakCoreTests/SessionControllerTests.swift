@@ -311,6 +311,29 @@ struct SessionControllerTests {
 
     // MARK: - handleRemoteSnapshot
 
+    // Models: iPhone starts a session, broadcasts snapshot, Watch was idle.
+    // On the Watch, `alarm.arm` is the only path that schedules the Watch-local
+    // break notification — so it must fire on this transition. Regression guard
+    // against the "no break notification on the Watch" bug.
+    @Test("handleRemoteSnapshot from a remote-started session arms the alarm at break-time")
+    func remoteSnapshotArmsAlarmForRunningSession() async {
+        let f = Fixture()
+        let cycleId = UUID()
+        let cycleStartedAt = f.nowBox.value
+        let snapshot = SessionSnapshot(
+            sessionActive: true,
+            currentCycleId: cycleId,
+            cycleStartedAt: cycleStartedAt,
+            breakActiveStartedAt: nil,
+            updatedAt: cycleStartedAt
+        )
+        f.controller.handleRemoteSnapshot(snapshot)
+        await f.controller.reconcile()  // force the detached reconcile to run
+
+        let fireDate = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        #expect(f.alarm.armedCalls.contains(where: { $0.cycleId == cycleId && $0.fireDate == fireDate }))
+    }
+
     @Test("handleRemoteSnapshot with a remote ack cancels delivered notifications for the acked cycle")
     func remoteAckCancelsDelivered() {
         let f = Fixture()

@@ -9,6 +9,7 @@
 //
 
 import Testing
+import UserNotifications
 @testable import BlinkBreakCore
 
 @Suite("CascadeBuilder")
@@ -87,6 +88,47 @@ struct NotificationSchedulerTests {
     func buildBreakNotificationSoundName() {
         let n = CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: startedAt)
         #expect(n.soundName == "break-alarm.caf")
+    }
+
+    // MARK: - UNNotificationScheduler.makeContent (platform-uniform payload rules)
+
+    @Test("makeContent: a notification with a custom soundName produces non-nil content.sound")
+    func makeContentCustomSound() {
+        let n = CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: startedAt)
+        let content = UNNotificationScheduler.makeContent(for: n)
+        #expect(content.sound != nil)
+    }
+
+    @Test("makeContent: a notification with no custom soundName still produces non-nil content.sound (guards Bug 2)")
+    func makeContentDefaultsToNonNilSound() {
+        // The "Back to work" notification passes soundName=nil. Before the fix,
+        // the iOS branch left content.sound unset, which delivered the notification
+        // completely silently — no sound, no vibration. This test locks in the
+        // contract that every notification the scheduler emits has a sound.
+        let n = CascadeBuilder.buildDoneNotification(
+            cycleId: cycleId,
+            breakActiveStartedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        #expect(n.soundName == nil, "precondition: builder doesn't set a custom sound")
+        let content = UNNotificationScheduler.makeContent(for: n)
+        #expect(content.sound != nil, "done notification must deliver audibly/haptically, not silently")
+    }
+
+    @Test("makeContent: copies title, body, threadIdentifier, categoryIdentifier")
+    func makeContentCopiesBasicFields() {
+        let n = CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: startedAt)
+        let content = UNNotificationScheduler.makeContent(for: n)
+        #expect(content.title == n.title)
+        #expect(content.body == n.body)
+        #expect(content.threadIdentifier == n.threadIdentifier)
+        #expect(content.categoryIdentifier == (n.categoryIdentifier ?? ""))
+    }
+
+    @Test("makeContent: time-sensitive flag maps to interruptionLevel == .timeSensitive")
+    func makeContentTimeSensitive() {
+        let n = CascadeBuilder.buildBreakNotification(cycleId: cycleId, cycleStartedAt: startedAt)
+        let content = UNNotificationScheduler.makeContent(for: n)
+        #expect(content.interruptionLevel == .timeSensitive)
     }
 }
 

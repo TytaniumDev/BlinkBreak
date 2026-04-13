@@ -2,17 +2,42 @@
 //  WatchAppDelegate.swift
 //  BlinkBreak Watch App
 //
-//  Tiny watchOS AppDelegate that handles notification actions and forwards them
-//  to the SessionController. Mirrors the iOS AppDelegate's role.
+//  Owns the Watch app's SessionController and handles notification delivery.
+//
+//  Why the delegate owns the controller (instead of the SwiftUI @StateObject):
+//  `applicationDidFinishLaunching` is called on every app launch, including
+//  background wakes triggered by watchOS delivering a pending
+//  `updateApplicationContext` from the iPhone. `.onAppear` in the SwiftUI view
+//  only fires when the view actually renders, which doesn't happen during
+//  background wakes. Activating WatchConnectivity here guarantees the
+//  controller is ready to receive iPhone snapshots (and therefore schedule
+//  the Watch-local break notification) even when the user hasn't opened the
+//  Watch app.
 //
 
 import WatchKit
 import UserNotifications
 import BlinkBreakCore
 
+@MainActor
 final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
 
-    weak var controller: SessionController?
+    /// The single SessionController for this Watch app process. Owned by the delegate
+    /// so its lifetime matches the app process, and so it exists before any SwiftUI
+    /// view has a chance to appear.
+    let controller: SessionController
+
+    override init() {
+        let scheduler = UNNotificationScheduler()
+        scheduler.registerCategories()
+        self.controller = SessionController(
+            scheduler: scheduler,
+            connectivity: WCSessionConnectivity(),
+            persistence: UserDefaultsPersistence(),
+            alarm: WKExtendedRuntimeSessionAlarm()
+        )
+        super.init()
+    }
 
     func applicationDidFinishLaunching() {
         UNUserNotificationCenter.current().delegate = self
@@ -21,9 +46,21 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
         ) { granted, _ in
             print("[BlinkBreak Watch] notification auth granted: \(granted)")
         }
+
+        // Activate WatchConnectivity EARLY — here, not in .onAppear — so background
+        // launches (watchOS waking the app to deliver a pending iPhone snapshot)
+        // can route that snapshot into the controller. Without this, the Watch
+        // only picks up iPhone-started sessions when the user opens the app.
+        controller.activateConnectivity()
+        controller.wireUpConnectivity()
+        Task { await controller.reconcile() }
     }
 
     // MARK: - UNUserNotificationCenterDelegate
+    //
+    // Apple documents `UNUserNotificationCenterDelegate` methods as being delivered
+    // on the main queue, so these methods inherit this class's `@MainActor` isolation
+    // and can touch the controller directly (no `nonisolated` + Task hop needed).
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -32,9 +69,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
     ) {
         // Trigger a reconcile so the controller picks up the state transition
         // (e.g. running → breakPending) when a notification fires while foregrounded.
-        Task { @MainActor in
-            await controller?.reconcile()
-        }
+        Task { await controller.reconcile() }
         completionHandler([.banner, .sound, .list])
     }
 
@@ -60,9 +95,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
             return
         }
 
-        Task { @MainActor in
-            self.controller?.handleStartBreakAction(cycleId: cycleId)
-            completionHandler()
-        }
+        controller.handleStartBreakAction(cycleId: cycleId)
+        completionHandler()
     }
 }

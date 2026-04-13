@@ -122,6 +122,19 @@ targets:
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.tytaniumdev.BlinkBreak
         WKWatchOnly: false
+        # WKExtendedRuntimeSession uses this declaration to pick its session
+        # type. `self-care` matches the 20-20-20 eye-rest use case. Apple
+        # caps self-care sessions at ~10 minutes, so the session will expire
+        # before the 20-minute break fires — see the comment in
+        # WKExtendedRuntimeSessionAlarm.swift. The repeating haptic loop in
+        # fireAlarm therefore only runs for short intervals (e.g. integration
+        # tests with BB_BREAK_INTERVAL=3); for production the Watch-local
+        # notification scheduled inside arm() is the guaranteed delivery
+        # path. Without this plist key the session fails to start at all,
+        # so declaring it is still required even though we can't hold the
+        # session for the full cycle.
+        WKBackgroundModes:
+          - self-care
     entitlements:
       path: "BlinkBreak Watch App/BlinkBreakWatch.entitlements"
       properties:

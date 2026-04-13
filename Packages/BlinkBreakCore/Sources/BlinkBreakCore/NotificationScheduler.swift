@@ -200,28 +200,7 @@ public final class UNNotificationScheduler: NotificationSchedulerProtocol, @unch
     }
 
     public func schedule(_ notification: ScheduledNotification) {
-        let content = UNMutableNotificationContent()
-        content.title = notification.title
-        content.body = notification.body
-        // Custom notification sounds are iOS-only; watchOS uses system haptics and
-        // ignores custom sound files. On watchOS we fall back to .default so the same
-        // ScheduledNotification struct builds everywhere. When soundName is nil (e.g.
-        // during XCUITests), sound is omitted entirely so simulator tests are silent.
-        #if os(iOS)
-        if let soundName = notification.soundName {
-            content.sound = UNNotificationSound(named: UNNotificationSoundName(soundName))
-        }
-        #else
-        content.sound = .default
-        #endif
-        content.threadIdentifier = notification.threadIdentifier
-        if let category = notification.categoryIdentifier {
-            content.categoryIdentifier = category
-        }
-        // .timeSensitive lets the notification punch through Focus modes on iOS 15+ / watchOS 8+.
-        if notification.isTimeSensitive {
-            content.interruptionLevel = .timeSensitive
-        }
+        let content = Self.makeContent(for: notification)
 
         // Fire date is absolute wall-clock; convert to a calendar-based trigger.
         let interval = max(notification.fireDate.timeIntervalSinceNow, 1)  // UN requires > 0
@@ -239,6 +218,44 @@ public final class UNNotificationScheduler: NotificationSchedulerProtocol, @unch
                 print("[BlinkBreakCore] notification schedule failed: \(error)")
             }
         }
+    }
+
+    /// Builds the `UNMutableNotificationContent` for a `ScheduledNotification`. Pure
+    /// function — no touching of `UNUserNotificationCenter` — so tests can call it
+    /// directly to verify the payload the scheduler would submit.
+    public static func makeContent(for notification: ScheduledNotification) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = notification.title
+        content.body = notification.body
+        content.sound = resolveSound(for: notification)
+        content.threadIdentifier = notification.threadIdentifier
+        if let category = notification.categoryIdentifier {
+            content.categoryIdentifier = category
+        }
+        // .timeSensitive lets the notification punch through Focus modes on iOS 15+ / watchOS 8+.
+        if notification.isTimeSensitive {
+            content.interruptionLevel = .timeSensitive
+        }
+        return content
+    }
+
+    /// Always returns a non-nil sound so the notification is never accidentally silent.
+    /// - iOS with a custom `soundName`: returns that named bundled sound file.
+    /// - iOS with `soundName == nil`: returns `.default`. The previous implementation
+    ///   left `content.sound` unset in this case, which is how the "Back to work"
+    ///   notification ended up delivering with no sound or vibration.
+    /// - watchOS: always `.default` (watchOS ignores custom sound files and
+    ///   `UNNotificationSound(named:)` is unavailable there).
+    private static func resolveSound(for notification: ScheduledNotification) -> UNNotificationSound {
+        #if os(iOS)
+        if let soundName = notification.soundName {
+            return UNNotificationSound(named: UNNotificationSoundName(soundName))
+        }
+        return .default
+        #else
+        _ = notification  // unused on watchOS; sound is always .default
+        return .default
+        #endif
     }
 
     public func cancel(identifiers: [String]) {
