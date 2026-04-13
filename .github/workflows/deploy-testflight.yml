@@ -61,7 +61,8 @@ jobs:
             "ASC_KEY_ID",
             "ASC_ISSUER_ID",
             "ASC_API_KEY_CONTENT",
-            "ASC_API_KEY_IS_BASE64"
+            "ASC_API_KEY_IS_BASE64",
+            "BUG_REPORT_GITHUB_TOKEN"
           ]'
           # Mask every value in the log before using it.
           echo "$SECRETS" | jq -r --argjson keys "$KEYS" '
@@ -92,6 +93,17 @@ jobs:
             IdentitiesOnly yes
           SSHCONFIG
           chmod 600 ~/.ssh/config
+
+      - name: Write BugReport.xcconfig from secret
+        env:
+          BUG_REPORT_GITHUB_TOKEN: ${{ env.BUG_REPORT_GITHUB_TOKEN }}
+        # The xcconfig is gitignored, so CI must materialize it from the
+        # Doppler-loaded secret before xcodegen runs (in the fastlane lane).
+        # project.yml's configFiles entry references this exact path.
+        run: |
+          cat > BlinkBreak/BugReport/BugReport.xcconfig <<XCCONFIG
+          BUG_REPORT_GITHUB_TOKEN = ${BUG_REPORT_GITHUB_TOKEN}
+          XCCONFIG
 
       - name: Run fastlane beta
         env:
