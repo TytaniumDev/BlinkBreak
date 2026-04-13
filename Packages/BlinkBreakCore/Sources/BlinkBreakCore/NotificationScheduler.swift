@@ -194,12 +194,11 @@ public final class UNNotificationScheduler: NotificationSchedulerProtocol, @unch
         content.body = notification.body
         // Custom notification sounds are iOS-only; watchOS uses system haptics and
         // ignores custom sound files. On watchOS we fall back to .default so the same
-        // ScheduledNotification struct builds everywhere.
+        // ScheduledNotification struct builds everywhere. When soundName is nil (e.g.
+        // during XCUITests), sound is omitted entirely so simulator tests are silent.
         #if os(iOS)
         if let soundName = notification.soundName {
             content.sound = UNNotificationSound(named: UNNotificationSoundName(soundName))
-        } else {
-            content.sound = .default
         }
         #else
         content.sound = .default
