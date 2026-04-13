@@ -369,12 +369,12 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             }
             // When the remote device acknowledged the break, schedule local
             // notifications so this device stays in sync: a done notification for
-            // the current look-away, and the next cycle's break notification so
+            // the current break, and the next cycle's break notification so
             // the iPhone fallback remains active. Without this, notifications only
             // exist on whichever device handled the ack, and mirroring is unreliable.
-            if remoteAckedBreak, let lookAwayStartedAt = snapshot.lookAwayStartedAt {
+            if remoteAckedBreak, let breakActiveStartedAt = snapshot.breakActiveStartedAt {
                 scheduler.schedule(
-                    CascadeBuilder.buildDoneNotification(cycleId: cycleId, lookAwayStartedAt: lookAwayStartedAt)
+                    CascadeBuilder.buildDoneNotification(cycleId: cycleId, breakActiveStartedAt: breakActiveStartedAt)
                 )
                 if let nextCycleId = snapshot.currentCycleId,
                    let nextCycleStartedAt = snapshot.cycleStartedAt {
