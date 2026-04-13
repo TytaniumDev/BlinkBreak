@@ -66,6 +66,9 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
 
     // MARK: - Formatting (internal for testing)
 
+    /// Shared formatter for ISO 8601 date strings. Thread-safe.
+    private static let iso = ISO8601DateFormatter()
+
     /// Format the issue title, truncating the user description to ~60 characters.
     /// The full title stays within 75 chars: "[Bug Report] " (13) + 59 chars + "..." (3) = 75.
     static func formatTitle(userDescription: String) -> String {
@@ -79,8 +82,6 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
 
     /// Format the issue body as Markdown with all diagnostic sections.
     static func formatBody(userDescription: String, report: DiagnosticReport) -> String {
-        let iso = ISO8601DateFormatter()
-
         var sections: [String] = []
 
         // User description

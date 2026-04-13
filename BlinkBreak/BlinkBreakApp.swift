@@ -12,6 +12,7 @@
 
 import SwiftUI
 import BlinkBreakCore
+import WatchConnectivity
 
 @main
 struct BlinkBreakApp: App {
@@ -63,8 +64,8 @@ struct BlinkBreakApp: App {
                 scheduler: Self.sharedScheduler,
                 persistence: Self.sharedPersistence,
                 sessionState: controller.state.description,
-                watchIsPaired: false,
-                watchIsReachable: false
+                watchIsPaired: WCSession.isSupported() ? WCSession.default.isPaired : false,
+                watchIsReachable: WCSession.isSupported() ? WCSession.default.isReachable : false
             )
                 .onAppear {
                     // Hand the controller to the AppDelegate so notification action

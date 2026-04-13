@@ -107,8 +107,13 @@ struct ShakeDetectorView<Content: View>: View {
 
                 let report = await collector.collect(deviceInfo: deviceInfo)
 
+                guard let token = BugReportConfig.gitHubToken else {
+                    showToast("Bug reporting not configured")
+                    return
+                }
+
                 let reporter = GitHubIssueReporter(
-                    token: BugReportConfig.gitHubToken,
+                    token: token,
                     repo: BugReportConfig.gitHubRepo
                 )
                 try await reporter.submit(
