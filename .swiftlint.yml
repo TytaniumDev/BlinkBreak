@@ -34,3 +34,8 @@ identifier_name:
 file_length:
   warning: 600
   error: 900
+
+# Relax for test suite structs that accumulate many @Test cases.
+type_body_length:
+  warning: 400
+  error: 600
