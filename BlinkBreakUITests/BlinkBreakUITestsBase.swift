@@ -77,6 +77,7 @@ enum A11y {
     }
     enum BreakPending {
         static let startBreakButton = "button.breakPending.startBreak"
+        static let stopButton = "button.breakPending.stop"
     }
     enum BreakActive {
         static let stopButton = "button.breakActive.stop"

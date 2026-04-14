@@ -181,6 +181,23 @@ struct SessionControllerTests {
         #expect(f.connectivity.lastBroadcast?.sessionActive == false)
     }
 
+    @Test("stop() from breakPending transitions to idle")
+    func stopFromBreakPendingReachesIdle() async {
+        let f = Fixture()
+        f.controller.start()
+        f.advance(by: BlinkBreakConstants.breakInterval + 1)
+        await f.controller.reconcile()
+        guard case .breakPending = f.controller.state else {
+            Issue.record("expected breakPending after advance, got \(f.controller.state)")
+            return
+        }
+
+        f.controller.stop()
+
+        #expect(f.controller.state == .idle)
+        #expect(f.persistence.load().sessionActive == false)
+    }
+
     // MARK: - handleStartBreakAction()
 
     @Test("handleStartBreakAction with current cycleId transitions running → breakActive")

@@ -98,25 +98,16 @@ final class BreakCycleTests: XCTestCase {
         _ = app.waitForButton(A11y.Idle.startButton)
     }
 
-    func test_stopDuringBreakPending_isNotDirectlyExposedInUI_butAckThenStopWorks() {
-        // BreakPendingView doesn't show a Stop button — the red alert has only
-        // "Start break". To stop during breakPending, the user must acknowledge
-        // first (going to breakActive) and then stop from there. This test documents
-        // that flow.
+    func test_stopDuringBreakPending_stopsSession() {
+        // The red alert offers Stop alongside Start break so the user can end the
+        // session without first acknowledging. Tap Stop → back to idle.
         let app = XCUIApplication()
         app.launchForIntegrationTest()
 
         app.waitForButton(A11y.Idle.startButton).tap()
         _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
 
-        // Verify no Stop button exists in breakPending.
-        XCTAssertFalse(app.buttons[A11y.Running.stopButton].exists)
-        XCTAssertFalse(app.buttons[A11y.BreakActive.stopButton].exists)
-
-        // Ack, then stop from breakActive.
-        app.buttons[A11y.BreakPending.startBreakButton].tap()
-        _ = app.waitForButton(A11y.BreakActive.stopButton, timeout: 5)
-        app.buttons[A11y.BreakActive.stopButton].tap()
+        app.buttons[A11y.BreakPending.stopButton].tap()
         _ = app.waitForButton(A11y.Idle.startButton)
     }
 
