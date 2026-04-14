@@ -13,6 +13,13 @@
 import SwiftUI
 import BlinkBreakCore
 
+private let durationFormatter: DateComponentsFormatter = {
+    let formatter = DateComponentsFormatter()
+    formatter.unitsStyle = .full
+    formatter.allowedUnits = [.minute, .second]
+    return formatter
+}()
+
 struct RunningView<Controller: SessionControllerProtocol>: View {
 
     @ObservedObject var controller: Controller
@@ -27,12 +34,13 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
             let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
             let total = Int(remainingSeconds.rounded(.up))
             let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
+            let a11yText = durationFormatter.string(from: TimeInterval(total)) ?? countdownLabel
             let progress = (BlinkBreakConstants.breakInterval - remainingSeconds) / BlinkBreakConstants.breakInterval
 
             VStack(spacing: 20) {
                 EyebrowLabel(text: "Next break in")
 
-                CountdownRing(progress: progress, label: countdownLabel)
+                CountdownRing(progress: progress, label: countdownLabel, accessibilityText: a11yText)
                     .accessibilityIdentifier("label.running.countdown")
 
                 Text("Fires at \(breakFireTimeFormatted)")

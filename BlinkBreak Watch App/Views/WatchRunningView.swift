@@ -10,6 +10,13 @@
 import SwiftUI
 import BlinkBreakCore
 
+private let watchDurationFormatter: DateComponentsFormatter = {
+    let formatter = DateComponentsFormatter()
+    formatter.unitsStyle = .full
+    formatter.allowedUnits = [.minute, .second]
+    return formatter
+}()
+
 struct WatchRunningView<Controller: SessionControllerProtocol>: View {
 
     @ObservedObject var controller: Controller
@@ -21,6 +28,7 @@ struct WatchRunningView<Controller: SessionControllerProtocol>: View {
             let remaining = max(0, breakFireTime.timeIntervalSince(context.date))
             let total = Int(remaining.rounded(.up))
             let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
+            let a11yText = watchDurationFormatter.string(from: TimeInterval(total)) ?? countdownLabel
 
             VStack(spacing: 8) {
                 Text("NEXT BREAK")
@@ -31,6 +39,7 @@ struct WatchRunningView<Controller: SessionControllerProtocol>: View {
                 Text(countdownLabel)
                     .font(.system(size: 34, weight: .ultraLight, design: .default))
                     .monospacedDigit()
+                    .accessibilityLabel(a11yText)
                     .accessibilityIdentifier("label.running.countdown")
 
                 Spacer()

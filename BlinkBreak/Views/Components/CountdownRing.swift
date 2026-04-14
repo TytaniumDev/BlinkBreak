@@ -20,6 +20,9 @@ struct CountdownRing: View {
     /// Text shown in the center of the ring, typically `MM:SS`.
     let label: String
 
+    /// Optional accessibility text to be spoken by VoiceOver (e.g. semantic duration).
+    var accessibilityText: String? = nil
+
     /// The ring's color — defaults to the app accent color.
     var ringColor: Color = .accentColor
 
@@ -42,6 +45,7 @@ struct CountdownRing: View {
                 .font(.system(size: 40, weight: .ultraLight, design: .default))
                 .monospacedDigit()  // stable width as digits change
                 .foregroundStyle(.white)
+                .accessibilityLabel(accessibilityText ?? label)
         }
         .frame(width: 180, height: 180)
     }
