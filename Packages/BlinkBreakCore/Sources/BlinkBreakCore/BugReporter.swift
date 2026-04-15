@@ -84,11 +84,16 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
     static func formatBody(userDescription: String, report: DiagnosticReport) -> String {
         var sections: [String] = []
 
+        // Sanitize user description to prevent Markdown/HTML injection
+        let sanitizedDescription = userDescription
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+
         // User description
         sections.append("""
         ## Description
 
-        \(userDescription)
+        \(sanitizedDescription)
         """)
 
         // Device info
