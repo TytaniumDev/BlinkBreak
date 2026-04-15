@@ -122,19 +122,17 @@ targets:
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.tytaniumdev.BlinkBreak
         WKWatchOnly: false
-        # WKExtendedRuntimeSession uses this declaration to pick its session
-        # type. `self-care` matches the 20-20-20 eye-rest use case. Apple
-        # caps self-care sessions at ~10 minutes, so the session will expire
-        # before the 20-minute break fires — see the comment in
-        # WKExtendedRuntimeSessionAlarm.swift. The repeating haptic loop in
-        # fireAlarm therefore only runs for short intervals (e.g. integration
-        # tests with BB_BREAK_INTERVAL=3); for production the Watch-local
-        # notification scheduled inside arm() is the guaranteed delivery
-        # path. Without this plist key the session fails to start at all,
-        # so declaring it is still required even though we can't hold the
-        # session for the full cycle.
+        # Picks the WKExtendedRuntimeSession type. `smart-alarm` is the
+        # Apple-sanctioned category for custom alarm-clock apps. Unlike
+        # .selfCare / .mindfulness (which cap the session at ~10 minutes from
+        # session start — shorter than our 20-minute break interval), smart-
+        # alarm supports `session.start(at:)`: the runtime clock doesn't begin
+        # until the scheduled fire date, then the session gets ~30 seconds
+        # to play a repeating haptic via notifyUser(hapticType:repeatHandler:).
+        # That's exactly the shape of "it's time to look away — buzz for 30s
+        # until you acknowledge" that BlinkBreak wants on the wrist.
         WKBackgroundModes:
-          - self-care
+          - smart-alarm
     entitlements:
       path: "BlinkBreak Watch App/BlinkBreakWatch.entitlements"
       properties:
