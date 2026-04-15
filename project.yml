@@ -127,13 +127,14 @@ targets:
       properties:
         com.apple.developer.usernotifications.time-sensitive: true
         # Required to start a WKExtendedRuntimeSession at all, regardless of
-        # session type. This is how .smartAlarm / .selfCare / .mindfulness /
-        # .physicalTherapy sessions are actually enabled — NOT via a
-        # WKBackgroundModes Info.plist array (that key only takes
-        # `workout-processing` per Apple's archived reference, and App Store
-        # Connect's validator 409'd builds 17–19 when `smart-alarm` was
-        # declared there). The entitlement is freely available to any Apple
-        # Developer Program account — not a managed capability.
+        # session type (.smartAlarm / .selfCare / .mindfulness /
+        # .physicalTherapy). The session type itself is inferred by the
+        # system from how the API is called (e.g., `start(at:)` schedules a
+        # smart-alarm session) — it is NOT configured via a WKBackgroundModes
+        # Info.plist array. Declaring `smart-alarm` in WKBackgroundModes is
+        # rejected by App Store Connect's static validator with
+        # "Invalid Info.plist value". The entitlement is freely available to
+        # any Apple Developer Program account — not a managed capability.
         com.apple.developer.watchkit.extended-runtime-session: true
     settings:
       base:
