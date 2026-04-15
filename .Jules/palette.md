@@ -1,3 +1,7 @@
 ## 2026-04-12 - VoiceOver and SwiftUI Toggles
 **Learning:** In SwiftUI, `Toggle("", isOn: ...).labelsHidden()` results in VoiceOver reading 'Toggle, switch, off' with no context. Providing a label even when hidden like `Toggle("Enable Feature", isOn: ...).labelsHidden()` ensures VoiceOver reads the label while keeping the UI visually identical.
 **Action:** Always provide descriptive string labels to `Toggle` views, even when combining them with `.labelsHidden()`.
+
+## 2026-04-15 - VoiceOver and Raw Duration Strings
+**Learning:** Screen readers poorly parse raw `MM:SS` duration strings (like "14:32"). Always provide an `accessibilityValue` or `accessibilityLabel` backed by a semantic, natural language string formatted via a cached `DateComponentsFormatter` (using `.unitsStyle = .full`).
+**Action:** Apply this pattern to all duration displays to improve VoiceOver UX.

@@ -15,12 +15,21 @@ struct WatchRunningView<Controller: SessionControllerProtocol>: View {
     @ObservedObject var controller: Controller
     let cycleStartedAt: Date
 
+    // Cached formatter for VoiceOver duration string
+    private let accessibilityDurationFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = [.minute, .second]
+        return formatter
+    }()
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let breakFireTime = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
             let remaining = max(0, breakFireTime.timeIntervalSince(context.date))
             let total = Int(remaining.rounded(.up))
             let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
+            let a11yDuration = accessibilityDurationFormatter.string(from: Double(total)) ?? countdownLabel
 
             VStack(spacing: 8) {
                 Text("NEXT BREAK")
@@ -32,6 +41,8 @@ struct WatchRunningView<Controller: SessionControllerProtocol>: View {
                     .font(.system(size: 34, weight: .ultraLight, design: .default))
                     .monospacedDigit()
                     .accessibilityIdentifier("label.running.countdown")
+                    .accessibilityLabel("Time remaining")
+                    .accessibilityValue(a11yDuration)
 
                 Spacer()
 
