@@ -34,12 +34,11 @@ struct WatchBreakPendingView<Controller: SessionControllerProtocol>: View {
             .foregroundStyle(Color(red: 0.69, green: 0, blue: 0.13))
             .accessibilityIdentifier("button.breakPending.startBreak")
 
-            Button("Stop") {
+            Button("Stop", role: .destructive) {
                 controller.stop()
             }
-            .buttonStyle(.plain)
-            .font(.footnote)
-            .foregroundStyle(.white.opacity(0.85))
+            .buttonStyle(.bordered)
+            .tint(.white)
             .accessibilityIdentifier("button.breakPending.stop")
         }
         .padding(.vertical, 10)

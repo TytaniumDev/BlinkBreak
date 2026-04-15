@@ -46,6 +46,7 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                .tint(.white)
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("button.running.stop")
             }
