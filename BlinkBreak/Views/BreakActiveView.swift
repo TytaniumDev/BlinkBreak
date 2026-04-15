@@ -33,9 +33,13 @@ struct BreakActiveView<Controller: SessionControllerProtocol>: View {
 
             Spacer()
 
-            DestructiveButton(title: "Stop") {
+            Button("Stop", role: .destructive) {
                 controller.stop()
             }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(.white)
+            .frame(maxWidth: .infinity)
             .accessibilityIdentifier("button.breakActive.stop")
         }
         .padding(24)

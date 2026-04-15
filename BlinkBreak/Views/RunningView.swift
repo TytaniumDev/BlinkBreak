@@ -41,9 +41,13 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
 
                 Spacer()
 
-                DestructiveButton(title: "Stop") {
+                Button("Stop", role: .destructive) {
                     controller.stop()
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(.white)
+                .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("button.running.stop")
             }
             .padding(24)

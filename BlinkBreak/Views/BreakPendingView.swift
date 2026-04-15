@@ -38,22 +38,23 @@ struct BreakPendingView<Controller: SessionControllerProtocol>: View {
             Spacer()
 
             VStack(spacing: 12) {
-                Button {
+                Button("Start break") {
                     controller.acknowledgeCurrentBreak()
-                } label: {
-                    Text("Start break")
-                        .font(.headline)
-                        .foregroundStyle(Color(red: 0.69, green: 0.00, blue: 0.13))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Capsule().fill(Color.white))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.white)
+                .foregroundStyle(Color(red: 0.69, green: 0.00, blue: 0.13))
+                .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("button.breakPending.startBreak")
 
-                DestructiveButton(title: "Stop") {
+                Button("Stop", role: .destructive) {
                     controller.stop()
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(.white)
+                .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("button.breakPending.stop")
             }
             .padding(.horizontal, 24)
