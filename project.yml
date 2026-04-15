@@ -131,8 +131,14 @@ targets:
         # to play a repeating haptic via notifyUser(hapticType:repeatHandler:).
         # That's exactly the shape of "it's time to look away — buzz for 30s
         # until you acknowledge" that BlinkBreak wants on the wrist.
+        #
+        # App Store Connect rejects `smart-alarm` in WKBackgroundModes unless
+        # the bundle also declares NSAlarmKitUsageDescription (see builds 17
+        # and 18 — both failed the upload validator with 409 "Invalid Info.plist
+        # value" pointing at WKBackgroundModes in the Watch bundle).
         WKBackgroundModes:
           - smart-alarm
+        NSAlarmKitUsageDescription: "BlinkBreak uses alarm-style haptics on your Apple Watch to deliver 20-20-20 eye-break reminders."
     entitlements:
       path: "BlinkBreak Watch App/BlinkBreakWatch.entitlements"
       properties:
