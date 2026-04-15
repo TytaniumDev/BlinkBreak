@@ -2,19 +2,27 @@
 //  WKExtendedRuntimeSessionAlarm.swift
 //  BlinkBreak Watch App
 //
-//  Concrete implementation of SessionAlarmProtocol backed by WKExtendedRuntimeSession.
-//  Holds the Watch app alive in the background for the duration of one 20-minute cycle,
-//  then at break time calls session.notifyUser(hapticType:repeatHandler:) to play a
-//  repeating haptic until the user taps Start break (which calls disarm) or the ~30s
-//  maximum elapses.
+//  Concrete SessionAlarmProtocol backed by a `.smartAlarm` WKExtendedRuntimeSession.
 //
-//  Also posts a Watch-local notification at break time so the user has a tappable
-//  notification-center entry with the "Start break" action visible directly from the
-//  wrist (the thing that was broken in V1).
+//  Why smart-alarm (not self-care): self-care sessions cap at ~10 minutes from
+//  session start, which is shorter than our 20-minute break interval — the
+//  session dies before break time so the haptic loop never runs. smart-alarm
+//  supports `session.start(at:)` instead: the runtime clock doesn't begin until
+//  the scheduled fire date, and when it fires we get ~30 seconds to play a
+//  repeating haptic via `notifyUser(hapticType:repeatHandler:)`.
 //
-//  Not unit-tested — this class is a thin translator between the protocol and the
-//  platform APIs. Interesting logic lives in SessionController and is covered via
-//  MockSessionAlarm. Manual on-device verification is the test plan.
+//  Flow:
+//  1. `arm(cycleId:fireDate:)` calls `session.start(at: fireDate)` and schedules
+//     a Watch-local notification with the same fireDate (as a fallback, and to
+//     carry the "Start break" action button visible in Notification Center).
+//  2. At fireDate, watchOS starts the session and calls
+//     `extendedRuntimeSessionDidStart` on the delegate. That callback kicks off
+//     the repeating haptic loop via `notifyUser(hapticType:repeatHandler:)`.
+//  3. The repeat handler runs until the user acknowledges (disarm() called) or
+//     ~30 seconds elapse, whichever comes first.
+//
+//  Not unit-tested — this class is a thin translator between the protocol and
+//  the platform APIs. Manual on-device verification covers it.
 //
 
 import Foundation
@@ -22,8 +30,6 @@ import WatchKit
 import UserNotifications
 import BlinkBreakCore
 
-/// Watch-side alarm that holds an extended runtime session alive and fires repeating
-/// haptics + a local notification when the break fire date is reached.
 final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unchecked Sendable {
 
     // MARK: - State
@@ -31,18 +37,18 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
     private let lock = NSLock()
     private var armedCycleId: UUID?
     private var session: WKExtendedRuntimeSession?
-    private var fireTimer: DispatchSourceTimer?
     private var disarmed: Bool = false
     private var hapticStartTime: Date?
 
-    /// Maximum elapsed time the haptic loop continues before auto-terminating.
-    /// Matches the cascade's original ~25–30 second alarm window.
+    /// Maximum time the haptic loop runs before auto-terminating. Apple's smart-alarm
+    /// session budget is ~30 seconds of runtime after the session fires, so this
+    /// also matches the platform cap.
     private let maxHapticSeconds: TimeInterval = 30
 
     // MARK: - SessionAlarmProtocol
 
     func arm(cycleId: UUID, fireDate: Date) {
-        // Defensive: if we already have an armed cycle, tear it down first.
+        // Tear down any previously-armed cycle first.
         disarmInternal()
 
         lock.lock()
@@ -50,32 +56,22 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
         disarmed = false
         lock.unlock()
 
-        // Start the extended runtime session. This keeps the Watch app alive in the
-        // background for this cycle. Session type .selfCare covers self-care activities
-        // like the 20-20-20 eye rest.
+        // Schedule the session to start AT the break fire date. Smart-alarm runtime
+        // doesn't begin consuming until the session fires, so we're not bound by
+        // the ~10-minute cap that killed the previous .selfCare approach.
         let newSession = WKExtendedRuntimeSession()
         newSession.delegate = self
-        newSession.start()
+        newSession.start(at: fireDate)
         session = newSession
 
-        // Schedule the Watch-local notification NOW with a system-managed trigger,
-        // rather than waiting for fireAlarm(). This guarantees the notification
-        // fires even if the WKExtendedRuntimeSession expires before the 20-minute
-        // mark (selfCare sessions are limited to ~10 minutes). The notification
-        // carries the "Start break" action category, which mirrored iPhone
-        // notifications don't reliably show on the Watch.
+        // Schedule a Watch-local notification at the same fireDate. Two purposes:
+        //  1. Fallback: if the session fails to fire (e.g., app wasn't foreground-
+        //     reachable when arm() ran from a background wake), the notification
+        //     still delivers a `.timeSensitive` alert.
+        //  2. UI surface: the notification carries the "Start break" action button
+        //     visible from the lock screen / Notification Center — haptics alone
+        //     don't give the user a way to acknowledge without opening the app.
         scheduleWatchLocalNotification(cycleId: cycleId, fireDate: fireDate)
-
-        // Schedule a DispatchSourceTimer for the break fire date. When it fires, we
-        // kick off the repeating haptic. The notification is already scheduled above.
-        let delay = max(fireDate.timeIntervalSinceNow, 0.1)
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + delay)
-        timer.setEventHandler { [weak self] in
-            self?.fireAlarm(cycleId: cycleId)
-        }
-        timer.resume()
-        fireTimer = timer
     }
 
     func disarm(cycleId: UUID) {
@@ -97,61 +93,21 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
         armedCycleId = nil
         lock.unlock()
 
-        fireTimer?.cancel()
-        fireTimer = nil
-
-        if let s = session, s.state == .running {
-            s.invalidate()
+        // `invalidate()` cancels a pending scheduled-start session *and* stops an
+        // already-running one, so this handles both the pre-fire and mid-haptic
+        // cases uniformly.
+        if let s = session {
+            if s.state == .running {
+                s.invalidate()
+            } else if s.state == .scheduled {
+                s.invalidate()
+            }
         }
         session = nil
     }
 
-    private func fireAlarm(cycleId: UUID) {
-        guard let s = session, s.state == .running else { return }
-
-        lock.lock()
-        hapticStartTime = Date()
-        lock.unlock()
-
-        // Kick off the repeating haptic. The repeat handler is called by the system
-        // after each haptic. It receives an UnsafeMutablePointer<WKHapticType> to which
-        // it can write the *next* haptic type to play, and returns the interval (in
-        // seconds) until the next invocation — returning 0 terminates the loop.
-        //
-        // We track elapsed time ourselves (start time captured above) because the handler
-        // doesn't receive it as a parameter.
-        s.notifyUser(hapticType: .notification) { [weak self] nextHapticTypePointer in
-            guard let self else {
-                return 0
-            }
-
-            // Keep using the same haptic type for every repeat.
-            nextHapticTypePointer.pointee = .notification
-
-            self.lock.lock()
-            let isDisarmed = self.disarmed
-            let started = self.hapticStartTime
-            self.lock.unlock()
-
-            let elapsed = started.map { Date().timeIntervalSince($0) } ?? 0
-
-            if isDisarmed || elapsed >= self.maxHapticSeconds {
-                // Invalidate the session on the main queue so no further invocations
-                // can happen even if the 0-return isn't respected.
-                DispatchQueue.main.async { [weak self] in
-                    if let s = self?.session, s.state == .running {
-                        s.invalidate()
-                    }
-                }
-                return 0
-            }
-
-            return 1.0
-        }
-    }
-
     /// Schedule a Watch-local notification with a system-managed trigger so it fires
-    /// even if the WKExtendedRuntimeSession expires. Called from arm(), not fireAlarm().
+    /// even if the scheduled session fails for any reason.
     private func scheduleWatchLocalNotification(cycleId: UUID, fireDate: Date) {
         let content = UNMutableNotificationContent()
         content.title = "Time to look away"
@@ -180,6 +136,41 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id])
     }
+
+    /// Start the repeating haptic loop on the given session. Called from
+    /// `extendedRuntimeSessionDidStart` when the smart-alarm fires at break time.
+    private func playHapticLoop(on session: WKExtendedRuntimeSession) {
+        lock.lock()
+        hapticStartTime = Date()
+        lock.unlock()
+
+        // `notifyUser` invokes the closure after each haptic, writes the NEXT haptic
+        // type to play through the pointer, and returns the delay (seconds) until
+        // the next invocation. Returning 0 stops the loop. We track elapsed time
+        // ourselves via `hapticStartTime` since the closure doesn't receive it.
+        session.notifyUser(hapticType: .notification) { [weak self] nextHapticTypePointer in
+            guard let self else { return 0 }
+
+            nextHapticTypePointer.pointee = .notification
+
+            self.lock.lock()
+            let isDisarmed = self.disarmed
+            let started = self.hapticStartTime
+            self.lock.unlock()
+
+            let elapsed = started.map { Date().timeIntervalSince($0) } ?? 0
+
+            if isDisarmed || elapsed >= self.maxHapticSeconds {
+                DispatchQueue.main.async { [weak self] in
+                    if let s = self?.session, s.state == .running {
+                        s.invalidate()
+                    }
+                }
+                return 0
+            }
+            return 1.0
+        }
+    }
 }
 
 // MARK: - WKExtendedRuntimeSessionDelegate
@@ -187,14 +178,31 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
 extension WKExtendedRuntimeSessionAlarm: WKExtendedRuntimeSessionDelegate {
 
     func extendedRuntimeSessionDidStart(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
-        print("[WKExtendedRuntimeSessionAlarm] session started")
+        // The smart-alarm fire date has arrived and the session is now running.
+        // Guarded by `disarmed` so a late-arriving session-did-start (e.g. user
+        // already acknowledged the break before the session fired) doesn't buzz
+        // the wrist for a break the user already handled.
+        lock.lock()
+        let isDisarmed = disarmed
+        let expectedSession = session
+        lock.unlock()
+
+        guard !isDisarmed, extendedRuntimeSession === expectedSession else {
+            if extendedRuntimeSession.state == .running {
+                extendedRuntimeSession.invalidate()
+            }
+            return
+        }
+
+        playHapticLoop(on: extendedRuntimeSession)
     }
 
     func extendedRuntimeSessionWillExpire(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
-        // Session is about to be reclaimed. We don't attempt renewal — the iPhone
-        // notification at T+20:00 is the fallback that guarantees the user still
-        // gets alerted even if the session dies early.
-        print("[WKExtendedRuntimeSessionAlarm] session will expire — relying on iPhone fallback")
+        // Smart-alarm sessions get ~30 seconds; this fires shortly before that cap.
+        // Nothing to do — the haptic loop already self-terminates via the elapsed-
+        // time check in its repeat handler, and the Watch-local notification that
+        // accompanies the alarm handles the "user wasn't looking" case.
+        print("[WKExtendedRuntimeSessionAlarm] session will expire")
     }
 
     func extendedRuntimeSession(
@@ -204,7 +212,9 @@ extension WKExtendedRuntimeSessionAlarm: WKExtendedRuntimeSessionDelegate {
     ) {
         print("[WKExtendedRuntimeSessionAlarm] session invalidated: reason=\(reason.rawValue) error=\(String(describing: error))")
         lock.lock()
-        session = nil
+        if session === extendedRuntimeSession {
+            session = nil
+        }
         lock.unlock()
     }
 }
