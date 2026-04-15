@@ -56,9 +56,7 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
 
     /// Absolute fire time shown to the user as reassurance ("will interrupt me at 2:47 PM").
     private var breakFireTimeFormatted: String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: breakFireTime)
+        breakFireTime.formatted(date: .omitted, time: .shortened)
     }
 }
 
