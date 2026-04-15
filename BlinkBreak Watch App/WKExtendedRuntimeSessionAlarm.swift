@@ -51,18 +51,22 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
         // Tear down any previously-armed cycle first.
         disarmInternal()
 
+        // Schedule the session to start AT the break fire date. Smart-alarm runtime
+        // doesn't begin consuming until the session fires, so we're not bound by
+        // the ~10-minute cap that killed the previous .selfCare approach. Guard
+        // against past/near-zero offsets — Apple doesn't document `start(at:)`'s
+        // behavior with a non-future date; nudging forward 0.1s mirrors the
+        // notification-trigger guard below.
+        let startDate = max(fireDate, Date(timeIntervalSinceNow: 0.1))
+        let newSession = WKExtendedRuntimeSession()
+        newSession.delegate = self
+        newSession.start(at: startDate)
+
         lock.lock()
         armedCycleId = cycleId
         disarmed = false
-        lock.unlock()
-
-        // Schedule the session to start AT the break fire date. Smart-alarm runtime
-        // doesn't begin consuming until the session fires, so we're not bound by
-        // the ~10-minute cap that killed the previous .selfCare approach.
-        let newSession = WKExtendedRuntimeSession()
-        newSession.delegate = self
-        newSession.start(at: fireDate)
         session = newSession
+        lock.unlock()
 
         // Schedule a Watch-local notification at the same fireDate. Two purposes:
         //  1. Fallback: if the session fails to fire (e.g., app wasn't foreground-
@@ -88,22 +92,19 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
     // MARK: - Private
 
     private func disarmInternal() {
+        // Extract the session under the lock, then invalidate outside the lock.
+        // `invalidate()` is safe on any session state (a no-op on already-
+        // invalidated sessions) and cancels both pending `.scheduled` and active
+        // `.running` sessions, so no state branching is needed.
         lock.lock()
         disarmed = true
         armedCycleId = nil
+        hapticStartTime = nil
+        let sessionToInvalidate = session
+        session = nil
         lock.unlock()
 
-        // `invalidate()` cancels a pending scheduled-start session *and* stops an
-        // already-running one, so this handles both the pre-fire and mid-haptic
-        // cases uniformly.
-        if let s = session {
-            if s.state == .running {
-                s.invalidate()
-            } else if s.state == .scheduled {
-                s.invalidate()
-            }
-        }
-        session = nil
+        sessionToInvalidate?.invalidate()
     }
 
     /// Schedule a Watch-local notification with a system-managed trigger so it fires
@@ -148,8 +149,12 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
         // type to play through the pointer, and returns the delay (seconds) until
         // the next invocation. Returning 0 stops the loop. We track elapsed time
         // ourselves via `hapticStartTime` since the closure doesn't receive it.
-        session.notifyUser(hapticType: .notification) { [weak self] nextHapticTypePointer in
-            guard let self else { return 0 }
+        //
+        // Capture `session` weakly instead of reading `self.session` — the repeat
+        // handler runs off the main queue, and `self.session` is locked state that
+        // might have been cleared by a concurrent disarm.
+        session.notifyUser(hapticType: .notification) { [weak self, weak session] nextHapticTypePointer in
+            guard let self, let session else { return 0 }
 
             nextHapticTypePointer.pointee = .notification
 
@@ -161,10 +166,8 @@ final class WKExtendedRuntimeSessionAlarm: NSObject, SessionAlarmProtocol, @unch
             let elapsed = started.map { Date().timeIntervalSince($0) } ?? 0
 
             if isDisarmed || elapsed >= self.maxHapticSeconds {
-                DispatchQueue.main.async { [weak self] in
-                    if let s = self?.session, s.state == .running {
-                        s.invalidate()
-                    }
+                DispatchQueue.main.async {
+                    session.invalidate()
                 }
                 return 0
             }
@@ -188,9 +191,7 @@ extension WKExtendedRuntimeSessionAlarm: WKExtendedRuntimeSessionDelegate {
         lock.unlock()
 
         guard !isDisarmed, extendedRuntimeSession === expectedSession else {
-            if extendedRuntimeSession.state == .running {
-                extendedRuntimeSession.invalidate()
-            }
+            extendedRuntimeSession.invalidate()
             return
         }
 
@@ -202,7 +203,9 @@ extension WKExtendedRuntimeSessionAlarm: WKExtendedRuntimeSessionDelegate {
         // Nothing to do — the haptic loop already self-terminates via the elapsed-
         // time check in its repeat handler, and the Watch-local notification that
         // accompanies the alarm handles the "user wasn't looking" case.
+        #if DEBUG
         print("[WKExtendedRuntimeSessionAlarm] session will expire")
+        #endif
     }
 
     func extendedRuntimeSession(
@@ -210,7 +213,9 @@ extension WKExtendedRuntimeSessionAlarm: WKExtendedRuntimeSessionDelegate {
         didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason,
         error: Error?
     ) {
+        #if DEBUG
         print("[WKExtendedRuntimeSessionAlarm] session invalidated: reason=\(reason.rawValue) error=\(String(describing: error))")
+        #endif
         lock.lock()
         if session === extendedRuntimeSession {
             session = nil
