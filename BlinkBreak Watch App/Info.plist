@@ -22,14 +22,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>NSAlarmKitUsageDescription</key>
-	<string>BlinkBreak uses alarm-style haptics on your Apple Watch to deliver 20-20-20 eye-break reminders.</string>
 	<key>WKApplication</key>
 	<true/>
-	<key>WKBackgroundModes</key>
-	<array>
-		<string>smart-alarm</string>
-	</array>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>com.tytaniumdev.BlinkBreak</string>
 	<key>WKWatchOnly</key>
