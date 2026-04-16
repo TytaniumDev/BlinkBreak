@@ -39,15 +39,19 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
     }
 
     public func submit(report: DiagnosticReport, userDescription: String) async throws {
+        // Enforce input length limit to prevent large payload DoS
+        let truncatedDescription = String(userDescription.prefix(3000))
+
         let url = URL(string: "https://api.github.com/repos/\(repo)/issues")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 15.0 // Prevent hanging connections
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let title = Self.formatTitle(userDescription: userDescription)
-        let body = Self.formatBody(userDescription: userDescription, report: report)
+        let title = Self.formatTitle(userDescription: truncatedDescription)
+        let body = Self.formatBody(userDescription: truncatedDescription, report: report)
 
         let payload: [String: Any] = [
             "title": title,
