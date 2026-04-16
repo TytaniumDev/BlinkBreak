@@ -12,7 +12,6 @@
 
 import SwiftUI
 import BlinkBreakCore
-import WatchConnectivity
 
 @main
 struct BlinkBreakApp: App {
@@ -48,9 +47,7 @@ struct BlinkBreakApp: App {
         sharedScheduler.registerCategories()
         return SessionController(
             scheduler: sharedScheduler,
-            connectivity: WCSessionConnectivity(),
             persistence: sharedPersistence,
-            alarm: NoopSessionAlarm(),
             scheduleEvaluator: sharedEvaluator
         )
     }()
@@ -63,9 +60,7 @@ struct BlinkBreakApp: App {
                 content: RootView(controller: controller, scheduleEvaluator: Self.sharedEvaluator),
                 scheduler: Self.sharedScheduler,
                 persistence: Self.sharedPersistence,
-                sessionState: controller.state,
-                watchIsPaired: WCSession.isSupported() ? WCSession.default.isPaired : false,
-                watchIsReachable: WCSession.isSupported() ? WCSession.default.isReachable : false
+                sessionState: controller.state
             )
                 .onAppear {
                     // Hand the controller to the AppDelegate so notification action
@@ -73,13 +68,6 @@ struct BlinkBreakApp: App {
                     appDelegate.controller = controller
                     appDelegate.requestNotificationAuthorizationIfNeeded()
 
-                    // Activate WatchConnectivity and wire up both directions:
-                    // - onCommandReceived: the (rarely-used) Watch→Phone command path.
-                    // - onSnapshotReceived: when the Watch broadcasts a break
-                    //   acknowledgment, handleRemoteSnapshot cancels our delivered
-                    //   iPhone notification and disarms our (noop) alarm.
-                    controller.activateConnectivity()
-                    controller.wireUpConnectivity()
                     Task { await controller.reconcile() }
 
                     // Set up the ScheduleTaskManager for foreground schedule checks

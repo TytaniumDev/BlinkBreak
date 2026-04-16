@@ -58,9 +58,6 @@ public struct DiagnosticReport: Codable, Sendable {
     public let sessionRecord: SessionRecord
     public let weeklySchedule: WeeklySchedule
     public let pendingNotifications: [PendingNotificationInfo]
-    public let watchIsPaired: Bool
-    public let watchIsReachable: Bool
-    public let watchLastSyncedAt: Date?
     public let logEntries: [LogEntry]
 
     public init(
@@ -70,9 +67,6 @@ public struct DiagnosticReport: Codable, Sendable {
         sessionRecord: SessionRecord,
         weeklySchedule: WeeklySchedule,
         pendingNotifications: [PendingNotificationInfo],
-        watchIsPaired: Bool,
-        watchIsReachable: Bool,
-        watchLastSyncedAt: Date?,
         logEntries: [LogEntry]
     ) {
         self.timestamp = timestamp
@@ -81,9 +75,6 @@ public struct DiagnosticReport: Codable, Sendable {
         self.sessionRecord = sessionRecord
         self.weeklySchedule = weeklySchedule
         self.pendingNotifications = pendingNotifications
-        self.watchIsPaired = watchIsPaired
-        self.watchIsReachable = watchIsReachable
-        self.watchLastSyncedAt = watchLastSyncedAt
         self.logEntries = logEntries
     }
 }

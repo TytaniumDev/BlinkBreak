@@ -16,9 +16,7 @@ struct ScheduleIntegrationTests {
     @MainActor
     final class Fixture {
         let scheduler = MockNotificationScheduler()
-        let connectivity = MockWatchConnectivity()
         let persistence = InMemoryPersistence()
-        let alarm = MockSessionAlarm()
         let evaluator = MockScheduleEvaluator()
         let nowBox: NowBox
         let controller: SessionController
@@ -28,9 +26,7 @@ struct ScheduleIntegrationTests {
             self.nowBox = box
             self.controller = SessionController(
                 scheduler: scheduler,
-                connectivity: connectivity,
                 persistence: persistence,
-                alarm: alarm,
                 scheduleEvaluator: evaluator,
                 clock: { box.value }
             )

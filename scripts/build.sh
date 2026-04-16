@@ -7,8 +7,8 @@
 #  1. swift build on Packages/BlinkBreakCore — verifies the shared business logic
 #     compiles on the current machine. Works with Command Line Tools alone.
 #
-#  2. xcodegen generate + xcodebuild build — verifies the full iOS + watchOS
-#     project builds. Requires full Xcode.app (not just Command Line Tools).
+#  2. xcodegen generate + xcodebuild build — verifies the iOS project builds.
+#     Requires full Xcode.app (not just Command Line Tools).
 #     If only Command Line Tools are installed, this phase is skipped with a warning.
 #
 
@@ -63,15 +63,6 @@ xcodebuild build \
   -destination 'generic/platform=iOS Simulator' \
   -quiet
 echo "  ok — BlinkBreak (iOS) built."
-
-echo ""
-echo "→ Building Watch app target..."
-xcodebuild build \
-  -project BlinkBreak.xcodeproj \
-  -scheme "BlinkBreak Watch App" \
-  -destination 'generic/platform=watchOS Simulator' \
-  -quiet
-echo "  ok — BlinkBreak Watch App built."
 
 echo ""
 echo "✓ Build passed."

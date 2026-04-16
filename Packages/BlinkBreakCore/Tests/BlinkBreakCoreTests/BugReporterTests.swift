@@ -42,9 +42,6 @@ struct BugReporterFormattingTests {
                     fireDate: Date(timeIntervalSince1970: 1_700_001_200)
                 )
             ],
-            watchIsPaired: true,
-            watchIsReachable: false,
-            watchLastSyncedAt: nil,
             logEntries: logs
         )
     }
@@ -82,8 +79,6 @@ struct BugReporterFormattingTests {
         #expect(body.contains("running"))
         // Pending notifications
         #expect(body.contains("break.primary.abc"))
-        // Watch section
-        #expect(body.contains("Paired: true"))
         // Log entries in a details block
         #expect(body.contains("<details>"))
         #expect(body.contains("log 0"))

@@ -90,26 +90,6 @@ struct PersistenceTests {
         #expect(decoded.lastUpdatedAt == nil)
     }
 
-    @Test("SessionRecord.init(from: SessionSnapshot) copies updatedAt into lastUpdatedAt")
-    func initFromSnapshot() {
-        let cycleId = UUID()
-        let cycleStart = Date(timeIntervalSince1970: 1_700_000_000)
-        let lookAwayStart = Date(timeIntervalSince1970: 1_700_000_100)
-        let snap = SessionSnapshot(
-            sessionActive: true,
-            currentCycleId: cycleId,
-            cycleStartedAt: cycleStart,
-            breakActiveStartedAt: lookAwayStart,
-            updatedAt: Date(timeIntervalSince1970: 1_700_000_200)
-        )
-        let record = SessionRecord(from: snap)
-        #expect(record.sessionActive == true)
-        #expect(record.currentCycleId == cycleId)
-        #expect(record.cycleStartedAt == cycleStart)
-        #expect(record.breakActiveStartedAt == lookAwayStart)
-        #expect(record.lastUpdatedAt == Date(timeIntervalSince1970: 1_700_000_200))
-    }
-
     @Test("SessionRecord without manualStopDate decodes cleanly (backward compat)")
     func sessionRecordManualStopBackwardCompat() throws {
         let legacyJSON = """

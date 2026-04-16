@@ -135,15 +135,6 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
             sections.append(table)
         }
 
-        // Watch connectivity
-        sections.append("""
-        ## Watch Connectivity
-
-        - Paired: \(report.watchIsPaired)
-        - Reachable: \(report.watchIsReachable)
-        - Last Synced: \(report.watchLastSyncedAt.map { iso.string(from: $0) } ?? "never")
-        """)
-
         // Log entries (collapsible)
         if !report.logEntries.isEmpty {
             let logLines = report.logEntries.map { entry in
