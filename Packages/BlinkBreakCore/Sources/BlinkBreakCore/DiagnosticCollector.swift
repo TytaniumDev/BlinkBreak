@@ -13,30 +13,24 @@
 import Foundation
 
 /// Assembles a `DiagnosticReport` from the current app state, persistence, pending
-/// notifications, Watch connectivity status, and log buffer.
+/// notifications, and log buffer.
 public struct DiagnosticCollector: Sendable {
 
     private let scheduler: NotificationSchedulerProtocol
     private let persistence: PersistenceProtocol
     private let logBuffer: LogBuffer
     private let sessionState: SessionState
-    private let watchIsPaired: Bool
-    private let watchIsReachable: Bool
 
     public init(
         scheduler: NotificationSchedulerProtocol,
         persistence: PersistenceProtocol,
         logBuffer: LogBuffer,
-        sessionState: SessionState,
-        watchIsPaired: Bool,
-        watchIsReachable: Bool
+        sessionState: SessionState
     ) {
         self.scheduler = scheduler
         self.persistence = persistence
         self.logBuffer = logBuffer
         self.sessionState = sessionState
-        self.watchIsPaired = watchIsPaired
-        self.watchIsReachable = watchIsReachable
     }
 
     /// Collect all diagnostic data into a report. Async because fetching pending
@@ -54,9 +48,6 @@ public struct DiagnosticCollector: Sendable {
             sessionRecord: record,
             weeklySchedule: schedule,
             pendingNotifications: pending,
-            watchIsPaired: watchIsPaired,
-            watchIsReachable: watchIsReachable,
-            watchLastSyncedAt: record.lastUpdatedAt,
             logEntries: logs
         )
     }

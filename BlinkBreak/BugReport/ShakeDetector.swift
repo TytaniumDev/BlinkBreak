@@ -41,8 +41,6 @@ struct ShakeDetectorView<Content: View>: View {
     let scheduler: NotificationSchedulerProtocol
     let persistence: PersistenceProtocol
     let sessionState: SessionState
-    let watchIsPaired: Bool
-    let watchIsReachable: Bool
 
     @State private var showingSubmitAlert = false
     @State private var bugDescription = ""
@@ -100,9 +98,7 @@ struct ShakeDetectorView<Content: View>: View {
                     scheduler: scheduler,
                     persistence: persistence,
                     logBuffer: LogBuffer.shared,
-                    sessionState: sessionState,
-                    watchIsPaired: watchIsPaired,
-                    watchIsReachable: watchIsReachable
+                    sessionState: sessionState
                 )
 
                 let report = await collector.collect(deviceInfo: deviceInfo)

@@ -17,7 +17,6 @@ struct ReconciliationTests {
     final class Fixture {
         let scheduler = MockNotificationScheduler()
         let persistence = InMemoryPersistence()
-        let alarm = MockSessionAlarm()
         let nowBox = NowBox(value: Date(timeIntervalSince1970: 1_700_000_000))
         let controller: SessionController
 
@@ -25,9 +24,7 @@ struct ReconciliationTests {
             let box = nowBox
             self.controller = SessionController(
                 scheduler: scheduler,
-                connectivity: MockWatchConnectivity(),
                 persistence: persistence,
-                alarm: alarm,
                 clock: { box.value }
             )
         }
@@ -196,21 +193,4 @@ struct ReconciliationTests {
         #expect(f.persistence.load() == .idle)
     }
 
-    @Test("reconcile in running state re-arms the alarm for the remaining time")
-    func reconcileRunningReArmsAlarm() async {
-        let f = Fixture()
-        let cycleId = UUID()
-        f.persistence.save(SessionRecord(
-            sessionActive: true,
-            currentCycleId: cycleId,
-            cycleStartedAt: f.nowBox.value,
-            breakActiveStartedAt: nil
-        ))
-        f.scheduler.stubPendingIdentifiers = CascadeBuilder.identifiers(for: cycleId)
-
-        await f.controller.reconcile()
-
-        #expect(f.alarm.lastArmed?.cycleId == cycleId)
-        #expect(f.alarm.lastArmed?.fireDate == f.nowBox.value.addingTimeInterval(BlinkBreakConstants.breakInterval))
-    }
 }

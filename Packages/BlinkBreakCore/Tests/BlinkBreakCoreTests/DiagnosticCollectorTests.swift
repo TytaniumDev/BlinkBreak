@@ -49,9 +49,7 @@ struct DiagnosticCollectorTests {
             scheduler: scheduler,
             persistence: persistence,
             logBuffer: logBuffer,
-            sessionState: .running(cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000)),
-            watchIsPaired: true,
-            watchIsReachable: false
+            sessionState: .running(cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000))
         )
 
         let report = await collector.collect(deviceInfo: Self.testDeviceInfo)
@@ -62,8 +60,6 @@ struct DiagnosticCollectorTests {
         #expect(report.sessionRecord.sessionActive == true)
         #expect(report.pendingNotifications.count == 1)
         #expect(report.pendingNotifications[0].identifier == "break.primary.test")
-        #expect(report.watchIsPaired == true)
-        #expect(report.watchIsReachable == false)
         #expect(report.logEntries.count == 1)
         #expect(report.logEntries[0].message == "test log entry")
     }
@@ -79,38 +75,10 @@ struct DiagnosticCollectorTests {
             scheduler: MockNotificationScheduler(),
             persistence: persistence,
             logBuffer: LogBuffer(capacity: 10),
-            sessionState: .idle,
-            watchIsPaired: false,
-            watchIsReachable: false
+            sessionState: .idle
         )
 
         let report = await collector.collect(deviceInfo: Self.testDeviceInfo)
         #expect(report.weeklySchedule.isEnabled == true)
-    }
-
-    @Test("collect uses watchLastSyncedAt from session record")
-    func collectUsesWatchSyncTimestamp() async {
-        let persistence = InMemoryPersistence()
-        let syncDate = Date(timeIntervalSince1970: 1_700_000_500)
-        let record = SessionRecord(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            breakActiveStartedAt: nil,
-            lastUpdatedAt: syncDate
-        )
-        persistence.save(record)
-
-        let collector = DiagnosticCollector(
-            scheduler: MockNotificationScheduler(),
-            persistence: persistence,
-            logBuffer: LogBuffer(capacity: 10),
-            sessionState: .running(cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000)),
-            watchIsPaired: true,
-            watchIsReachable: true
-        )
-
-        let report = await collector.collect(deviceInfo: Self.testDeviceInfo)
-        #expect(report.watchLastSyncedAt == syncDate)
     }
 }

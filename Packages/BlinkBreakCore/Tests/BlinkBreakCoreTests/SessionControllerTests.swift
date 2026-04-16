@@ -22,9 +22,7 @@ struct SessionControllerTests {
     @MainActor
     final class Fixture {
         let scheduler = MockNotificationScheduler()
-        let connectivity = MockWatchConnectivity()
         let persistence = InMemoryPersistence()
-        let alarm = MockSessionAlarm()
         let nowBox = NowBox(value: Date(timeIntervalSince1970: 1_700_000_000))
         let controller: SessionController
 
@@ -32,9 +30,7 @@ struct SessionControllerTests {
             let box = nowBox
             self.controller = SessionController(
                 scheduler: scheduler,
-                connectivity: connectivity,
                 persistence: persistence,
-                alarm: alarm,
                 clock: { box.value }
             )
         }
@@ -105,15 +101,6 @@ struct SessionControllerTests {
         #expect(record.breakActiveStartedAt == nil)
     }
 
-    @Test("start() broadcasts a snapshot to the Watch")
-    func startBroadcastsSnapshot() {
-        let f = Fixture()
-        f.controller.start()
-
-        #expect(f.connectivity.broadcasts.count == 1)
-        #expect(f.connectivity.lastBroadcast?.sessionActive == true)
-    }
-
     @Test("start() wipes stale notifications from a previous crashed session")
     func startCancelsStaleNotifications() {
         let f = Fixture()
@@ -167,18 +154,6 @@ struct SessionControllerTests {
         #expect(record.sessionActive == false)
         #expect(record.currentCycleId == nil)
         #expect(record.lastUpdatedAt != nil)
-    }
-
-    @Test("stop() broadcasts an inactive snapshot")
-    func stopBroadcastsIdle() {
-        let f = Fixture()
-        f.controller.start()
-        f.connectivity.reset()
-
-        f.controller.stop()
-
-        #expect(f.connectivity.broadcasts.count == 1)
-        #expect(f.connectivity.lastBroadcast?.sessionActive == false)
     }
 
     @Test("stop() from breakPending transitions to idle")
@@ -286,186 +261,6 @@ struct SessionControllerTests {
     }
 
     // MARK: - Full session loop
-
-    // MARK: - Alarm wiring
-
-    @Test("start() arms the alarm with the cycleId and correct fireDate")
-    func startArmsAlarm() {
-        let f = Fixture()
-        f.controller.start()
-
-        let armed = f.alarm.lastArmed
-        #expect(armed != nil)
-        #expect(armed?.cycleId == f.persistence.load().currentCycleId)
-        #expect(armed?.fireDate == f.nowBox.value.addingTimeInterval(BlinkBreakConstants.breakInterval))
-    }
-
-    @Test("stop() disarms the current cycle's alarm")
-    func stopDisarmsAlarm() {
-        let f = Fixture()
-        f.controller.start()
-        let cycleId = f.persistence.load().currentCycleId!
-
-        f.controller.stop()
-
-        #expect(f.alarm.lastDisarmedCycleId == cycleId)
-    }
-
-    @Test("handleStartBreakAction disarms the current cycle and arms the next")
-    func ackDisarmsAndReArms() {
-        let f = Fixture()
-        f.controller.start()
-        let firstCycleId = f.persistence.load().currentCycleId!
-        f.advance(by: BlinkBreakConstants.breakInterval)
-
-        f.controller.handleStartBreakAction(cycleId: firstCycleId)
-
-        #expect(f.alarm.disarmedCycleIds.contains(firstCycleId))
-        #expect(f.alarm.armedCalls.count == 2)  // start + re-arm
-        let nextArmed = f.alarm.lastArmed!
-        #expect(nextArmed.cycleId == f.persistence.load().currentCycleId)
-    }
-
-    // MARK: - handleRemoteSnapshot
-
-    // Models: iPhone starts a session, broadcasts snapshot, Watch was idle.
-    // On the Watch, `alarm.arm` is the only path that schedules the Watch-local
-    // break notification — so it must fire on this transition. Regression guard
-    // against the "no break notification on the Watch" bug.
-    @Test("handleRemoteSnapshot from a remote-started session arms the alarm at break-time")
-    func remoteSnapshotArmsAlarmForRunningSession() async {
-        let f = Fixture()
-        let cycleId = UUID()
-        let cycleStartedAt = f.nowBox.value
-        let snapshot = SessionSnapshot(
-            sessionActive: true,
-            currentCycleId: cycleId,
-            cycleStartedAt: cycleStartedAt,
-            breakActiveStartedAt: nil,
-            updatedAt: cycleStartedAt
-        )
-        f.controller.handleRemoteSnapshot(snapshot)
-        await f.controller.reconcile()  // force the detached reconcile to run
-
-        let fireDate = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
-        #expect(f.alarm.armedCalls.contains(where: { $0.cycleId == cycleId && $0.fireDate == fireDate }))
-    }
-
-    @Test("handleRemoteSnapshot with a remote ack cancels delivered notifications for the acked cycle")
-    func remoteAckCancelsDelivered() {
-        let f = Fixture()
-        f.controller.start()
-        let cycleId = f.persistence.load().currentCycleId!
-        f.advance(by: BlinkBreakConstants.breakInterval)
-
-        let remoteSnapshot = SessionSnapshot(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            breakActiveStartedAt: f.nowBox.value,
-            updatedAt: f.nowBox.value
-        )
-        f.controller.handleRemoteSnapshot(remoteSnapshot)
-
-        let cancelled = f.scheduler.lastCancelledIdentifiers ?? []
-        #expect(cancelled.contains(BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString))
-    }
-
-    @Test("handleRemoteSnapshot with a remote ack disarms the local alarm for the acked cycle")
-    func remoteAckDisarmsAlarm() {
-        let f = Fixture()
-        f.controller.start()
-        let cycleId = f.persistence.load().currentCycleId!
-        f.alarm.reset()
-        f.advance(by: BlinkBreakConstants.breakInterval)
-
-        let remoteSnapshot = SessionSnapshot(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            breakActiveStartedAt: f.nowBox.value,
-            updatedAt: f.nowBox.value
-        )
-        f.controller.handleRemoteSnapshot(remoteSnapshot)
-
-        #expect(f.alarm.disarmedCycleIds.contains(cycleId))
-    }
-
-    @Test("handleRemoteSnapshot is idempotent when called twice with the same snapshot")
-    func remoteSnapshotDoubleDelivery() {
-        let f = Fixture()
-        f.controller.start()
-        f.advance(by: BlinkBreakConstants.breakInterval)
-
-        let snapshot = SessionSnapshot(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            breakActiveStartedAt: f.nowBox.value,
-            updatedAt: f.nowBox.value
-        )
-        f.controller.handleRemoteSnapshot(snapshot)
-        let recordAfterFirst = f.persistence.load()
-        f.controller.handleRemoteSnapshot(snapshot)
-        let recordAfterSecond = f.persistence.load()
-
-        #expect(recordAfterFirst == recordAfterSecond)
-    }
-
-    @Test("handleRemoteSnapshot with a remote ack schedules a local done notification")
-    func remoteAckSchedulesDoneNotification() {
-        let f = Fixture()
-        f.controller.start()
-        let cycleId = f.persistence.load().currentCycleId!
-        f.advance(by: BlinkBreakConstants.breakInterval)
-
-        // Simulate the remote device acknowledging the break.
-        let breakActiveStartedAt = f.nowBox.value
-        let remoteSnapshot = SessionSnapshot(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: breakActiveStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            breakActiveStartedAt: breakActiveStartedAt,
-            updatedAt: f.nowBox.value
-        )
-        f.controller.handleRemoteSnapshot(remoteSnapshot)
-
-        // The local device should schedule a done notification so it can alert
-        // the user when the break period ends, regardless of which device
-        // handled the ack.
-        let doneId = BlinkBreakConstants.doneIdPrefix + cycleId.uuidString
-        let doneNotification = f.scheduler.scheduledNotifications.first { $0.identifier == doneId }
-        #expect(doneNotification != nil, "expected a done notification to be scheduled locally")
-        #expect(doneNotification?.fireDate == breakActiveStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
-
-        // The next cycle's break notification should also be scheduled so the
-        // iPhone fallback remains active regardless of which device handled the ack.
-        let nextBreakId = BlinkBreakConstants.breakPrimaryIdPrefix + remoteSnapshot.currentCycleId!.uuidString
-        let nextBreakNotification = f.scheduler.scheduledNotifications.first { $0.identifier == nextBreakId }
-        #expect(nextBreakNotification != nil, "expected the next break notification to be scheduled locally")
-    }
-
-    @Test("handleRemoteSnapshot ignores snapshots older than the local lastUpdatedAt")
-    func remoteSnapshotStaleIgnored() {
-        let f = Fixture()
-        f.controller.start()
-        let cycleIdBefore = f.persistence.load().currentCycleId
-
-        var rec = f.persistence.load()
-        rec.lastUpdatedAt = f.nowBox.value.addingTimeInterval(100)
-        f.persistence.save(rec)
-
-        let stale = SessionSnapshot(
-            sessionActive: false,
-            currentCycleId: nil,
-            cycleStartedAt: nil,
-            breakActiveStartedAt: nil,
-            updatedAt: f.nowBox.value.addingTimeInterval(50)
-        )
-        f.controller.handleRemoteSnapshot(stale)
-
-        #expect(f.persistence.load().currentCycleId == cycleIdBefore)
-    }
 
     @Test("full loop: start → wait → ack → wait → reconcile → stop")
     func fullLoop() async {

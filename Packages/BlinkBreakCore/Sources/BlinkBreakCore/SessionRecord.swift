@@ -78,17 +78,6 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.wasAutoStarted = wasAutoStarted
     }
 
-    /// Build a persistence record from an incoming WatchConnectivity snapshot.
-    /// Copies `snapshot.updatedAt` into `lastUpdatedAt` so the staleness guard
-    /// in `handleRemoteSnapshot` sees the right timestamp.
-    public init(from snapshot: SessionSnapshot) {
-        self.sessionActive = snapshot.sessionActive
-        self.currentCycleId = snapshot.currentCycleId
-        self.cycleStartedAt = snapshot.cycleStartedAt
-        self.breakActiveStartedAt = snapshot.breakActiveStartedAt
-        self.lastUpdatedAt = snapshot.updatedAt
-    }
-
     /// The canonical "idle" record. Use this when stopping or clearing session state.
     public static let idle = SessionRecord(
         sessionActive: false,

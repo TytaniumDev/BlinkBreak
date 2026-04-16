@@ -27,6 +27,10 @@ Package.resolved
 # Superpowers scratch (brainstorming companion, plans, specs already committed intentionally)
 .superpowers/
 
+# Tooling scratch (not committed)
+.claude/
+.playwright-mcp/
+
 # Tooling
 *.log
 
