@@ -43,11 +43,11 @@ struct BreakPendingView<Controller: SessionControllerProtocol>: View {
                 } label: {
                     Text("Start break")
                         .frame(maxWidth: .infinity)
+                        .foregroundStyle(Color(red: 0.69, green: 0.00, blue: 0.13))
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(.white)
-                .foregroundStyle(Color(red: 0.69, green: 0.00, blue: 0.13))
                 .accessibilityIdentifier("button.breakPending.startBreak")
 
                 Button(role: .destructive) {
