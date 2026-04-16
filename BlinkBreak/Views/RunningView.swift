@@ -13,18 +13,18 @@
 import SwiftUI
 import BlinkBreakCore
 
+// Cache the a11y duration formatter to avoid allocations in the TimelineView render loop
+private let a11yDurationFormatter: DateComponentsFormatter = {
+    let formatter = DateComponentsFormatter()
+    formatter.unitsStyle = .full
+    formatter.allowedUnits = [.minute, .second]
+    return formatter
+}()
+
 struct RunningView<Controller: SessionControllerProtocol>: View {
 
     @ObservedObject var controller: Controller
     let cycleStartedAt: Date
-
-    // Cache the a11y duration formatter to avoid allocations in the TimelineView render loop
-    private static let a11yDurationFormatter: DateComponentsFormatter = {
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .full
-        formatter.allowedUnits = [.minute, .second]
-        return formatter
-    }()
 
     private var breakFireTime: Date {
         cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
@@ -43,7 +43,7 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                 CountdownRing(progress: progress, label: countdownLabel)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Time remaining")
-                    .accessibilityValue(Self.a11yDurationFormatter.string(from: remainingSeconds) ?? countdownLabel)
+                    .accessibilityValue(a11yDurationFormatter.string(from: remainingSeconds) ?? countdownLabel)
                     .accessibilityIdentifier("label.running.countdown")
 
                 Text("Fires at \(breakFireTimeFormatted)")
