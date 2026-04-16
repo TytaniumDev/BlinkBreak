@@ -120,21 +120,6 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
         | Schedule Enabled | \(report.weeklySchedule.isEnabled) |
         """)
 
-        // Pending notifications
-        if !report.pendingNotifications.isEmpty {
-            var table = """
-            ## Pending Notifications
-
-            | Identifier | Fire Date |
-            |------------|-----------|
-            """
-            for n in report.pendingNotifications {
-                let dateStr = n.fireDate.map { iso.string(from: $0) } ?? "unknown"
-                table += "\n| \(n.identifier) | \(dateStr) |"
-            }
-            sections.append(table)
-        }
-
         // Log entries (collapsible)
         if !report.logEntries.isEmpty {
             let logLines = report.logEntries.map { entry in

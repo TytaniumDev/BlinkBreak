@@ -36,12 +36,6 @@ struct BugReporterFormattingTests {
             sessionState: sessionState,
             sessionRecord: .idle,
             weeklySchedule: .empty,
-            pendingNotifications: [
-                PendingNotificationInfo(
-                    identifier: "break.primary.abc",
-                    fireDate: Date(timeIntervalSince1970: 1_700_001_200)
-                )
-            ],
             logEntries: logs
         )
     }
@@ -77,8 +71,6 @@ struct BugReporterFormattingTests {
         #expect(body.contains("0.1.0"))
         // App state section
         #expect(body.contains("running"))
-        // Pending notifications
-        #expect(body.contains("break.primary.abc"))
         // Log entries in a details block
         #expect(body.contains("<details>"))
         #expect(body.contains("log 0"))

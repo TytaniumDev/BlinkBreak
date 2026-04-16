@@ -52,6 +52,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         case lastUpdatedAt
         case manualStopDate
         case wasAutoStarted
+        case currentAlarmId
     }
 
     /// Whether this session was started automatically by the weekly schedule evaluator
@@ -60,6 +61,11 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// decode without migration; nil is treated as false.
     public var wasAutoStarted: Bool?
 
+    /// The AlarmKit alarm ID currently scheduled for this session, if any. Persisted so
+    /// reconciliation after app kill can correlate the in-memory cycle with the alarm
+    /// the system is still tracking. Optional for backwards compatibility.
+    public var currentAlarmId: UUID?
+
     public init(
         sessionActive: Bool = false,
         currentCycleId: UUID? = nil,
@@ -67,7 +73,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         breakActiveStartedAt: Date? = nil,
         lastUpdatedAt: Date? = nil,
         manualStopDate: Date? = nil,
-        wasAutoStarted: Bool? = nil
+        wasAutoStarted: Bool? = nil,
+        currentAlarmId: UUID? = nil
     ) {
         self.sessionActive = sessionActive
         self.currentCycleId = currentCycleId
@@ -76,6 +83,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.lastUpdatedAt = lastUpdatedAt
         self.manualStopDate = manualStopDate
         self.wasAutoStarted = wasAutoStarted
+        self.currentAlarmId = currentAlarmId
     }
 
     /// The canonical "idle" record. Use this when stopping or clearing session state.

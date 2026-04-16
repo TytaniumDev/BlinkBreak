@@ -6,6 +6,7 @@
 //
 
 import Testing
+import Foundation
 @testable import BlinkBreakCore
 
 @Suite("DiagnosticCollector")
@@ -19,19 +20,8 @@ struct DiagnosticCollectorTests {
         isTestFlight: true
     )
 
-    @Test("collect assembles a complete report from all sources")
+    @Test("collect assembles a report from persistence + log buffer + device info")
     func collectAssemblesReport() async {
-        let scheduler = MockNotificationScheduler()
-        scheduler.schedule(ScheduledNotification(
-            identifier: "break.primary.test",
-            title: "T",
-            body: "B",
-            fireDate: Date(timeIntervalSince1970: 1_700_001_200),
-            isTimeSensitive: true,
-            threadIdentifier: "thread",
-            categoryIdentifier: nil
-        ))
-
         let persistence = InMemoryPersistence()
         let record = SessionRecord(
             sessionActive: true,
@@ -46,7 +36,6 @@ struct DiagnosticCollectorTests {
         logBuffer.log(.info, "test log entry")
 
         let collector = DiagnosticCollector(
-            scheduler: scheduler,
             persistence: persistence,
             logBuffer: logBuffer,
             sessionState: .running(cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000))
@@ -58,8 +47,6 @@ struct DiagnosticCollectorTests {
         #expect(report.deviceInfo.isTestFlight == true)
         #expect(report.sessionState == "running")
         #expect(report.sessionRecord.sessionActive == true)
-        #expect(report.pendingNotifications.count == 1)
-        #expect(report.pendingNotifications[0].identifier == "break.primary.test")
         #expect(report.logEntries.count == 1)
         #expect(report.logEntries[0].message == "test log entry")
     }
@@ -72,7 +59,6 @@ struct DiagnosticCollectorTests {
         persistence.saveSchedule(schedule)
 
         let collector = DiagnosticCollector(
-            scheduler: MockNotificationScheduler(),
             persistence: persistence,
             logBuffer: LogBuffer(capacity: 10),
             sessionState: .idle

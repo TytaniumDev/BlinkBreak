@@ -4,11 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BlinkBreak is an iOS app that enforces the 20-20-20 rule for eye strain: every 20 minutes, the user is alerted to look at something 20 feet away for 20 seconds. The alert is delivered as a notification with a "Start break" action button. Supports an optional weekly schedule for automatic start/stop.
+BlinkBreak is an iOS app that enforces the 20-20-20 rule for eye strain: every 20 minutes, the user is alerted to look at something 20 feet away for 20 seconds. The alert is delivered via **AlarmKit** (iOS 26+) — a full-screen alarm takeover with a "Start break" stop button. Plays at alarm volume regardless of silent switch / Focus / DND. Supports an optional weekly schedule for automatic start/stop.
 
 Tyler is a Flutter expert new to iOS/Swift — code comments frame SwiftUI concepts in terms of Flutter analogues where helpful.
-
-A planned follow-up migrates the alert from `UNNotification` to **AlarmKit** (iOS 26+, full-screen alarm takeover) — see `docs/superpowers/specs/2026-04-15-alarmkit-migration-design.md`.
 
 ## Commands
 
@@ -16,7 +14,7 @@ A planned follow-up migrates the alert from `UNNotification` to **AlarmKit** (iO
 ```bash
 ./scripts/test.sh
 ```
-Runs the BlinkBreakCore unit suite via `swift test`. Sub-second runtime (~96 tests). All business logic lives in `BlinkBreakCore` and is covered by these unit tests with injected mocks (`MockNotificationScheduler`, `InMemoryPersistence`). This is what you run during iteration.
+Runs the BlinkBreakCore unit suite via `swift test`. Sub-second runtime (~80 tests). All business logic lives in `BlinkBreakCore` and is covered by these unit tests with injected mocks (`MockAlarmScheduler`, `InMemoryPersistence`). This is what you run during iteration.
 
 ### Test — integration (slow — final verification only)
 ```bash
@@ -62,22 +60,22 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 ### The two software units
 
-1. **`BlinkBreakCore` (local Swift Package)** — state machine (`SessionController`), `SessionState` enum, `SessionRecord` Codable struct, `NotificationSchedulerProtocol` + `UNNotificationScheduler`, `PersistenceProtocol` + `UserDefaultsPersistence` + `InMemoryPersistence`, `CascadeBuilder`, `Constants`.
-2. **`BlinkBreak` (iOS app target)** — `@main BlinkBreakApp`, `AppDelegate` (notification delegate), SwiftUI views in `Views/`, small reusable components in `Views/Components/`.
+1. **`BlinkBreakCore` (local Swift Package)** — state machine (`SessionController`), `SessionState` enum, `SessionRecord` Codable struct, `AlarmSchedulerProtocol` (alarm-event abstraction over AlarmKit), `PersistenceProtocol` + `UserDefaultsPersistence` + `InMemoryPersistence`, `Constants`. Zero AlarmKit imports — the Core package stays platform-agnostic.
+2. **`BlinkBreak` (iOS app target)** — `@main BlinkBreakApp`, `AlarmKitScheduler` (concrete `AlarmManager.shared` wrapper), `AppDelegate` (BGTask registration), SwiftUI views in `Views/`, small reusable components in `Views/Components/`.
 
 ### State machine
 
-Four states: `idle`, `running`, `breakActive`, `lookAway`. Two user transitions: `Start` and `Stop`. Two automatic transitions driven by scheduled notifications: `running → breakActive` when the 20-minute primary fires, `lookAway → running` when the 20-second done notification fires.
+Four states: `idle`, `running`, `breakActive`, `lookAway`. Two user transitions: `Start` and `Stop`. The cycle progresses event-driven: when the AlarmKit break-due alarm fires, the system shows a full-screen alarm; when the user dismisses, `SessionController.handleAlarmEvent(.dismissed(.breakDue))` schedules a 20-second look-away alarm and transitions to `breakActive`. When that alarm fires + user dismisses, the controller rolls to a new cycle and schedules the next break alarm.
 
-### Notification
+### Alarm wiring
 
-When entering `running`, `SessionController` schedules **one local notification** at T+20:00 with the `BLINKBREAK_BREAK_CATEGORY` category (which attaches the "Start break" action button).
+`SessionController.start()` calls `alarmScheduler.scheduleCountdown(duration: 20*60, kind: .breakDue)`. The returned alarm UUID is persisted in `SessionRecord.currentAlarmId` for reconciliation. The controller subscribes to `alarmScheduler.events` (an `AsyncStream<AlarmEvent>`) at init; events fire when the alarm enters/leaves the alerting state.
 
-Tapping "Start break" cancels the break notification, schedules a `done` notification at `now + 20s`, and schedules the next cycle's break notification.
+`AlarmKitScheduler` (in the iOS app target) wraps `AlarmManager.shared`, translating AlarmKit's `[Alarm]` snapshots from `alarmUpdates` into our `.fired` / `.dismissed` events.
 
 ### Persistence + reconciliation
 
-A tiny `SessionRecord` struct (sessionActive, currentCycleId, cycleStartedAt, breakActiveStartedAt) is persisted to `UserDefaults`. On launch / foreground / periodic ticks, `SessionController.reconcile()` rebuilds the in-memory `state` from: the persisted record + the current clock. Never trusts in-memory state. This makes the app robust against crashes, kills, and device reboots.
+A tiny `SessionRecord` struct (sessionActive, currentCycleId, cycleStartedAt, breakActiveStartedAt, currentAlarmId) is persisted to `UserDefaults`. On launch / foreground / periodic ticks, `SessionController.reconcile()` rebuilds the in-memory `state` by cross-referencing the persisted record against `alarmScheduler.currentAlarms()`. AlarmKit alarms persist in the system across app kills, so the source of truth for "is something scheduled" is the alarm scheduler itself; the persisted record provides the cycle metadata to interpret it. Never trusts in-memory state.
 
 ## Test structure
 
@@ -86,7 +84,7 @@ Two layers. **Run unit tests during iteration; run integration tests only as fin
 ### Unit tests (fast — milliseconds)
 
 - **Location:** `Packages/BlinkBreakCore/Tests/BlinkBreakCoreTests/` using the Swift Testing framework (`import Testing`, `@Test`, `#expect`).
-- **Runner:** `./scripts/test.sh` → `swift test`. ~96 tests in <1 second total.
+- **Runner:** `./scripts/test.sh` → `swift test`. ~80 tests in <1 second total.
 - **Design:** Protocol-based dependency injection lets tests substitute mocks for every collaborator and drive virtual time via a closure-backed clock. Every `SessionController` collaborator has a matching mock: `MockNotificationScheduler`, `InMemoryPersistence`. A mutable `NowBox` drives the injected `clock` closure so tests advance virtual time with zero real sleeping.
 - **When to add a unit test:** Always, for any new state-machine transition, notification path, or reconciliation case. Write the failing test first, watch it fail, make it pass.
 
@@ -109,7 +107,7 @@ Any PR that affects alarm behavior must exercise on-device manual verification b
 
 ## Platform constraints
 
-- **iOS 17+.** Required for Time Sensitive notifications and modern SwiftUI. Will bump to iOS 26+ when AlarmKit migration lands (PR 2 of the planned two-step migration).
+- **iOS 26+.** Required for AlarmKit. (Pre-AlarmKit history: app shipped on iOS 17+ via UNNotification banners through PR #24; PR #25 migrated to AlarmKit and bumped the floor.)
 - **Command Line Tools swift test workaround:** If only CLT is installed (no full Xcode.app), tests are run with `-Xswiftc -F /Library/Developer/CommandLineTools/Library/Developer/Frameworks` plus the matching `-Xlinker -F` and `-Xlinker -rpath` flags to locate Apple's Swift Testing framework. `scripts/test.sh` handles this automatically. Also, a `FoundationReExport.swift` file in BlinkBreakCore has `@_exported import Foundation` to work around a `_Testing_Foundation` cross-import issue in CLT-only environments.
 
 ## CI/CD conventions

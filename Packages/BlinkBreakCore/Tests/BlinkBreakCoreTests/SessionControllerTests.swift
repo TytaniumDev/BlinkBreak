@@ -2,13 +2,18 @@
 //  SessionControllerTests.swift
 //  BlinkBreakCoreTests
 //
-//  State-machine tests for SessionController. Uses mocks for all collaborators and
-//  a mutable fake clock so tests run instantly with no real sleeping.
+//  State-machine tests for SessionController. Uses an AlarmKit mock + virtual time.
+//
+//  AlarmKit is event-driven, so most state transitions are driven by simulating
+//  alarm events (`fire`, `dismiss`) rather than by advancing the clock and calling
+//  reconcile. Where the production code spawns a Task to schedule an alarm, tests
+//  await `Task.yield()` (or a small `Task.sleep`) to let the spawned task complete.
 //
 //  Written in Swift Testing (the `import Testing` framework), not legacy XCTest.
 //
 
 import Testing
+import Foundation
 @testable import BlinkBreakCore
 
 @MainActor
@@ -17,11 +22,9 @@ struct SessionControllerTests {
 
     // MARK: - Fixtures
 
-    /// A fresh, fully-wired controller with mocks for each collaborator and a mutable
-    /// `fakeNow` box so tests can advance virtual time.
     @MainActor
     final class Fixture {
-        let scheduler = MockNotificationScheduler()
+        let alarmScheduler = MockAlarmScheduler()
         let persistence = InMemoryPersistence()
         let nowBox = NowBox(value: Date(timeIntervalSince1970: 1_700_000_000))
         let controller: SessionController
@@ -29,7 +32,7 @@ struct SessionControllerTests {
         init() {
             let box = nowBox
             self.controller = SessionController(
-                scheduler: scheduler,
+                alarmScheduler: alarmScheduler,
                 persistence: persistence,
                 clock: { box.value }
             )
@@ -58,14 +61,26 @@ struct SessionControllerTests {
         }
     }
 
+    /// SessionController spawns Tasks for alarm-scheduling work. Tests need to let
+    /// those tasks complete before asserting. `settle()` yields a few times — that's
+    /// enough for any awaited sequence in the controller to flush given everything
+    /// runs on the main actor.
+    private func settle() async {
+        for _ in 0..<3 {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+    }
+
     // MARK: - start()
 
     @Test("start() transitions idle → running with clock time as cycleStartedAt")
-    func startTransitionsToRunning() {
+    func startTransitionsToRunning() async {
         let f = Fixture()
         #expect(f.controller.state == .idle)
 
         f.controller.start()
+        await settle()
 
         guard case .running(let startedAt) = f.controller.state else {
             Issue.record("expected running, got \(f.controller.state)")
@@ -74,81 +89,82 @@ struct SessionControllerTests {
         #expect(startedAt == f.nowBox.value)
     }
 
-    @Test("start() schedules a single break notification")
-    func startSchedulesSingleBreakNotification() {
+    @Test("start() schedules a single break-due alarm")
+    func startSchedulesBreakAlarm() async {
         let f = Fixture()
         f.controller.start()
+        await settle()
 
-        #expect(f.scheduler.scheduledNotifications.count == 1)
-        let n = f.scheduler.scheduledNotifications[0]
-        #expect(n.isTimeSensitive)
-        #expect(n.categoryIdentifier == BlinkBreakConstants.breakCategoryId)
-        #expect(n.soundName == BlinkBreakConstants.breakSoundFileName)
-        let cycleId = f.persistence.load().currentCycleId!
-        #expect(n.identifier == BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString)
-        #expect(n.threadIdentifier == cycleId.uuidString)
+        #expect(f.alarmScheduler.scheduled.count == 1)
+        let call = f.alarmScheduler.scheduled[0]
+        #expect(call.kind == .breakDue)
+        #expect(call.duration == BlinkBreakConstants.breakInterval)
     }
 
-    @Test("start() persists an active record")
-    func startPersistsRecord() {
+    @Test("start() persists an active record with currentAlarmId set")
+    func startPersistsRecord() async {
         let f = Fixture()
         f.controller.start()
+        await settle()
 
         let record = f.persistence.load()
         #expect(record.sessionActive)
         #expect(record.currentCycleId != nil)
         #expect(record.cycleStartedAt == f.nowBox.value)
         #expect(record.breakActiveStartedAt == nil)
+        #expect(record.currentAlarmId != nil)
+        #expect(record.currentAlarmId == f.alarmScheduler.scheduled.last?.alarmId)
     }
 
-    @Test("start() wipes stale notifications from a previous crashed session")
-    func startCancelsStaleNotifications() {
+    @Test("start() cancels any previously-scheduled alarms first")
+    func startCancelsExistingAlarms() async {
         let f = Fixture()
-        f.scheduler.schedule(ScheduledNotification(
-            identifier: "stale.old",
-            title: "x", body: "x",
-            fireDate: f.nowBox.value.addingTimeInterval(60),
-            isTimeSensitive: false,
-            threadIdentifier: "stale",
-            categoryIdentifier: nil
-        ))
 
         f.controller.start()
+        await settle()
+        let firstCancelAllCount = f.alarmScheduler.cancelAllCount
 
-        #expect(f.scheduler.cancelAllCount == 1)
-        #expect(f.scheduler.scheduledNotifications.count == 1)
-        #expect(!f.scheduler.scheduledNotifications.contains { $0.identifier == "stale.old" })
+        f.controller.start()
+        await settle()
+
+        #expect(f.alarmScheduler.cancelAllCount == firstCancelAllCount + 1)
     }
 
     // MARK: - stop()
 
     @Test("stop() transitions any state → idle")
-    func stopTransitionsToIdle() {
+    func stopTransitionsToIdle() async {
         let f = Fixture()
         f.controller.start()
+        await settle()
 
         f.controller.stop()
+        await settle()
 
         #expect(f.controller.state == .idle)
     }
 
-    @Test("stop() cancels all notifications")
-    func stopCancelsEverything() {
+    @Test("stop() cancels all alarms")
+    func stopCancelsEverything() async {
         let f = Fixture()
         f.controller.start()
-        let initial = f.scheduler.cancelAllCount
+        await settle()
+        let initial = f.alarmScheduler.cancelAllCount
 
         f.controller.stop()
+        await settle()
 
-        #expect(f.scheduler.cancelAllCount == initial + 1)
+        #expect(f.alarmScheduler.cancelAllCount == initial + 1)
     }
 
     @Test("stop() persists idle record")
-    func stopPersistsIdle() {
+    func stopPersistsIdle() async {
         let f = Fixture()
         f.controller.start()
+        await settle()
 
         f.controller.stop()
+        await settle()
 
         let record = f.persistence.load()
         #expect(record.sessionActive == false)
@@ -156,140 +172,165 @@ struct SessionControllerTests {
         #expect(record.lastUpdatedAt != nil)
     }
 
-    @Test("stop() from breakPending transitions to idle")
-    func stopFromBreakPendingReachesIdle() async {
+    // MARK: - Event-driven transitions
+
+    @Test("break-due alarm firing transitions running → breakPending")
+    func breakAlarmFireGoesToBreakPending() async {
         let f = Fixture()
         f.controller.start()
-        f.advance(by: BlinkBreakConstants.breakInterval + 1)
-        await f.controller.reconcile()
+        await settle()
+        let alarmId = f.alarmScheduler.scheduled.last!.alarmId
+
+        f.alarmScheduler.simulateFire(alarmId: alarmId, kind: .breakDue)
+        await settle()
+
         guard case .breakPending = f.controller.state else {
-            Issue.record("expected breakPending after advance, got \(f.controller.state)")
+            Issue.record("expected breakPending, got \(f.controller.state)")
             return
         }
-
-        f.controller.stop()
-
-        #expect(f.controller.state == .idle)
-        #expect(f.persistence.load().sessionActive == false)
     }
 
-    // MARK: - handleStartBreakAction()
-
-    @Test("handleStartBreakAction with current cycleId transitions running → breakActive")
-    func ackTransitionsToBreakActive() {
+    @Test("break-due alarm dismissal transitions to breakActive + schedules look-away")
+    func breakDismissSchedulesLookAway() async {
         let f = Fixture()
         f.controller.start()
-        let cycleId = f.persistence.load().currentCycleId!
-        f.advance(by: BlinkBreakConstants.breakInterval + 1)
+        await settle()
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
 
-        f.controller.handleStartBreakAction(cycleId: cycleId)
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        f.advance(by: 5)
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
 
+        // Should have scheduled a look-away alarm
+        let lookAwayCalls = f.alarmScheduler.scheduled.filter { $0.kind == .lookAwayDone }
+        #expect(lookAwayCalls.count == 1)
+        #expect(lookAwayCalls[0].duration == BlinkBreakConstants.lookAwayDuration)
+
+        // State should be breakActive
         guard case .breakActive(let startedAt) = f.controller.state else {
             Issue.record("expected breakActive, got \(f.controller.state)")
             return
         }
         #expect(startedAt == f.nowBox.value)
+
+        // Persistence should have advanced the alarm ID + breakActiveStartedAt
+        let record = f.persistence.load()
+        #expect(record.breakActiveStartedAt == f.nowBox.value)
+        #expect(record.currentAlarmId == lookAwayCalls[0].alarmId)
     }
 
-    @Test("handleStartBreakAction with stale cycleId is a no-op")
-    func ackWithStaleCycleIdIgnored() {
+    @Test("look-away alarm dismissal rolls to next cycle")
+    func lookAwayDismissRollsCycle() async {
         let f = Fixture()
         f.controller.start()
+        await settle()
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        let lookAwayAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        let firstCycleId = f.persistence.load().currentCycleId!
+
+        f.advance(by: BlinkBreakConstants.lookAwayDuration)
+        f.alarmScheduler.simulateFire(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
+        f.alarmScheduler.simulateDismiss(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
+        await settle()
+
+        // State should be running with new cycle
+        guard case .running = f.controller.state else {
+            Issue.record("expected running, got \(f.controller.state)")
+            return
+        }
+        let record = f.persistence.load()
+        #expect(record.currentCycleId != firstCycleId)
+        #expect(record.breakActiveStartedAt == nil)
+
+        // A new break alarm should be scheduled
+        let breakCalls = f.alarmScheduler.scheduled.filter { $0.kind == .breakDue }
+        #expect(breakCalls.count == 2)  // initial + next-cycle
+    }
+
+    @Test("dismissed event for stale alarmId is ignored")
+    func staleDismissIgnored() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
         let stateBefore = f.controller.state
 
-        f.controller.handleStartBreakAction(cycleId: UUID())
+        f.alarmScheduler.simulateDismiss(alarmId: UUID(), kind: .breakDue)
+        await settle()
 
         #expect(f.controller.state == stateBefore)
     }
 
-    @Test("handleStartBreakAction while idle is a no-op")
-    func ackWhileIdleIgnored() {
+    // MARK: - acknowledgeCurrentBreak()
+
+    @Test("acknowledgeCurrentBreak triggers the same flow as alarm dismissal")
+    func acknowledgeFromInsideAppFlow() async {
         let f = Fixture()
-        f.controller.handleStartBreakAction(cycleId: UUID())
+        f.controller.start()
+        await settle()
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        f.controller.acknowledgeCurrentBreak()
+        await settle()
+
+        // Should have cancelled the break alarm + scheduled look-away
+        #expect(f.alarmScheduler.cancelledIds.contains(breakAlarmId))
+        let lookAwayCalls = f.alarmScheduler.scheduled.filter { $0.kind == .lookAwayDone }
+        #expect(lookAwayCalls.count == 1)
+        guard case .breakActive = f.controller.state else {
+            Issue.record("expected breakActive, got \(f.controller.state)")
+            return
+        }
+    }
+
+    @Test("acknowledgeCurrentBreak with no current alarm is a no-op")
+    func acknowledgeWhileIdleIgnored() async {
+        let f = Fixture()
+        f.controller.acknowledgeCurrentBreak()
+        await settle()
 
         #expect(f.controller.state == .idle)
-        #expect(f.scheduler.scheduledNotifications.isEmpty)
+        #expect(f.alarmScheduler.scheduled.isEmpty)
     }
 
-    @Test("handleStartBreakAction cancels the old cascade")
-    func ackCancelsOldCascade() {
-        let f = Fixture()
-        f.controller.start()
-        let cycleId = f.persistence.load().currentCycleId!
-        f.advance(by: BlinkBreakConstants.breakInterval)
+    // MARK: - Full loop
 
-        f.controller.handleStartBreakAction(cycleId: cycleId)
-
-        let cancelled = f.scheduler.lastCancelledIdentifiers ?? []
-        #expect(cancelled.contains(BlinkBreakConstants.breakPrimaryIdPrefix + cycleId.uuidString))
-    }
-
-    @Test("handleStartBreakAction schedules a done notification + next break notification")
-    func ackSchedulesDoneAndNextBreak() {
-        let f = Fixture()
-        f.controller.start()
-        let cycleId = f.persistence.load().currentCycleId!
-        f.advance(by: BlinkBreakConstants.breakInterval)
-
-        f.controller.handleStartBreakAction(cycleId: cycleId)
-
-        // After ack: old break cancelled, done scheduled (1) + new break scheduled (1) = 2 remaining.
-        #expect(f.scheduler.scheduledNotifications.count == 2)
-
-        let ids = f.scheduler.scheduledNotifications.map(\.identifier)
-        #expect(ids.contains(BlinkBreakConstants.doneIdPrefix + cycleId.uuidString))
-
-        let newCycleId = f.persistence.load().currentCycleId!
-        #expect(newCycleId != cycleId)
-        #expect(ids.contains(BlinkBreakConstants.breakPrimaryIdPrefix + newCycleId.uuidString))
-    }
-
-    @Test("handleStartBreakAction advances persistence to a new cycle")
-    func ackUpdatesPersistenceWithNewCycle() {
-        let f = Fixture()
-        f.controller.start()
-        let oldCycleId = f.persistence.load().currentCycleId!
-        f.advance(by: BlinkBreakConstants.breakInterval)
-
-        f.controller.handleStartBreakAction(cycleId: oldCycleId)
-
-        let record = f.persistence.load()
-        #expect(record.sessionActive)
-        #expect(record.currentCycleId != oldCycleId)
-        #expect(record.breakActiveStartedAt == f.nowBox.value)
-        #expect(record.cycleStartedAt == f.nowBox.value.addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
-    }
-
-    // MARK: - Full session loop
-
-    @Test("full loop: start → wait → ack → wait → reconcile → stop")
+    @Test("full loop: start → break fires → ack → look-away → roll cycle")
     func fullLoop() async {
         let f = Fixture()
 
-        // Start
         f.controller.start()
-        let firstCycleId = f.persistence.load().currentCycleId!
+        await settle()
         #expect(f.controller.state.description == "running")
+        let firstCycleId = f.persistence.load().currentCycleId!
 
-        // Break time arrives
-        f.advance(by: BlinkBreakConstants.breakInterval)
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        #expect(f.controller.state.description == "breakPending")
 
-        // User acknowledges
-        f.controller.handleStartBreakAction(cycleId: firstCycleId)
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
         #expect(f.controller.state.description == "breakActive")
 
-        // Look-away elapses
-        f.advance(by: BlinkBreakConstants.lookAwayDuration + 1)
+        let lookAwayAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.advance(by: BlinkBreakConstants.lookAwayDuration)
+        f.alarmScheduler.simulateFire(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
+        f.alarmScheduler.simulateDismiss(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
+        await settle()
 
-        // Reconcile picks up that we've rolled into the next running cycle
-        await f.controller.reconcile()
         #expect(f.controller.state.description == "running")
+        #expect(f.persistence.load().currentCycleId != firstCycleId)
 
-        let newRecord = f.persistence.load()
-        #expect(newRecord.currentCycleId != firstCycleId)
-
-        // User stops
         f.controller.stop()
+        await settle()
         #expect(f.controller.state == .idle)
         #expect(f.persistence.load().sessionActive == false)
     }

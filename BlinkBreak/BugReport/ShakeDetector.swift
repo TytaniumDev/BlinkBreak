@@ -38,7 +38,6 @@ final class ShakeDetectingViewController: UIViewController {
 struct ShakeDetectorView<Content: View>: View {
 
     let content: Content
-    let scheduler: NotificationSchedulerProtocol
     let persistence: PersistenceProtocol
     let sessionState: SessionState
 
@@ -95,7 +94,6 @@ struct ShakeDetectorView<Content: View>: View {
                 )
 
                 let collector = DiagnosticCollector(
-                    scheduler: scheduler,
                     persistence: persistence,
                     logBuffer: LogBuffer.shared,
                     sessionState: sessionState
