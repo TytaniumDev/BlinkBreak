@@ -155,14 +155,6 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         }
     }
 
-    /// Legacy entry point retained for source compatibility with the AppDelegate's
-    /// notification-action callback path. AlarmKit handles all break-acknowledgment
-    /// now, so this is a no-op — kept only so the iOS-side compile doesn't break if
-    /// any caller still references it.
-    public func handleStartBreakAction(cycleId: UUID) {
-        // No-op. AlarmKit's alarm UI is the only acknowledgment surface.
-    }
-
     /// Rebuilds the in-memory `state` from the persisted record + the alarm scheduler's
     /// current set of scheduled alarms + the current clock. Never trusts in-memory state.
     /// Called on launch, on foreground, and on periodic ticks.

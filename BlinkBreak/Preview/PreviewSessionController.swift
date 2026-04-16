@@ -4,7 +4,7 @@
 //
 //  A lightweight, observable mock of SessionControllerProtocol used exclusively
 //  for SwiftUI previews. Lets you render any view in any state inside Xcode
-//  Previews without actually running notifications, persistence, or WatchConnectivity.
+//  Previews without actually running alarms or persistence.
 //
 //  Flutter analogue: a stub ChangeNotifier you'd pass to a widget test or
 //  Flutter DevTools preview to render without touching real services.
@@ -35,10 +35,6 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
 
     func stop() {
         state = .idle
-    }
-
-    func handleStartBreakAction(cycleId: UUID) {
-        state = .breakActive(startedAt: Date())
     }
 
     func acknowledgeCurrentBreak() {

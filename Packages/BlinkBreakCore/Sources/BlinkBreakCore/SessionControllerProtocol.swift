@@ -25,25 +25,20 @@ public protocol SessionControllerProtocol: ObservableObject {
     /// The current session state. Views `switch` on this to render their body.
     var state: SessionState { get }
 
-    /// Start a new session. Transitions idle → running. Schedules the first break cascade.
+    /// Start a new session. Transitions idle → running. Schedules the first break alarm.
     func start()
 
-    /// Stop the current session. Transitions any-state → idle. Cancels all pending notifications.
+    /// Stop the current session. Transitions any-state → idle. Cancels all pending alarms.
     func stop()
-
-    /// Handle the user tapping "Start break" on a notification action.
-    /// - Parameter cycleId: The UUID extracted from the tapped notification's identifier.
-    ///   If this doesn't match the current cycle, the tap is treated as stale and ignored.
-    func handleStartBreakAction(cycleId: UUID)
 
     /// Acknowledge the currently-active break from inside the app. Used by
     /// `BreakPendingView` when the user taps the in-app "Start break" button.
-    /// The controller looks up its own current cycleId and calls `handleStartBreakAction`.
-    /// Views don't need to know about cycleIds.
+    /// Cancels the alerting break alarm and synthesizes a dismissed event so the
+    /// controller schedules the look-away phase.
     func acknowledgeCurrentBreak()
 
-    /// Rebuilds in-memory state from persistence + clock. Called on app launch,
-    /// foregrounding, and notification delivery. Never trusts in-memory state.
+    /// Rebuilds in-memory state from persistence + the alarm scheduler + the clock.
+    /// Called on app launch, foregrounding, and periodic ticks. Never trusts in-memory state.
     func reconcile() async
 
     /// The current weekly schedule. Views observe this to display schedule settings.

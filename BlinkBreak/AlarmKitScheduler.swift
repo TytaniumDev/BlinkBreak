@@ -8,9 +8,17 @@
 //  This is the only file in the codebase that imports AlarmKit. The
 //  `BlinkBreakCore` package is platform-agnostic by design.
 //
+//  Why `.alarm(schedule:)` and not `.timer(duration:)`: a timer-backed alarm
+//  implies a countdown Live Activity that the system mirrors to a paired
+//  Apple Watch, producing notifications *before* the alarm fires. Using a
+//  fixed-date schedule with an alert-only presentation avoids the Live Activity
+//  surface entirely.
+//
 
 import Foundation
 import AlarmKit
+import ActivityKit
+import AppIntents
 import SwiftUI
 import BlinkBreakCore
 
@@ -20,7 +28,7 @@ public struct BlinkBreakAlarmMetadata: AlarmMetadata {
     public init() {}
 }
 
-@available(iOS 26.0, *)
+@available(iOS 26.1, *)
 public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
 
     /// UserDefaults key for the persisted alarm-id → kind mapping. Survives app kill
@@ -183,40 +191,25 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
     }
 
     public func scheduleCountdown(duration: TimeInterval, kind: AlarmKind) async throws -> UUID {
-        // Authorization gate.
         let authorized = (try? await requestAuthorizationIfNeeded()) ?? false
         guard authorized else {
             throw AlarmSchedulerError.authorizationDenied
         }
 
         let id = UUID()
-        let title: LocalizedStringResource
-        let buttonText: LocalizedStringResource
-        let buttonImage: String
-        switch kind {
-        case .breakDue:
-            title = "Time to look away"
-            buttonText = "Start break"
-            buttonImage = "eye"
-        case .lookAwayDone:
-            title = "Look-away complete"
-            buttonText = "Done"
-            buttonImage = "checkmark"
-        }
-
-        let stopButton = AlarmButton(
-            text: buttonText,
-            textColor: .white,
-            systemImageName: buttonImage
-        )
-        let alert = AlarmPresentation.Alert(title: title, stopButton: stopButton)
+        let (alert, secondaryIntent) = Self.presentation(for: kind, alarmID: id)
         let attributes = AlarmAttributes<BlinkBreakAlarmMetadata>(
             presentation: AlarmPresentation(alert: alert),
             tintColor: .blue
         )
-        let configuration = AlarmManager.AlarmConfiguration<BlinkBreakAlarmMetadata>.timer(
-            duration: duration,
-            attributes: attributes
+        let sound: AlertConfiguration.AlertSound = BlinkBreakConstants.breakSoundFileName
+            .map { .named($0) } ?? .default
+        let configuration = AlarmManager.AlarmConfiguration<BlinkBreakAlarmMetadata>.alarm(
+            schedule: .fixed(Date().addingTimeInterval(duration)),
+            attributes: attributes,
+            stopIntent: nil,
+            secondaryIntent: secondaryIntent,
+            sound: sound
         )
 
         do {
@@ -227,6 +220,30 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
 
         rememberMapping(id: id, kind: kind)
         return id
+    }
+
+    /// Builds the alert presentation + secondary intent for a given alarm kind.
+    /// The system provides the stop control automatically; the break-due alarm
+    /// additionally surfaces a tappable "Start break" secondary button so users
+    /// have a tap-friendly path alongside the system slide-to-stop. Both controls
+    /// converge on the same dismissed event, which SessionController turns into
+    /// "schedule look-away".
+    private static func presentation(
+        for kind: AlarmKind,
+        alarmID: UUID
+    ) -> (AlarmPresentation.Alert, (any LiveActivityIntent)?) {
+        switch kind {
+        case .breakDue:
+            let button = AlarmButton(text: "Start break", textColor: .white, systemImageName: "eye")
+            let alert = AlarmPresentation.Alert(
+                title: "Time to look away",
+                secondaryButton: button,
+                secondaryButtonBehavior: .custom
+            )
+            return (alert, StartBreakIntent(alarmID: alarmID.uuidString))
+        case .lookAwayDone:
+            return (AlarmPresentation.Alert(title: "Look-away complete"), nil)
+        }
     }
 
     public func cancel(alarmId: UUID) async {

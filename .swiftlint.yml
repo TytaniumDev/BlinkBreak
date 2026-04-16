@@ -18,6 +18,7 @@ excluded:
   - .build
   - Packages/**/.build
   - BlinkBreak.xcodeproj
+  - .claude
 
 line_length:
   warning: 140
