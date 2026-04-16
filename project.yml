@@ -11,7 +11,7 @@ name: BlinkBreak
 options:
   bundleIdPrefix: com.tytaniumdev
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
@@ -77,6 +77,9 @@ targets:
         # Bug report PAT, injected via BugReport.xcconfig (gitignored).
         # Falls back gracefully if the xcconfig is missing.
         BugReportGitHubToken: $(BUG_REPORT_GITHUB_TOKEN)
+        # AlarmKit user-permission prompt copy. Shown the first time we call
+        # AlarmManager.shared.requestAuthorization().
+        NSAlarmKitUsageDescription: "BlinkBreak schedules alarms to remind you to take 20-second eye-rest breaks every 20 minutes."
     entitlements:
       path: BlinkBreak/BlinkBreak.entitlements
       properties:
