@@ -83,7 +83,7 @@ public protocol AlarmSchedulerProtocol: Sendable {
     func cancel(cycleId: UUID) async
     func cancelAll() async
     var events: AsyncStream<AlarmEvent> { get }
-    /// Query used by reconcileOnLaunch to rebuild state after app kill.
+    /// Query used by reconcile to rebuild state after app kill.
     func scheduledAlarms() async -> [ScheduledAlarm]
 }
 
@@ -111,7 +111,7 @@ Event-driven. `SessionController.init` calls `Task { for await event in alarmSch
 
 ### Reconciliation on launch
 
-`reconcileOnLaunch()` logic:
+`reconcile()` logic:
 
 1. Load `SessionRecord` from persistence. If `sessionActive == false`, state = `.idle`, done.
 2. Query `alarmScheduler.scheduledAlarms()` for alarms tagged with the session's `currentCycleId`.

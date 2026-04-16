@@ -56,7 +56,7 @@ xcodegen generate
 
 All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. The package has **zero UI framework imports** — no `SwiftUI`, no `UIKit`, no `WatchKit`. This is enforced by `scripts/lint.sh` and is the fundamental architectural rule.
 
-- **Views** depend on `SessionControllerProtocol`, not on the concrete `SessionController` class. Views read `@Published state` and call protocol methods (`start()`, `stop()`, `handleStartBreakAction()`, `acknowledgeCurrentBreak()`, `reconcileOnLaunch()`). Views contain no conditional business logic beyond a `switch` on `SessionState`.
+- **Views** depend on `SessionControllerProtocol`, not on the concrete `SessionController` class. Views read `@Published state` and call protocol methods (`start()`, `stop()`, `handleStartBreakAction()`, `acknowledgeCurrentBreak()`, `reconcile()`). Views contain no conditional business logic beyond a `switch` on `SessionState`.
 - **A visual-iteration PR should only touch files under `BlinkBreak/Views/`.** If such a PR touches `BlinkBreakCore`, something is wrong and the PR should be split.
 - **SwiftUI previews use `PreviewSessionController`**, a mock that conforms to `SessionControllerProtocol`. Every view has a `#Preview` for each applicable state.
 
