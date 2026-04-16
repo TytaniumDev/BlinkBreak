@@ -28,7 +28,7 @@ public struct BlinkBreakAlarmMetadata: AlarmMetadata {
     public init() {}
 }
 
-@available(iOS 26.0, *)
+@available(iOS 26.1, *)
 public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
 
     /// UserDefaults key for the persisted alarm-id → kind mapping. Survives app kill

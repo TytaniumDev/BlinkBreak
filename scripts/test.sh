@@ -59,15 +59,20 @@ if [ ! -f "$XCCONFIG" ]; then
   cp BlinkBreak/BugReport/BugReport.xcconfig.example "$XCCONFIG"
 fi
 xcodegen generate
-# Pick the first available iPhone simulator that runs an iOS 26+ runtime.
-# Hard-coding "iPhone 16" alone breaks because runners ship multiple iOS
-# versions and xcodebuild filters out destinations whose runtime is older
-# than the project's deployment target.
+# Pick the first available iPhone simulator whose runtime meets our
+# iOS 26.1 deployment target. Hard-coding "iPhone 16" alone breaks because
+# runners ship multiple iOS versions and xcodebuild filters out destinations
+# whose runtime is older than the project's deployment target — so a
+# 26.0 simulator picked here would be rejected by xcodebuild as ineligible.
 SIM_ID=$(xcrun simctl list --json devices available | \
-  python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; \
-    devs=[(runtime,x) for runtime,xs in d.items() if 'iOS-26' in runtime or 'iOS-27' in runtime for x in xs if x.get('isAvailable')]; \
-    iphones=[x for runtime,x in devs if 'iPhone' in x['name']]; \
-    sys.exit('no iOS 26+ iPhone simulator available') if not iphones else print(iphones[0]['udid'])")
+  python3 -c "import json,re,sys
+d=json.load(sys.stdin)['devices']
+def ver(name):
+    m=re.search(r'iOS-(\d+)-(\d+)', name)
+    return (int(m.group(1)), int(m.group(2))) if m else (0,0)
+devs=[(r,x) for r,xs in d.items() if ver(r) >= (26,1) for x in xs if x.get('isAvailable')]
+iphones=[x for _,x in devs if 'iPhone' in x['name']]
+sys.exit('no iOS 26.1+ iPhone simulator available') if not iphones else print(iphones[0]['udid'])")
 echo "  using iOS simulator id $SIM_ID"
 xcodebuild test \
   -project BlinkBreak.xcodeproj \

@@ -15,7 +15,7 @@
 import AppIntents
 import AlarmKit
 
-@available(iOS 26.0, *)
+@available(iOS 26.1, *)
 struct StartBreakIntent: LiveActivityIntent {
 
     static var title: LocalizedStringResource = "Start break"
