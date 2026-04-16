@@ -18,7 +18,7 @@ struct BlinkBreakApp: App {
 
     // @UIApplicationDelegateAdaptor is how SwiftUI apps hook a classic UIKit-style
     // AppDelegate into the modern SwiftUI lifecycle. We use it to register the
-    // UNUserNotificationCenterDelegate so the app can respond to notification taps.
+    // BGTaskScheduler handler before the app finishes launching.
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
@@ -72,8 +72,7 @@ struct BlinkBreakApp: App {
 
                     Task { await controller.reconcile() }
 
-                    // Set up the ScheduleTaskManager for foreground schedule checks
-                    // and local notification fallback at the next scheduled start time.
+                    // Set up the ScheduleTaskManager for foreground schedule checks.
                     // BGTask registration happens in AppDelegate.didFinishLaunching.
                     let manager = ScheduleTaskManager(
                         persistence: Self.sharedPersistence,

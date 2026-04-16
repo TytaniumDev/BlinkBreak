@@ -11,7 +11,7 @@ name: BlinkBreak
 options:
   bundleIdPrefix: com.tytaniumdev
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "26.1"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
@@ -82,8 +82,7 @@ targets:
         NSAlarmKitUsageDescription: "BlinkBreak schedules alarms to remind you to take 20-second eye-rest breaks every 20 minutes."
     entitlements:
       path: BlinkBreak/BlinkBreak.entitlements
-      properties:
-        com.apple.developer.usernotifications.time-sensitive: true
+      properties: {}
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreak

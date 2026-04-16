@@ -2,7 +2,7 @@
 //  Constants.swift
 //  BlinkBreakCore
 //
-//  All hardcoded values for the 20-20-20 rule, notification identifiers, and tunables.
+//  All hardcoded values for the 20-20-20 rule, persistence keys, and tunables.
 //  Timer durations support runtime overrides via environment variables so that
 //  XCUITest integration tests can shrink real wall-clock waits from minutes to seconds.
 //  Production builds don't set those env vars and get the unmodified 20-20-20 values.
@@ -44,16 +44,10 @@ public enum BlinkBreakConstants {
         return 20
     }()
 
-    // MARK: - Notification identifiers
+    // MARK: - Alarm sound
 
-    /// Prefix for the primary break notification. Formatted with the cycle UUID.
-    public static let breakPrimaryIdPrefix = "break.primary."
-
-    /// Prefix for the "done looking away, back to work" notification.
-    public static let doneIdPrefix = "done."
-
-    /// Filename (without directory path) of the bundled custom alarm sound for the break
-    /// notification. iOS looks for this in the app bundle and truncates at 30 seconds.
+    /// Filename (without directory path) of the bundled custom alarm sound used by
+    /// AlarmKit. iOS looks for this in the app bundle and truncates at 30 seconds.
     /// Returns nil when running under the XCUITest environment so simulator tests are silent.
     public static let breakSoundFileName: String? = {
         if ProcessInfo.processInfo.environment["BB_BREAK_INTERVAL"] != nil {
@@ -61,12 +55,6 @@ public enum BlinkBreakConstants {
         }
         return "break-alarm.caf"
     }()
-
-    /// Notification category ID for the break-alert action ("Start break" button).
-    public static let breakCategoryId = "BLINKBREAK_BREAK_CATEGORY"
-
-    /// Action identifier for the Start break button on notifications.
-    public static let startBreakActionId = "START_BREAK"
 
     // MARK: - Persistence keys
 
@@ -79,13 +67,7 @@ public enum BlinkBreakConstants {
     /// falls back to `WeeklySchedule.default` without touching the session record.
     public static let weeklyScheduleKey = "BlinkBreak.WeeklySchedule"
 
-    // MARK: - Schedule notification/task identifiers
-
-    /// Notification category for the schedule start-time fallback notification.
-    public static let scheduleCategoryId = "BLINKBREAK_SCHEDULE_CATEGORY"
-
-    /// Action identifier for the "Start" button on schedule notifications.
-    public static let scheduleStartActionId = "SCHEDULE_START"
+    // MARK: - Schedule task identifier
 
     /// BGTaskScheduler task identifier for schedule checks.
     public static let scheduleTaskId = "com.tytaniumdev.BlinkBreak.scheduleCheck"
