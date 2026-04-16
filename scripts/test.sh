@@ -59,14 +59,15 @@ if [ ! -f "$XCCONFIG" ]; then
   cp BlinkBreak/BugReport/BugReport.xcconfig.example "$XCCONFIG"
 fi
 xcodegen generate
-# Pick the first available booted-or-shutdown iPhone simulator. Hard-coding
-# "iPhone 16" broke when the deployment target jumped to iOS 26 because the
-# macos-15 runner's Xcode 26 image ships iPhone 17/Pro/Air models, not 16.
+# Pick the first available iPhone simulator that runs an iOS 26+ runtime.
+# Hard-coding "iPhone 16" alone breaks because runners ship multiple iOS
+# versions and xcodebuild filters out destinations whose runtime is older
+# than the project's deployment target.
 SIM_ID=$(xcrun simctl list --json devices available | \
   python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; \
-    devs=[x for runtime,xs in d.items() if 'iOS' in runtime for x in xs if x.get('isAvailable')]; \
-    iphones=[x for x in devs if 'iPhone' in x['name']]; \
-    print(iphones[0]['udid']) if iphones else sys.exit('no iPhone simulator available')")
+    devs=[(runtime,x) for runtime,xs in d.items() if 'iOS-26' in runtime or 'iOS-27' in runtime for x in xs if x.get('isAvailable')]; \
+    iphones=[x for runtime,x in devs if 'iPhone' in x['name']]; \
+    sys.exit('no iOS 26+ iPhone simulator available') if not iphones else print(iphones[0]['udid'])")
 echo "  using iOS simulator id $SIM_ID"
 xcodebuild test \
   -project BlinkBreak.xcodeproj \
