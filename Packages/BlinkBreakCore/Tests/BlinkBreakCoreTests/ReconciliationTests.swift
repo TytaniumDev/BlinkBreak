@@ -2,11 +2,13 @@
 //  ReconciliationTests.swift
 //  BlinkBreakCoreTests
 //
-//  Targeted tests for `SessionController.reconcile()` — the method that
-//  rebuilds UI state from persisted record + pending notifications + clock.
+//  Targeted tests for `SessionController.reconcile()` — the method that rebuilds UI
+//  state from persisted record + the alarm scheduler's currently-scheduled alarms +
+//  the current clock.
 //
 
 import Testing
+import Foundation
 @testable import BlinkBreakCore
 
 @MainActor
@@ -15,7 +17,7 @@ struct ReconciliationTests {
 
     @MainActor
     final class Fixture {
-        let scheduler = MockNotificationScheduler()
+        let alarmScheduler = MockAlarmScheduler()
         let persistence = InMemoryPersistence()
         let nowBox = NowBox(value: Date(timeIntervalSince1970: 1_700_000_000))
         let controller: SessionController
@@ -23,7 +25,7 @@ struct ReconciliationTests {
         init() {
             let box = nowBox
             self.controller = SessionController(
-                scheduler: scheduler,
+                alarmScheduler: alarmScheduler,
                 persistence: persistence,
                 clock: { box.value }
             )
@@ -54,17 +56,21 @@ struct ReconciliationTests {
         #expect(f.controller.state == .idle)
     }
 
-    @Test("reconcile within running window → running")
+    @Test("reconcile within running window with active break-due alarm → running")
     func withinRunning() async {
         let f = Fixture()
         let cycleId = UUID()
+        let alarmId = UUID()
         f.persistence.save(SessionRecord(
             sessionActive: true,
             currentCycleId: cycleId,
             cycleStartedAt: f.nowBox.value,
-            breakActiveStartedAt: nil
+            breakActiveStartedAt: nil,
+            currentAlarmId: alarmId
         ))
-        f.scheduler.stubPendingIdentifiers = CascadeBuilder.identifiers(for: cycleId)
+        f.alarmScheduler.setCurrentAlarms([
+            ScheduledAlarmInfo(alarmId: alarmId, kind: .breakDue)
+        ])
 
         await f.controller.reconcile()
 
@@ -75,8 +81,8 @@ struct ReconciliationTests {
         #expect(startedAt == f.nowBox.value)
     }
 
-    @Test("reconcile past break time with pending cascade → breakPending")
-    func pastBreakWithPendingCascade() async {
+    @Test("reconcile past break time with no scheduled alarm → breakPending")
+    func pastBreakNoAlarm() async {
         let f = Fixture()
         let cycleId = UUID()
         let started = f.nowBox.value
@@ -84,44 +90,14 @@ struct ReconciliationTests {
             sessionActive: true,
             currentCycleId: cycleId,
             cycleStartedAt: started,
-            breakActiveStartedAt: nil
+            breakActiveStartedAt: nil,
+            currentAlarmId: UUID()
         ))
-        f.scheduler.stubPendingIdentifiers = CascadeBuilder.identifiers(for: cycleId)
-
-        f.advance(by: BlinkBreakConstants.breakInterval + 10)
-
-        await f.controller.reconcile()
-
-        guard case .breakPending(let startedAt) = f.controller.state else {
-            Issue.record("expected breakPending, got \(f.controller.state)")
-            return
-        }
-        #expect(startedAt == started)
-    }
-
-    @Test("reconcile past break time with no pending notifications → breakPending (single-notification design)")
-    func pastBreakNoPending() async {
-        let f = Fixture()
-        let cycleId = UUID()
-        let started = f.nowBox.value
-        f.persistence.save(SessionRecord(
-            sessionActive: true,
-            currentCycleId: cycleId,
-            cycleStartedAt: started,
-            breakActiveStartedAt: nil
-        ))
-        f.scheduler.stubPendingIdentifiers = []
-
-        // Advance well past the break time.
+        f.alarmScheduler.setCurrentAlarms([])
         f.advance(by: BlinkBreakConstants.breakInterval + 60)
 
         await f.controller.reconcile()
 
-        // With the single-notification design, reconcile can't distinguish
-        // "notification just fired" from "notification fired a while ago" via
-        // the pending list (it's in the delivered list, not pending). So we
-        // unconditionally go to breakPending — the user needs to acknowledge
-        // the break or stop the session manually.
         guard case .breakPending(let startedAt) = f.controller.state else {
             Issue.record("expected breakPending, got \(f.controller.state)")
             return
@@ -129,17 +105,21 @@ struct ReconciliationTests {
         #expect(startedAt == started)
     }
 
-    @Test("reconcile within breakActive window → breakActive")
+    @Test("reconcile within breakActive window with active look-away alarm → breakActive")
     func withinBreakActiveWindow() async {
         let f = Fixture()
         let breakActiveStart = f.nowBox.value
+        let alarmId = UUID()
         f.persistence.save(SessionRecord(
             sessionActive: true,
             currentCycleId: UUID(),
-            cycleStartedAt: breakActiveStart.addingTimeInterval(BlinkBreakConstants.lookAwayDuration),
-            breakActiveStartedAt: breakActiveStart
+            cycleStartedAt: breakActiveStart,
+            breakActiveStartedAt: breakActiveStart,
+            currentAlarmId: alarmId
         ))
-
+        f.alarmScheduler.setCurrentAlarms([
+            ScheduledAlarmInfo(alarmId: alarmId, kind: .lookAwayDone)
+        ])
         f.advance(by: BlinkBreakConstants.lookAwayDuration / 2)
 
         await f.controller.reconcile()
@@ -151,30 +131,27 @@ struct ReconciliationTests {
         #expect(startedAt == breakActiveStart)
     }
 
-    @Test("reconcile after breakActive expired → next running cycle")
-    func afterBreakActiveExpired() async {
+    @Test("reconcile in breakActive window with no alarm scheduled → breakActive (alarm fired while killed)")
+    func breakActiveNoAlarm() async {
         let f = Fixture()
         let breakActiveStart = f.nowBox.value
-        let nextCycleId = UUID()
-        let nextCycleStart = breakActiveStart.addingTimeInterval(BlinkBreakConstants.lookAwayDuration)
         f.persistence.save(SessionRecord(
             sessionActive: true,
-            currentCycleId: nextCycleId,
-            cycleStartedAt: nextCycleStart,
-            breakActiveStartedAt: breakActiveStart
+            currentCycleId: UUID(),
+            cycleStartedAt: breakActiveStart,
+            breakActiveStartedAt: breakActiveStart,
+            currentAlarmId: UUID()
         ))
-        f.scheduler.stubPendingIdentifiers = CascadeBuilder.identifiers(for: nextCycleId)
-
-        f.advance(by: BlinkBreakConstants.lookAwayDuration + 1)
+        f.alarmScheduler.setCurrentAlarms([])
+        f.advance(by: BlinkBreakConstants.lookAwayDuration / 2)
 
         await f.controller.reconcile()
 
-        guard case .running(let startedAt) = f.controller.state else {
-            Issue.record("expected running, got \(f.controller.state)")
+        guard case .breakActive(let startedAt) = f.controller.state else {
+            Issue.record("expected breakActive, got \(f.controller.state)")
             return
         }
-        #expect(startedAt == nextCycleStart)
-        #expect(f.persistence.load().breakActiveStartedAt == nil)
+        #expect(startedAt == breakActiveStart)
     }
 
     @Test("reconcile with corrupt record (active but missing fields) → idle")
@@ -192,5 +169,4 @@ struct ReconciliationTests {
         #expect(f.controller.state == .idle)
         #expect(f.persistence.load() == .idle)
     }
-
 }

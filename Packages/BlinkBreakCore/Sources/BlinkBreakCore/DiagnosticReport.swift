@@ -37,18 +37,6 @@ public struct DeviceInfo: Codable, Sendable {
     }
 }
 
-/// Identifier and fire date for a pending notification. Content/body is deliberately
-/// excluded to keep the report PII-free.
-public struct PendingNotificationInfo: Codable, Sendable {
-    public let identifier: String
-    public let fireDate: Date?
-
-    public init(identifier: String, fireDate: Date?) {
-        self.identifier = identifier
-        self.fireDate = fireDate
-    }
-}
-
 /// The complete diagnostic payload attached to a bug report GitHub issue.
 /// Every field is a value type, Codable, and contains no PII.
 public struct DiagnosticReport: Codable, Sendable {
@@ -57,7 +45,6 @@ public struct DiagnosticReport: Codable, Sendable {
     public let sessionState: String
     public let sessionRecord: SessionRecord
     public let weeklySchedule: WeeklySchedule
-    public let pendingNotifications: [PendingNotificationInfo]
     public let logEntries: [LogEntry]
 
     public init(
@@ -66,7 +53,6 @@ public struct DiagnosticReport: Codable, Sendable {
         sessionState: String,
         sessionRecord: SessionRecord,
         weeklySchedule: WeeklySchedule,
-        pendingNotifications: [PendingNotificationInfo],
         logEntries: [LogEntry]
     ) {
         self.timestamp = timestamp
@@ -74,7 +60,6 @@ public struct DiagnosticReport: Codable, Sendable {
         self.sessionState = sessionState
         self.sessionRecord = sessionRecord
         self.weeklySchedule = weeklySchedule
-        self.pendingNotifications = pendingNotifications
         self.logEntries = logEntries
     }
 }

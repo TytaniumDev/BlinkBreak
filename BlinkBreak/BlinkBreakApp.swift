@@ -37,16 +37,16 @@ struct BlinkBreakApp: App {
         sharedPersistence.loadSchedule() ?? .empty
     })
 
-    private static let sharedScheduler = UNNotificationScheduler()
+    @MainActor
+    private static let sharedAlarmScheduler = AlarmKitScheduler()
 
     // @StateObject owns an observable object for the entire lifetime of the app.
     // Flutter analogue: a top-level ChangeNotifierProvider that lives for as long
     // as the app runs. Views deeper in the tree observe this via @ObservedObject /
     // @EnvironmentObject.
     @StateObject private var controller: SessionController = {
-        sharedScheduler.registerCategories()
-        return SessionController(
-            scheduler: sharedScheduler,
+        SessionController(
+            alarmScheduler: sharedAlarmScheduler,
             persistence: sharedPersistence,
             scheduleEvaluator: sharedEvaluator
         )
@@ -58,15 +58,17 @@ struct BlinkBreakApp: App {
         WindowGroup {
             ShakeDetectorView(
                 content: RootView(controller: controller, scheduleEvaluator: Self.sharedEvaluator),
-                scheduler: Self.sharedScheduler,
                 persistence: Self.sharedPersistence,
                 sessionState: controller.state
             )
                 .onAppear {
-                    // Hand the controller to the AppDelegate so notification action
-                    // taps can be routed to SessionController.handleStartBreakAction.
                     appDelegate.controller = controller
-                    appDelegate.requestNotificationAuthorizationIfNeeded()
+
+                    // Request AlarmKit authorization on first launch. Subsequent launches
+                    // are a no-op because iOS remembers the user's decision.
+                    Task {
+                        _ = try? await Self.sharedAlarmScheduler.requestAuthorizationIfNeeded()
+                    }
 
                     Task { await controller.reconcile() }
 
