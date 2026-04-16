@@ -37,10 +37,15 @@ public enum AlarmEvent: Sendable, Equatable {
 public struct ScheduledAlarmInfo: Sendable, Equatable {
     public let alarmId: UUID
     public let kind: AlarmKind
+    /// True when this alarm is currently showing the system alert UI (the user
+    /// hasn't dismissed it yet). Reconciliation uses this to distinguish "scheduled
+    /// for later" from "firing right now."
+    public let isAlerting: Bool
 
-    public init(alarmId: UUID, kind: AlarmKind) {
+    public init(alarmId: UUID, kind: AlarmKind, isAlerting: Bool = false) {
         self.alarmId = alarmId
         self.kind = kind
+        self.isAlerting = isAlerting
     }
 }
 

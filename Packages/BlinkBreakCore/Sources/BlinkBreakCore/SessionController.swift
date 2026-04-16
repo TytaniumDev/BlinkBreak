@@ -198,6 +198,24 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         }
 
         if let alarm = activeAlarm {
+            // If the alarm is currently alerting (system alert UI is up), we're
+            // mid-transition between scheduled-for-later and user-dismissed. Surface
+            // the appropriate "alerting now" state so the in-app UI matches.
+            if alarm.isAlerting {
+                switch alarm.kind {
+                case .breakDue:
+                    state = .breakPending(cycleStartedAt: cycleStartedAt)
+                case .lookAwayDone:
+                    // Look-away alarm is alerting — the cycle is about to roll. Stay
+                    // in breakActive until the dismissed event drives the transition.
+                    if let breakActiveStartedAt = record.breakActiveStartedAt {
+                        state = .breakActive(startedAt: breakActiveStartedAt)
+                    } else {
+                        state = .running(cycleStartedAt: cycleStartedAt)
+                    }
+                }
+                return
+            }
             switch alarm.kind {
             case .breakDue:
                 state = .running(cycleStartedAt: cycleStartedAt)

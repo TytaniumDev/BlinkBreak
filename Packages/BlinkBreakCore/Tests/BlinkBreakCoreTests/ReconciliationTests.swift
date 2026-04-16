@@ -154,6 +154,33 @@ struct ReconciliationTests {
         #expect(startedAt == breakActiveStart)
     }
 
+    @Test("reconcile with break-due alarm currently alerting → breakPending")
+    func reconcileWithAlertingBreakAlarm() async {
+        let f = Fixture()
+        let cycleId = UUID()
+        let alarmId = UUID()
+        let started = f.nowBox.value
+        f.persistence.save(SessionRecord(
+            sessionActive: true,
+            currentCycleId: cycleId,
+            cycleStartedAt: started,
+            breakActiveStartedAt: nil,
+            currentAlarmId: alarmId
+        ))
+        f.alarmScheduler.setCurrentAlarms([
+            ScheduledAlarmInfo(alarmId: alarmId, kind: .breakDue, isAlerting: true)
+        ])
+        f.advance(by: BlinkBreakConstants.breakInterval + 1)
+
+        await f.controller.reconcile()
+
+        guard case .breakPending(let startedAt) = f.controller.state else {
+            Issue.record("expected breakPending, got \(f.controller.state)")
+            return
+        }
+        #expect(startedAt == started)
+    }
+
     @Test("reconcile with corrupt record (active but missing fields) → idle")
     func corruptRecord() async {
         let f = Fixture()
