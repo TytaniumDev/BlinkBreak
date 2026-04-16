@@ -35,12 +35,14 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 4)
 
-            Button("Start") {
+            Button {
                 controller.start()
+            } label: {
+                Text("Start")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .frame(maxWidth: .infinity)
             .accessibilityIdentifier("button.idle.start")
         }
         .padding(24)

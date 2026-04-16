@@ -28,14 +28,16 @@ struct PermissionDeniedView: View {
 
             Spacer()
 
-            Button("Open Settings") {
+            Button {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url)
                 }
+            } label: {
+                Text("Open Settings")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .frame(maxWidth: .infinity)
         }
         .padding(24)
     }
