@@ -242,7 +242,13 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
             )
             return (alert, StartBreakIntent(alarmID: alarmID.uuidString))
         case .lookAwayDone:
-            return (AlarmPresentation.Alert(title: "Look-away complete"), nil)
+            let button = AlarmButton(text: "End break", textColor: .white, systemImageName: "checkmark")
+            let alert = AlarmPresentation.Alert(
+                title: "Look-away complete",
+                secondaryButton: button,
+                secondaryButtonBehavior: .custom
+            )
+            return (alert, EndBreakIntent(alarmID: alarmID.uuidString))
         }
     }
 
