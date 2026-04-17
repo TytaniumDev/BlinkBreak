@@ -20,6 +20,9 @@ struct CountdownRing: View {
     /// Text shown in the center of the ring, typically `MM:SS`.
     let label: String
 
+    /// Optional accessibility label text. If nil, `label` is used.
+    var accessibilityLabelText: String? = nil
+
     /// The ring's color — defaults to the app accent color.
     var ringColor: Color = .accentColor
 
@@ -44,6 +47,9 @@ struct CountdownRing: View {
                 .foregroundStyle(.white)
         }
         .frame(width: 180, height: 180)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Time remaining")
+        .accessibilityValue(accessibilityLabelText ?? label)
     }
 }
 

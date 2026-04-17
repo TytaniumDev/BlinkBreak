@@ -22,17 +22,25 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
         cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
     }
 
+    private static let a11yDurationFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.minute, .second]
+        formatter.unitsStyle = .full
+        return formatter
+    }()
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
             let total = Int(remainingSeconds.rounded(.up))
             let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
+            let a11yDuration = Self.a11yDurationFormatter.string(from: remainingSeconds) ?? countdownLabel
             let progress = (BlinkBreakConstants.breakInterval - remainingSeconds) / BlinkBreakConstants.breakInterval
 
             VStack(spacing: 20) {
                 EyebrowLabel(text: "Next break in")
 
-                CountdownRing(progress: progress, label: countdownLabel)
+                CountdownRing(progress: progress, label: countdownLabel, accessibilityLabelText: a11yDuration)
                     .accessibilityIdentifier("label.running.countdown")
 
                 Text("Fires at \(breakFireTimeFormatted)")
