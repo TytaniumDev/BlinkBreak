@@ -58,9 +58,9 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
 
     /// Absolute fire time shown to the user as reassurance ("will interrupt me at 2:47 PM").
     private var breakFireTimeFormatted: String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: breakFireTime)
+        // ⚡ Bolt: Replaced inline DateFormatter with the modern, cached .formatted() API
+        // to prevent main thread blocking and memory churn during frequent TimelineView renders.
+        breakFireTime.formatted(date: .omitted, time: .shortened)
     }
 }
 
