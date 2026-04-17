@@ -1,0 +1,4 @@
+## 2026-04-17 - Prevent Network Denial of Service and Excessive Payload Size
+**Vulnerability:** External network dependencies lacked configured timeouts, and user input could potentially grow unbounded, potentially leading to resource exhaustion or denial-of-service conditions.
+**Learning:** In iOS applications, the default `URLRequest` timeout is typically 60 seconds which could be problematic if not appropriately configured. Additionally, directly integrating unbounded strings into outgoing network payloads could exceed API limits or cause excessive memory usage locally.
+**Prevention:** Always configure an explicit `.timeoutInterval` on `URLRequest` instances for external network dependencies, and always bound user input length (e.g., using `.prefix()`) when constructing network payloads or manipulating memory to prevent denial-of-service vectors.
