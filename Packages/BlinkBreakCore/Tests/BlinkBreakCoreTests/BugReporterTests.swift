@@ -87,6 +87,18 @@ struct BugReporterFormattingTests {
         #expect(!body.contains("<details>"))
     }
 
+    @Test("body sanitizes markdown/HTML in user description")
+    func bodySanitizesHTML() {
+        let report = makeReport(logCount: 0)
+        let body = GitHubIssueReporter.formatBody(
+            userDescription: "Look at this <script>alert(1)</script> and <details>something</details>",
+            report: report
+        )
+        #expect(body.contains("Look at this &lt;script&gt;alert(1)&lt;/script&gt; and &lt;details&gt;something&lt;/details&gt;"))
+        #expect(!body.contains("<script>"))
+        #expect(!body.contains("<details>something</details>"))
+    }
+
     @Test("NoopBugReporter does not throw")
     func noopDoesNotThrow() async throws {
         let noop = NoopBugReporter()
