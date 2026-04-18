@@ -29,8 +29,11 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
             ScheduleSection(controller: controller)
                 .padding(.top, 12)
 
-            SoundToggleRow(controller: controller)
-                .padding(.top, 8)
+            SoundToggleRow(
+                isMuted: controller.muteAlarmSound,
+                onToggle: { controller.updateAlarmSound(muted: $0) }
+            )
+            .padding(.top, 8)
 
             Spacer()
 
