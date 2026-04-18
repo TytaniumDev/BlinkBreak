@@ -169,7 +169,7 @@ After enrollment, every push to `main` will run CI, then TestFlight upload.
 
 ## Alarming system
 
-BlinkBreak's alarming is a two-beat cycle driven by **AlarmKit** (iOS 26+). The full-screen alarm takeover fires at alarm volume regardless of silent switch, Focus, or DND. There are only ever two alarm kinds:
+BlinkBreak's alarming is a two-beat cycle driven by **AlarmKit** (iOS 26.1+). The full-screen alarm takeover fires at alarm volume regardless of silent switch, Focus, or DND. There are only ever two alarm kinds:
 
 - `.breakDue` — a 20-minute countdown. Fires at the end of a `running` cycle.
 - `.lookAwayDone` — a 20-second countdown. Fires at the end of a `breakActive` window.
