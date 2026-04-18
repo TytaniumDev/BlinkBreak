@@ -171,10 +171,11 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     muteSound: muted
                 )
             } catch { return }
-            // Re-check session is still active before persisting; stop() may have
-            // fired while the async cancel/schedule was in flight.
+            // Re-check session is still active and the alarm we replaced is still the
+            // current one before persisting. stop() or a concurrent reschedule may have
+            // updated currentAlarmId while the async cancel/schedule was in flight.
             var record = self.persistence.load()
-            guard record.sessionActive else {
+            guard record.sessionActive, record.currentAlarmId == currentAlarmId else {
                 await self.alarmScheduler.cancel(alarmId: newId)
                 return
             }
@@ -198,8 +199,11 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     muteSound: self.muteAlarmSound
                 )
             } catch { return }
+            // Re-check session is still active and the alarm we replaced is still the
+            // current one before persisting. stop() or a concurrent reschedule may have
+            // updated currentAlarmId while the async cancel/schedule was in flight.
             var record = self.persistence.load()
-            guard record.sessionActive else {
+            guard record.sessionActive, record.currentAlarmId == currentAlarmId else {
                 await self.alarmScheduler.cancel(alarmId: newId)
                 return
             }
