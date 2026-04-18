@@ -142,4 +142,21 @@ struct PersistenceTests {
         persistence.clear()
         #expect(persistence.loadSchedule() == .default)
     }
+
+    // MARK: - Alarm sound mute
+
+    @Test("InMemoryPersistence.loadAlarmSoundMuted() defaults to false")
+    func inMemoryMutedDefaultsFalse() {
+        let p = InMemoryPersistence()
+        #expect(p.loadAlarmSoundMuted() == false)
+    }
+
+    @Test("InMemoryPersistence round-trips alarm sound muted flag")
+    func inMemoryMutedRoundTrip() {
+        let p = InMemoryPersistence()
+        p.saveAlarmSoundMuted(true)
+        #expect(p.loadAlarmSoundMuted() == true)
+        p.saveAlarmSoundMuted(false)
+        #expect(p.loadAlarmSoundMuted() == false)
+    }
 }

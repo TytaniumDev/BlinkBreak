@@ -34,6 +34,13 @@ public protocol PersistenceProtocol: Sendable {
     /// Persist the given weekly schedule. Independent of the session record so
     /// existing users upgrade cleanly without a migration.
     func saveSchedule(_ schedule: WeeklySchedule)
+
+    /// Load the persisted alarm-sound mute preference. Returns `false` (sound on) if
+    /// never saved.
+    func loadAlarmSoundMuted() -> Bool
+
+    /// Persist the alarm-sound mute preference.
+    func saveAlarmSoundMuted(_ muted: Bool)
 }
 
 // MARK: - Real implementation
@@ -86,6 +93,14 @@ public final class UserDefaultsPersistence: PersistenceProtocol, @unchecked Send
         guard let data = try? encoder.encode(schedule) else { return }
         defaults.set(data, forKey: BlinkBreakConstants.weeklyScheduleKey)
     }
+
+    public func loadAlarmSoundMuted() -> Bool {
+        defaults.bool(forKey: BlinkBreakConstants.alarmSoundMutedKey)
+    }
+
+    public func saveAlarmSoundMuted(_ muted: Bool) {
+        defaults.set(muted, forKey: BlinkBreakConstants.alarmSoundMutedKey)
+    }
 }
 
 // MARK: - In-memory implementation (for tests)
@@ -98,6 +113,7 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
     private let lock = NSLock()
     private var record: SessionRecord
     private var schedule: WeeklySchedule?
+    private var alarmSoundMuted: Bool = false
 
     public init(initial: SessionRecord = .idle) {
         self.record = initial
@@ -131,5 +147,15 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
         lock.lock()
         defer { lock.unlock() }
         self.schedule = schedule
+    }
+
+    public func loadAlarmSoundMuted() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return alarmSoundMuted
+    }
+
+    public func saveAlarmSoundMuted(_ muted: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        alarmSoundMuted = muted
     }
 }

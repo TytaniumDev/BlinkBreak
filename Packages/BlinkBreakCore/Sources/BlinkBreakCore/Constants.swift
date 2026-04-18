@@ -67,6 +67,10 @@ public enum BlinkBreakConstants {
     /// falls back to `WeeklySchedule.default` without touching the session record.
     public static let weeklyScheduleKey = "BlinkBreak.WeeklySchedule"
 
+    /// UserDefaults key for the persisted alarm-sound mute preference. Stored
+    /// separately from the session record so it survives session resets.
+    public static let alarmSoundMutedKey = "BlinkBreak.MuteAlarmSound"
+
     // MARK: - Schedule task identifier
 
     /// BGTaskScheduler task identifier for schedule checks.
