@@ -17,6 +17,7 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
         let alarmId: UUID
         let duration: TimeInterval
         let kind: AlarmKind
+        let muteSound: Bool
     }
 
     private let lock = NSLock()
@@ -101,11 +102,11 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
         return _stubbedAuthorization
     }
 
-    func scheduleCountdown(duration: TimeInterval, kind: AlarmKind) async throws -> UUID {
+    func scheduleCountdown(duration: TimeInterval, kind: AlarmKind, muteSound: Bool) async throws -> UUID {
         lock.lock()
         let id = _nextAssignedId ?? UUID()
         _nextAssignedId = nil
-        _scheduled.append(ScheduleCall(alarmId: id, duration: duration, kind: kind))
+        _scheduled.append(ScheduleCall(alarmId: id, duration: duration, kind: kind, muteSound: muteSound))
         // Mirror real AlarmKit behavior: scheduling adds the alarm to the system's
         // active set. `currentAlarms()` should report it until cancellation or fire.
         _currentAlarms.append(ScheduledAlarmInfo(alarmId: id, kind: kind))

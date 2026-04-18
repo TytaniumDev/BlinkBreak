@@ -99,7 +99,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             do {
                 alarmId = try await self.alarmScheduler.scheduleCountdown(
                     duration: BlinkBreakConstants.breakInterval,
-                    kind: .breakDue
+                    kind: .breakDue,
+                    muteSound: false
                 )
             } catch {
                 // Authorization not granted, scheduling failed — stay idle.
@@ -318,7 +319,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 do {
                     lookAwayAlarmId = try await self.alarmScheduler.scheduleCountdown(
                         duration: BlinkBreakConstants.lookAwayDuration,
-                        kind: .lookAwayDone
+                        kind: .lookAwayDone,
+                        muteSound: false
                     )
                 } catch {
                     self.stop()
@@ -341,7 +343,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 do {
                     nextAlarmId = try await self.alarmScheduler.scheduleCountdown(
                         duration: BlinkBreakConstants.breakInterval,
-                        kind: .breakDue
+                        kind: .breakDue,
+                        muteSound: false
                     )
                 } catch {
                     self.stop()
