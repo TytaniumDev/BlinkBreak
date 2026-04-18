@@ -29,6 +29,9 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
             ScheduleSection(controller: controller)
                 .padding(.top, 12)
 
+            SoundToggleRow(controller: controller)
+                .padding(.top, 8)
+
             Spacer()
 
             ScheduleStatusLabel(text: scheduleStatusText)
