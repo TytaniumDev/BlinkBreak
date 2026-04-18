@@ -150,12 +150,14 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
     }
 
     public func loadAlarmSoundMuted() -> Bool {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return alarmSoundMuted
     }
 
     public func saveAlarmSoundMuted(_ muted: Bool) {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         alarmSoundMuted = muted
     }
 }
