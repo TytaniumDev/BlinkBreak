@@ -2,17 +2,16 @@
 //  SoundToggleRow.swift
 //  BlinkBreak
 //
-//  Stateless toggle row for the alarm sound setting. Binds to the controller's
-//  `muteAlarmSound` property via `updateAlarmSound(muted:)`. Toggle ON = sound enabled.
+//  Stateless toggle row for the alarm sound setting. Toggle ON = sound enabled.
 //
 //  Flutter analogue: a stateless SwitchListTile-style widget that takes callbacks.
 //
 
 import SwiftUI
-import BlinkBreakCore
 
-struct SoundToggleRow<Controller: SessionControllerProtocol>: View {
-    @ObservedObject var controller: Controller
+struct SoundToggleRow: View {
+    let isMuted: Bool
+    let onToggle: (Bool) -> Void
 
     var body: some View {
         HStack {
@@ -20,8 +19,8 @@ struct SoundToggleRow<Controller: SessionControllerProtocol>: View {
                 .font(.subheadline.weight(.medium))
             Spacer()
             Toggle("Alarm Sound", isOn: Binding(
-                get: { !controller.muteAlarmSound },
-                set: { controller.updateAlarmSound(muted: !$0) }
+                get: { !isMuted },
+                set: { onToggle(!$0) }
             ))
             .labelsHidden()
             .tint(.green)
@@ -30,19 +29,15 @@ struct SoundToggleRow<Controller: SessionControllerProtocol>: View {
 }
 
 #Preview("Sound On") {
-    SoundToggleRow(controller: PreviewSessionController(state: .idle))
+    SoundToggleRow(isMuted: false, onToggle: { _ in })
         .foregroundStyle(.white)
         .padding(24)
         .background(Color(red: 0.04, green: 0.06, blue: 0.08))
 }
 
 #Preview("Sound Off") {
-    SoundToggleRow(controller: {
-        let c = PreviewSessionController(state: .idle)
-        c.muteAlarmSound = true
-        return c
-    }())
-    .foregroundStyle(.white)
-    .padding(24)
-    .background(Color(red: 0.04, green: 0.06, blue: 0.08))
+    SoundToggleRow(isMuted: true, onToggle: { _ in })
+        .foregroundStyle(.white)
+        .padding(24)
+        .background(Color(red: 0.04, green: 0.06, blue: 0.08))
 }

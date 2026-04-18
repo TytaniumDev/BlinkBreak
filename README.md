@@ -322,7 +322,7 @@ BlinkBreak/
 ├── project.yml                     xcodegen spec (source of truth for Xcode project)
 ├── BlinkBreak/                     iOS app target (SwiftUI)
 │   ├── BlinkBreakApp.swift         @main entry point
-│   ├── AppDelegate.swift           UNUserNotificationCenterDelegate
+│   ├── AppDelegate.swift           BGTaskScheduler handler (UIApplicationDelegate)
 │   ├── Preview/
 │   │   └── PreviewSessionController.swift   mock for SwiftUI previews
 │   └── Views/

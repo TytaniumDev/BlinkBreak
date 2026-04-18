@@ -50,8 +50,11 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.6))
 
-                SoundToggleRow(controller: controller)
-                    .padding(.top, 4)
+                SoundToggleRow(
+                    isMuted: controller.muteAlarmSound,
+                    onToggle: { controller.updateAlarmSound(muted: $0) }
+                )
+                .padding(.top, 4)
 
                 Spacer()
 
