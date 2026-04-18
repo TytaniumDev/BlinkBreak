@@ -30,23 +30,19 @@ struct SoundToggleRow<Controller: SessionControllerProtocol>: View {
 }
 
 #Preview("Sound On") {
-    ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
-        SoundToggleRow(controller: PreviewSessionController(state: .idle))
-            .foregroundStyle(.white)
-            .padding(24)
-    }
+    SoundToggleRow(controller: PreviewSessionController(state: .idle))
+        .foregroundStyle(.white)
+        .padding(24)
+        .background(Color(red: 0.04, green: 0.06, blue: 0.08))
 }
 
 #Preview("Sound Off") {
-    ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
-        SoundToggleRow(controller: {
-            let c = PreviewSessionController(state: .idle)
-            c.muteAlarmSound = true
-            return c
-        }())
-        .foregroundStyle(.white)
-        .padding(24)
-    }
+    SoundToggleRow(controller: {
+        let c = PreviewSessionController(state: .idle)
+        c.muteAlarmSound = true
+        return c
+    }())
+    .foregroundStyle(.white)
+    .padding(24)
+    .background(Color(red: 0.04, green: 0.06, blue: 0.08))
 }

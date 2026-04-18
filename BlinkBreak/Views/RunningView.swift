@@ -6,8 +6,8 @@
 //  button. Uses TimelineView to tick the display every second.
 //
 //  No business logic here — every value shown is derived from `cycleStartedAt`
-//  and the current wall-clock time. The only method we call on the controller
-//  is `stop()`.
+//  and the current wall-clock time. Controller methods called: `stop()`,
+//  `triggerBreakNow()`, and `updateAlarmSound(muted:)` (via SoundToggleRow).
 //
 
 import SwiftUI
