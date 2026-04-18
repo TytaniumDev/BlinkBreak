@@ -329,8 +329,8 @@ BlinkBreak/
 │       ├── RootView.swift                   state router
 │       ├── IdleView.swift
 │       ├── RunningView.swift
+│       ├── BreakPendingView.swift
 │       ├── BreakActiveView.swift
-│       ├── LookAwayView.swift
 │       ├── PermissionDeniedView.swift
 │       └── Components/                      reusable small components
 ├── BlinkBreak Watch App/           watchOS app target
