@@ -32,6 +32,9 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// The current weekly schedule. Views observe this to display schedule settings.
     @Published public private(set) var weeklySchedule: WeeklySchedule = .empty
 
+    /// Whether the alarm sound is muted. Loaded from persistence on init.
+    @Published public private(set) var muteAlarmSound: Bool = false
+
     // MARK: - Dependencies
 
     private let alarmScheduler: AlarmSchedulerProtocol
@@ -64,6 +67,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         self.calendar = calendar
         self.clock = clock
         self.weeklySchedule = persistence.loadSchedule() ?? .empty
+        self.muteAlarmSound = persistence.loadAlarmSoundMuted()
 
         // Subscribe to alarm events. The Task hops to the main actor for each event so
         // state mutations are isolated correctly.
@@ -100,7 +104,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 alarmId = try await self.alarmScheduler.scheduleCountdown(
                     duration: BlinkBreakConstants.breakInterval,
                     kind: .breakDue,
-                    muteSound: false
+                    muteSound: self.muteAlarmSound
                 )
             } catch {
                 // Authorization not granted, scheduling failed — stay idle.
@@ -140,6 +144,33 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     public func updateSchedule(_ schedule: WeeklySchedule) {
         persistence.saveSchedule(schedule)
         weeklySchedule = schedule
+    }
+
+    /// Update the alarm-sound mute preference. Reschedules the current alarm if running.
+    public func updateAlarmSound(muted: Bool) {
+        persistence.saveAlarmSoundMuted(muted)
+        muteAlarmSound = muted
+        guard case .running(let cycleStartedAt) = state,
+              let currentAlarmId = persistence.load().currentAlarmId else { return }
+        let now = clock()
+        let remaining = max(1, cycleStartedAt
+            .addingTimeInterval(BlinkBreakConstants.breakInterval)
+            .timeIntervalSince(now))
+        Task { [weak self] in
+            guard let self else { return }
+            await self.alarmScheduler.cancel(alarmId: currentAlarmId)
+            let newId: UUID
+            do {
+                newId = try await self.alarmScheduler.scheduleCountdown(
+                    duration: remaining,
+                    kind: .breakDue,
+                    muteSound: muted
+                )
+            } catch { return }
+            var record = self.persistence.load()
+            record.currentAlarmId = newId
+            self.persistence.save(record)
+        }
     }
 
     /// Acknowledges the current break cycle from inside the app (e.g. the user tapped
@@ -320,7 +351,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     lookAwayAlarmId = try await self.alarmScheduler.scheduleCountdown(
                         duration: BlinkBreakConstants.lookAwayDuration,
                         kind: .lookAwayDone,
-                        muteSound: false
+                        muteSound: self.muteAlarmSound
                     )
                 } catch {
                     self.stop()
@@ -344,7 +375,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     nextAlarmId = try await self.alarmScheduler.scheduleCountdown(
                         duration: BlinkBreakConstants.breakInterval,
                         kind: .breakDue,
-                        muteSound: false
+                        muteSound: self.muteAlarmSound
                     )
                 } catch {
                     self.stop()
