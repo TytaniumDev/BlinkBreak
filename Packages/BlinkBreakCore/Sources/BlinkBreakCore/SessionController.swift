@@ -183,6 +183,31 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         }
     }
 
+    /// Cancel the current alarm and reschedule it to fire in 1 second.
+    public func triggerBreakNow() {
+        guard case .running = state,
+              let currentAlarmId = persistence.load().currentAlarmId else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.alarmScheduler.cancel(alarmId: currentAlarmId)
+            let newId: UUID
+            do {
+                newId = try await self.alarmScheduler.scheduleCountdown(
+                    duration: 1,
+                    kind: .breakDue,
+                    muteSound: self.muteAlarmSound
+                )
+            } catch { return }
+            var record = self.persistence.load()
+            guard record.sessionActive else {
+                await self.alarmScheduler.cancel(alarmId: newId)
+                return
+            }
+            record.currentAlarmId = newId
+            self.persistence.save(record)
+        }
+    }
+
     /// Acknowledges the current break cycle from inside the app (e.g. the user tapped
     /// "Start break" on the foregrounded `BreakPendingView` instead of on the alarm UI).
     /// Synthesizes a dismissed event for the current break alarm.

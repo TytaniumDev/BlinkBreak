@@ -55,4 +55,9 @@ public protocol SessionControllerProtocol: ObservableObject {
     /// `.running` state, the scheduled alarm is cancelled and rescheduled immediately with the
     /// new sound setting (within a few seconds).
     func updateAlarmSound(muted: Bool)
+
+    /// Immediately cancel the current break alarm and reschedule it to fire in
+    /// 1 second. Only meaningful in the `.running` state; no-op otherwise.
+    /// Intended for manually testing the full break-alarm transition.
+    func triggerBreakNow()
 }

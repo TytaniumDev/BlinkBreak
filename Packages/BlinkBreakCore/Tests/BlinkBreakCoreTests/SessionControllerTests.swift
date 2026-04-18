@@ -335,6 +335,50 @@ struct SessionControllerTests {
         #expect(f.persistence.load().sessionActive == false)
     }
 
+    // MARK: - triggerBreakNow()
+
+    @Test("triggerBreakNow() while running cancels current alarm and schedules 1-second breakDue alarm")
+    func triggerBreakNowWhileRunning() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+
+        let originalId = f.alarmScheduler.scheduled.last!.alarmId
+        f.controller.triggerBreakNow()
+        await settle()
+
+        #expect(f.alarmScheduler.cancelledIds.contains(originalId))
+
+        let newCall = f.alarmScheduler.scheduled.last!
+        #expect(newCall.duration == 1)
+        #expect(newCall.kind == .breakDue)
+    }
+
+    @Test("triggerBreakNow() while running updates SessionRecord.currentAlarmId")
+    func triggerBreakNowUpdatesRecord() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+
+        let idBefore = f.persistence.load().currentAlarmId!
+        f.controller.triggerBreakNow()
+        await settle()
+
+        let idAfter = f.persistence.load().currentAlarmId!
+        #expect(idAfter != idBefore)
+    }
+
+    @Test("triggerBreakNow() while idle is a no-op")
+    func triggerBreakNowWhileIdleIsNoOp() async {
+        let f = Fixture()
+        f.controller.triggerBreakNow()
+        await settle()
+        #expect(f.alarmScheduler.scheduled.isEmpty)
+        #expect(f.alarmScheduler.cancelledIds.isEmpty)
+        #expect(f.controller.state == .idle)
+    }
+
+
     // MARK: - muteAlarmSound / updateAlarmSound(muted:)
 
     @Test("muteAlarmSound defaults to false")

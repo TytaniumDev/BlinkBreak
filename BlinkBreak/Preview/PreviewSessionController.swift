@@ -54,6 +54,10 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
         muteAlarmSound = muted
     }
 
+    func triggerBreakNow() {
+        // No-op in previews.
+    }
+
     // MARK: - Preview fixtures
 
     /// Preview states for each scenario a view might render.
