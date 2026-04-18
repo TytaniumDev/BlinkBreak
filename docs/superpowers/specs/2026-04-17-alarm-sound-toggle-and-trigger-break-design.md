@@ -67,7 +67,7 @@ When `false`, uses the existing logic (`.named("break-alarm.caf")` or `.default`
 
 > **Risk/assumption:** AlarmKit will render the alarm's full-screen UI even when the audio file contains silence. The alarm will still vibrate. This is the expected and desired behavior.
 
-**`SoundToggleRow`** — new stateless component in `Views/Components/`. Takes `isMuted: Bool` and `onToggle: (Bool) -> Void`. Under 50 lines. Has a `#Preview`.
+**`SoundToggleRow`** — new component in `Views/Components/`. Generic over `Controller: SessionControllerProtocol` (same pattern as all other views); takes `@ObservedObject var controller: Controller` and reads `controller.muteAlarmSound` / calls `controller.updateAlarmSound(muted:)` directly. Under 50 lines. Has a `#Preview`.
 
 ```
 HStack {

@@ -22,7 +22,7 @@ Runs the BlinkBreakCore unit suite via `swift test`. Sub-second runtime (~80 tes
 ```
 Runs the XCUITest integration suite — end-to-end tests that drive the iOS app through a real simulator. Takes ~4 minutes. **Do not run during iteration.** Run only as a final verification step before committing or creating a PR, and when you suspect a change might have broken end-to-end behavior that the unit tests can't catch.
 
-The suite covers: app launch, idle state, start/stop transitions, full break cycle (running → breakActive → lookAway → running), state reconciliation across app terminate + relaunch, and rapid start/stop stress testing. It uses `BB_BREAK_INTERVAL=3` and `BB_LOOKAWAY_DURATION=3` environment variables (set by the `BlinkBreakUITests` scheme) so a full cycle runs in ~6 seconds of wall-clock time instead of 20 minutes + 20 seconds.
+The suite covers: app launch, idle state, start/stop transitions, full break cycle (running → breakPending → breakActive → running), state reconciliation across app terminate + relaunch, and rapid start/stop stress testing. It uses `BB_BREAK_INTERVAL=3` and `BB_LOOKAWAY_DURATION=3` environment variables (set by the `BlinkBreakUITests` scheme) so a full cycle runs in ~6 seconds of wall-clock time instead of 20 minutes + 20 seconds.
 
 **What the integration suite does NOT cover** (requires on-device manual verification):
 - Focus Mode break-through semantics
@@ -65,7 +65,7 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 ### State machine
 
-Four states: `idle`, `running`, `breakActive`, `lookAway`. Two user transitions: `Start` and `Stop`. The cycle progresses event-driven: when the AlarmKit break-due alarm fires, the system shows a full-screen alarm; when the user dismisses, `SessionController.handleAlarmEvent(.dismissed(.breakDue))` schedules a 20-second look-away alarm and transitions to `breakActive`. When that alarm fires + user dismisses, the controller rolls to a new cycle and schedules the next break alarm.
+Four states: `idle`, `running`, `breakPending`, `breakActive`. Two user transitions: `Start` and `Stop`. The cycle progresses event-driven: when the AlarmKit break-due alarm fires, the system shows a full-screen alarm and state becomes `breakPending`; when the user taps "Start break", `SessionController.handleAlarmEvent(.dismissed(.breakDue))` schedules a 20-second look-away alarm and transitions to `breakActive`. When that alarm fires + user dismisses, the controller rolls to a new cycle and schedules the next break alarm.
 
 ### Alarm wiring
 
@@ -95,7 +95,7 @@ Two layers. **Run unit tests during iteration; run integration tests only as fin
 - **Do NOT run during iteration.** The unit suite covers business logic with instant feedback. Integration tests are for catching regressions the unit suite can't see: real `UNUserNotificationCenter` delivery, real `UserDefaultsPersistence` round-trips, real SwiftUI view rendering, real state transitions through the full app lifecycle.
 - **Run integration tests when:** (a) your change touches view ↔ controller wiring or persistence, (b) you changed `SessionController.reconcile` or any state-transition logic, (c) you're about to commit or create a PR as a final sanity check.
 - **Environment variables:** the `BlinkBreakUITests` scheme sets `BB_BREAK_INTERVAL=3` and `BB_LOOKAWAY_DURATION=3`. `BlinkBreakConstants` reads these at first access so tests exercise a full 20-20-20 cycle in ~6 seconds of wall-clock time. Production builds don't set the vars and get the unmodified 20-minute default. The `-BB_RESET_DEFAULTS` launch arg wipes `UserDefaults` at `BlinkBreakApp.init()` so each test starts from a clean idle state.
-- **Accessibility identifiers:** every state-bearing UI element (buttons and key labels) carries an `accessibilityIdentifier` like `button.idle.start`, `button.running.stop`, `button.breakActive.startBreak`, `button.lookAway.stop`, `label.running.countdown`, `label.lookAway.message`. Tests query for these via the `A11y` enum in `BlinkBreakUITestsBase.swift`. Adding a new view state? Add its identifier to `A11y` and to the view.
+- **Accessibility identifiers:** every state-bearing UI element (buttons and key labels) carries an `accessibilityIdentifier` like `button.idle.start`, `button.running.stop`, `button.breakPending.startBreak`, `button.breakPending.stop`, `button.breakActive.stop`, `label.running.countdown`. Tests query for these via the `A11y` enum in `BlinkBreakUITestsBase.swift`. Adding a new view state? Add its identifier to `A11y` and to the view.
 - **Simulator flakes:** `test-integration.sh` runs `xcrun simctl erase all` before each invocation. Without this reset, the iOS runner bundle sometimes fails with "Application failed preflight checks" on the second back-to-back run. The erase + shutdown sequence adds ~3 seconds but eliminates the false positive.
 
 ### What neither layer covers (manual verification only)
