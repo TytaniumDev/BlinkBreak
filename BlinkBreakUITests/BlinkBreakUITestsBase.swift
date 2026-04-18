@@ -74,6 +74,7 @@ enum A11y {
     enum Running {
         static let stopButton = "button.running.stop"
         static let countdown = "label.running.countdown"
+        static let takeBreakNowButton = "button.running.takeBreakNow"
     }
     enum BreakPending {
         static let startBreakButton = "button.breakPending.startBreak"
