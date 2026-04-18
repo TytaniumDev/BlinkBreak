@@ -17,8 +17,12 @@ permissions:
   id-token: write
   actions: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   claude:
+    if: github.actor != 'google-labs-jules[bot]'
     uses: TytaniumDev/.github/.github/workflows/claude.yml@main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
