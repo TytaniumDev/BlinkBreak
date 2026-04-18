@@ -50,7 +50,17 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.6))
 
+                SoundToggleRow(controller: controller)
+                    .padding(.top, 4)
+
                 Spacer()
+
+                Button("Take break now") {
+                    controller.triggerBreakNow()
+                }
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.7))
+                .accessibilityIdentifier("button.running.takeBreakNow")
 
                 Button(role: .destructive) {
                     controller.stop()
