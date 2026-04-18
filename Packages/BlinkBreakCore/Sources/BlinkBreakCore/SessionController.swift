@@ -150,6 +150,10 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     public func updateAlarmSound(muted: Bool) {
         persistence.saveAlarmSoundMuted(muted)
         muteAlarmSound = muted
+        // Only reschedule during .running. In .breakActive the look-away alarm is
+        // already firing and lasts at most 20 s; the next cycle's alarm will pick up
+        // the new value from self.muteAlarmSound. In .breakPending the break alarm
+        // is already alerting on-screen, so there is nothing useful to reschedule.
         guard case .running(let cycleStartedAt) = state,
               let currentAlarmId = persistence.load().currentAlarmId else { return }
         let now = clock()
@@ -167,7 +171,13 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     muteSound: muted
                 )
             } catch { return }
+            // Re-check session is still active before persisting; stop() may have
+            // fired while the async cancel/schedule was in flight.
             var record = self.persistence.load()
+            guard record.sessionActive else {
+                await self.alarmScheduler.cancel(alarmId: newId)
+                return
+            }
             record.currentAlarmId = newId
             self.persistence.save(record)
         }

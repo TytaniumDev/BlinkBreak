@@ -51,8 +51,8 @@ public protocol SessionControllerProtocol: ObservableObject {
     /// (full-screen UI still appears). Persisted across launches.
     var muteAlarmSound: Bool { get }
 
-    /// Update and persist the alarm-sound mute preference. If a session is currently
-    /// running, the scheduled alarm is cancelled and rescheduled immediately with the
+    /// Update and persist the alarm-sound mute preference. If the session is in the
+    /// `.running` state, the scheduled alarm is cancelled and rescheduled immediately with the
     /// new sound setting (within a few seconds).
     func updateAlarmSound(muted: Bool)
 }
