@@ -22,6 +22,7 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
 
     @Published var state: SessionState
     @Published var weeklySchedule: WeeklySchedule = .empty
+    @Published var muteAlarmSound: Bool = false
 
     init(state: SessionState = .idle) {
         self.state = state
@@ -47,6 +48,14 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
 
     func updateSchedule(_ schedule: WeeklySchedule) {
         weeklySchedule = schedule
+    }
+
+    func updateAlarmSound(muted: Bool) {
+        muteAlarmSound = muted
+    }
+
+    func triggerBreakNow() {
+        // No-op in previews.
     }
 
     // MARK: - Preview fixtures

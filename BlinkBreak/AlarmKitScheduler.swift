@@ -190,7 +190,7 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
         }
     }
 
-    public func scheduleCountdown(duration: TimeInterval, kind: AlarmKind) async throws -> UUID {
+    public func scheduleCountdown(duration: TimeInterval, kind: AlarmKind, muteSound: Bool) async throws -> UUID {
         let authorized = (try? await requestAuthorizationIfNeeded()) ?? false
         guard authorized else {
             throw AlarmSchedulerError.authorizationDenied
@@ -202,8 +202,12 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
             presentation: AlarmPresentation(alert: alert),
             tintColor: .blue
         )
-        let sound: AlertConfiguration.AlertSound = BlinkBreakConstants.breakSoundFileName
-            .map { .named($0) } ?? .default
+        let sound: AlertConfiguration.AlertSound
+        if muteSound {
+            sound = .named("break-alarm-silent.caf")
+        } else {
+            sound = BlinkBreakConstants.breakSoundFileName.map { .named($0) } ?? .default
+        }
         let configuration = AlarmManager.AlarmConfiguration<BlinkBreakAlarmMetadata>.alarm(
             schedule: .fixed(Date().addingTimeInterval(duration)),
             attributes: attributes,

@@ -334,4 +334,110 @@ struct SessionControllerTests {
         #expect(f.controller.state == .idle)
         #expect(f.persistence.load().sessionActive == false)
     }
+
+    // MARK: - triggerBreakNow()
+
+    @Test("triggerBreakNow() while running cancels current alarm and schedules 1-second breakDue alarm")
+    func triggerBreakNowWhileRunning() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+
+        let originalId = f.alarmScheduler.scheduled.last!.alarmId
+        f.controller.triggerBreakNow()
+        await settle()
+
+        #expect(f.alarmScheduler.cancelledIds.contains(originalId))
+
+        let newCall = f.alarmScheduler.scheduled.last!
+        #expect(newCall.duration == 1)
+        #expect(newCall.kind == .breakDue)
+    }
+
+    @Test("triggerBreakNow() while running updates SessionRecord.currentAlarmId")
+    func triggerBreakNowUpdatesRecord() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+
+        let idBefore = f.persistence.load().currentAlarmId!
+        f.controller.triggerBreakNow()
+        await settle()
+
+        let idAfter = f.persistence.load().currentAlarmId!
+        #expect(idAfter != idBefore)
+    }
+
+    @Test("triggerBreakNow() while idle is a no-op")
+    func triggerBreakNowWhileIdleIsNoOp() async {
+        let f = Fixture()
+        f.controller.triggerBreakNow()
+        await settle()
+        #expect(f.alarmScheduler.scheduled.isEmpty)
+        #expect(f.alarmScheduler.cancelledIds.isEmpty)
+        #expect(f.controller.state == .idle)
+    }
+
+
+    // MARK: - muteAlarmSound / updateAlarmSound(muted:)
+
+    @Test("muteAlarmSound defaults to false")
+    func muteAlarmSoundDefaultsFalse() {
+        let f = Fixture()
+        #expect(f.controller.muteAlarmSound == false)
+    }
+
+    @Test("updateAlarmSound(muted:) updates the published property and persists")
+    func updateAlarmSoundPersists() async {
+        let f = Fixture()
+        f.controller.updateAlarmSound(muted: true)
+        #expect(f.controller.muteAlarmSound == true)
+        #expect(f.persistence.loadAlarmSoundMuted() == true)
+
+        f.controller.updateAlarmSound(muted: false)
+        #expect(f.controller.muteAlarmSound == false)
+        #expect(f.persistence.loadAlarmSoundMuted() == false)
+    }
+
+    @Test("updateAlarmSound(muted:) while idle does not schedule or cancel any alarms")
+    func updateAlarmSoundWhileIdleIsNoOp() async {
+        let f = Fixture()
+        f.controller.updateAlarmSound(muted: true)
+        await settle()
+        #expect(f.alarmScheduler.scheduled.isEmpty)
+        #expect(f.alarmScheduler.cancelledIds.isEmpty)
+    }
+
+    @Test("updateAlarmSound(muted:) while running cancels current alarm and reschedules with new muteSound")
+    func updateAlarmSoundWhileRunningReschedules() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+
+        let originalId = f.alarmScheduler.scheduled.last!.alarmId
+        f.advance(by: 5 * 60)  // 5 minutes into the 20-minute cycle
+
+        f.controller.updateAlarmSound(muted: true)
+        await settle()
+
+        // Original alarm cancelled
+        #expect(f.alarmScheduler.cancelledIds.contains(originalId))
+
+        // New alarm scheduled with muteSound: true and remaining duration ≈ 15 minutes
+        let newCall = f.alarmScheduler.scheduled.last!
+        #expect(newCall.muteSound == true)
+        #expect(newCall.kind == .breakDue)
+        #expect(abs(newCall.duration - 15 * 60) < 2)
+    }
+
+    @Test("start() passes muteAlarmSound preference through to scheduleCountdown")
+    func startPassesMuteSoundPreference() async {
+        let f = Fixture()
+        f.controller.updateAlarmSound(muted: true)
+        f.controller.start()
+        await settle()
+
+        let call = f.alarmScheduler.scheduled.last!
+        #expect(call.muteSound == true)
+    }
 }

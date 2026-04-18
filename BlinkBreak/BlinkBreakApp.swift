@@ -27,6 +27,7 @@ struct BlinkBreakApp: App {
         // Production launches never pass this flag.
         if CommandLine.arguments.contains("-BB_RESET_DEFAULTS") {
             UserDefaults.standard.removeObject(forKey: BlinkBreakConstants.sessionRecordKey)
+            UserDefaults.standard.removeObject(forKey: BlinkBreakConstants.alarmSoundMutedKey)
         }
     }
 

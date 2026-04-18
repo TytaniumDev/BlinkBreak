@@ -46,4 +46,18 @@ public protocol SessionControllerProtocol: ObservableObject {
 
     /// Replace the weekly schedule and persist it.
     func updateSchedule(_ schedule: WeeklySchedule)
+
+    /// Whether the alarm sound is muted. When true, AlarmKit alarms fire silently
+    /// (full-screen UI still appears). Persisted across launches.
+    var muteAlarmSound: Bool { get }
+
+    /// Update and persist the alarm-sound mute preference. If the session is in the
+    /// `.running` state, the scheduled alarm is cancelled and rescheduled immediately with the
+    /// new sound setting (within a few seconds).
+    func updateAlarmSound(muted: Bool)
+
+    /// Immediately cancel the current break alarm and reschedule it to fire in
+    /// 1 second. Only meaningful in the `.running` state; no-op otherwise.
+    /// Intended for manually testing the full break-alarm transition.
+    func triggerBreakNow()
 }

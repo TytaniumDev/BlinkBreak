@@ -32,6 +32,9 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// The current weekly schedule. Views observe this to display schedule settings.
     @Published public private(set) var weeklySchedule: WeeklySchedule = .empty
 
+    /// Whether the alarm sound is muted. Loaded from persistence on init.
+    @Published public private(set) var muteAlarmSound: Bool = false
+
     // MARK: - Dependencies
 
     private let alarmScheduler: AlarmSchedulerProtocol
@@ -64,6 +67,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         self.calendar = calendar
         self.clock = clock
         self.weeklySchedule = persistence.loadSchedule() ?? .empty
+        self.muteAlarmSound = persistence.loadAlarmSoundMuted()
 
         // Subscribe to alarm events. The Task hops to the main actor for each event so
         // state mutations are isolated correctly.
@@ -99,7 +103,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             do {
                 alarmId = try await self.alarmScheduler.scheduleCountdown(
                     duration: BlinkBreakConstants.breakInterval,
-                    kind: .breakDue
+                    kind: .breakDue,
+                    muteSound: self.muteAlarmSound
                 )
             } catch {
                 // Authorization not granted, scheduling failed — stay idle.
@@ -139,6 +144,72 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     public func updateSchedule(_ schedule: WeeklySchedule) {
         persistence.saveSchedule(schedule)
         weeklySchedule = schedule
+    }
+
+    /// Update the alarm-sound mute preference. Reschedules the current alarm if running.
+    public func updateAlarmSound(muted: Bool) {
+        persistence.saveAlarmSoundMuted(muted)
+        muteAlarmSound = muted
+        // Only reschedule during .running. In .breakActive the look-away alarm is
+        // already firing and lasts at most 20 s; the next cycle's alarm will pick up
+        // the new value from self.muteAlarmSound. In .breakPending the break alarm
+        // is already alerting on-screen, so there is nothing useful to reschedule.
+        guard case .running(let cycleStartedAt) = state,
+              let currentAlarmId = persistence.load().currentAlarmId else { return }
+        let now = clock()
+        let remaining = max(1, cycleStartedAt
+            .addingTimeInterval(BlinkBreakConstants.breakInterval)
+            .timeIntervalSince(now))
+        Task { [weak self] in
+            guard let self else { return }
+            await self.alarmScheduler.cancel(alarmId: currentAlarmId)
+            let newId: UUID
+            do {
+                newId = try await self.alarmScheduler.scheduleCountdown(
+                    duration: remaining,
+                    kind: .breakDue,
+                    muteSound: muted
+                )
+            } catch { return }
+            // Re-check session is still active and the alarm we replaced is still the
+            // current one before persisting. stop() or a concurrent reschedule may have
+            // updated currentAlarmId while the async cancel/schedule was in flight.
+            var record = self.persistence.load()
+            guard record.sessionActive, record.currentAlarmId == currentAlarmId else {
+                await self.alarmScheduler.cancel(alarmId: newId)
+                return
+            }
+            record.currentAlarmId = newId
+            self.persistence.save(record)
+        }
+    }
+
+    /// Cancel the current alarm and reschedule it to fire in 1 second.
+    public func triggerBreakNow() {
+        guard case .running = state,
+              let currentAlarmId = persistence.load().currentAlarmId else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.alarmScheduler.cancel(alarmId: currentAlarmId)
+            let newId: UUID
+            do {
+                newId = try await self.alarmScheduler.scheduleCountdown(
+                    duration: 1,
+                    kind: .breakDue,
+                    muteSound: self.muteAlarmSound
+                )
+            } catch { return }
+            // Re-check session is still active and the alarm we replaced is still the
+            // current one before persisting. stop() or a concurrent reschedule may have
+            // updated currentAlarmId while the async cancel/schedule was in flight.
+            var record = self.persistence.load()
+            guard record.sessionActive, record.currentAlarmId == currentAlarmId else {
+                await self.alarmScheduler.cancel(alarmId: newId)
+                return
+            }
+            record.currentAlarmId = newId
+            self.persistence.save(record)
+        }
     }
 
     /// Acknowledges the current break cycle from inside the app (e.g. the user tapped
@@ -318,7 +389,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 do {
                     lookAwayAlarmId = try await self.alarmScheduler.scheduleCountdown(
                         duration: BlinkBreakConstants.lookAwayDuration,
-                        kind: .lookAwayDone
+                        kind: .lookAwayDone,
+                        muteSound: self.muteAlarmSound
                     )
                 } catch {
                     self.stop()
@@ -341,7 +413,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 do {
                     nextAlarmId = try await self.alarmScheduler.scheduleCountdown(
                         duration: BlinkBreakConstants.breakInterval,
-                        kind: .breakDue
+                        kind: .breakDue,
+                        muteSound: self.muteAlarmSound
                     )
                 } catch {
                     self.stop()

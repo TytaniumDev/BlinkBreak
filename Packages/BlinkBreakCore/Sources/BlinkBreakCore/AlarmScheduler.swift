@@ -73,7 +73,9 @@ public protocol AlarmSchedulerProtocol: AnyObject, Sendable {
     /// Schedule a countdown alarm that fires after `duration` seconds.
     /// Returns the UUID assigned to the new alarm (callers should persist this
     /// for cancellation and event-correlation).
-    func scheduleCountdown(duration: TimeInterval, kind: AlarmKind) async throws -> UUID
+    /// - Parameter muteSound: When true, the alarm fires silently (full-screen UI
+    ///   still appears, no audio). Uses the bundled silent CAF file.
+    func scheduleCountdown(duration: TimeInterval, kind: AlarmKind, muteSound: Bool) async throws -> UUID
 
     /// Cancel a specific alarm by ID. Idempotent — cancelling an unknown ID is a no-op.
     func cancel(alarmId: UUID) async
