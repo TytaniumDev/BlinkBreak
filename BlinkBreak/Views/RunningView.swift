@@ -31,6 +31,9 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
     }
 
     var body: some View {
+        // Cache the formatted time string outside the render loop since breakFireTime doesn't change
+        let fireTimeText = breakFireTimeFormatted
+
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
             let total = Int(remainingSeconds.rounded(.up))
@@ -46,7 +49,7 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                     .accessibilityValue(a11yDurationFormatter.string(from: remainingSeconds) ?? countdownLabel)
                     .accessibilityIdentifier("label.running.countdown")
 
-                Text("Fires at \(breakFireTimeFormatted)")
+                Text("Fires at \(fireTimeText)")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.6))
 
