@@ -50,7 +50,8 @@ public final class LogBuffer: @unchecked Sendable {
     /// Append a log entry at the current time. If the buffer is full, the oldest entry
     /// is evicted.
     public func log(_ level: LogLevel, _ message: String) {
-        let entry = LogEntry(timestamp: Date(), level: level, message: message)
+        let truncatedMessage = String(message.prefix(1000))
+        let entry = LogEntry(timestamp: Date(), level: level, message: truncatedMessage)
         lock.lock()
         defer { lock.unlock() }
         if storage.count >= capacity {
