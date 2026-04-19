@@ -132,7 +132,8 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
         // Log entries (collapsible)
         if !report.logEntries.isEmpty {
             let logLines = report.logEntries.map { entry in
-                "[\(iso.string(from: entry.timestamp))] [\(entry.level.rawValue)] \(entry.message)"
+                let safeMessage = entry.message.replacingOccurrences(of: "```", with: "` ` `")
+                return "[\(iso.string(from: entry.timestamp))] [\(entry.level.rawValue)] \(safeMessage)"
             }
             sections.append("""
             <details>
