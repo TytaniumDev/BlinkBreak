@@ -74,4 +74,15 @@ struct LogBufferTests {
         let entries = buffer.drain()
         #expect(entries.count == 100)
     }
+
+    @Test("log truncates message longer than 1000 characters")
+    func logMessageLengthIsLimited() {
+        let buffer = LogBuffer(capacity: 5)
+        let longMessage = String(repeating: "a", count: 2000)
+        buffer.log(.info, longMessage)
+        let entries = buffer.drain()
+        #expect(entries.count == 1)
+        #expect(entries[0].message.count == 1000)
+        #expect(entries[0].message == String(repeating: "a", count: 1000))
+    }
 }

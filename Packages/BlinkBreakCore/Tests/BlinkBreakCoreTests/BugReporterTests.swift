@@ -99,6 +99,24 @@ struct BugReporterFormattingTests {
         #expect(!body.contains("<details>something</details>"))
     }
 
+    @Test("body sanitizes triple backticks in log messages")
+    func bodySanitizesMarkdownBlocks() {
+        let report = DiagnosticReport(
+            timestamp: Date(),
+            deviceInfo: DeviceInfo(iosVersion: "1", deviceModel: "2", appVersion: "3", buildNumber: "4", isTestFlight: true),
+            sessionState: "idle",
+            sessionRecord: .idle,
+            weeklySchedule: .empty,
+            logEntries: [LogEntry(timestamp: Date(), level: .info, message: "Sneaky ``` injected ``` code")]
+        )
+        let body = GitHubIssueReporter.formatBody(
+            userDescription: "test",
+            report: report
+        )
+        #expect(body.contains("Sneaky ` ` ` injected ` ` ` code"))
+        #expect(!body.contains("``` injected ```"))
+    }
+
     @Test("NoopBugReporter does not throw")
     func noopDoesNotThrow() async throws {
         let noop = NoopBugReporter()
