@@ -11,8 +11,8 @@
 //  their session entirely.
 //
 
-import BlinkBreakCore
 import SwiftUI
+import BlinkBreakCore
 
 struct BreakActiveView<Controller: SessionControllerProtocol>: View {
 
@@ -34,7 +34,7 @@ struct BreakActiveView<Controller: SessionControllerProtocol>: View {
             Spacer()
 
             Button(role: .destructive) {
-                Task { await controller.stop() }
+                controller.stop()
             } label: {
                 Text("Stop")
                     .frame(maxWidth: .infinity)

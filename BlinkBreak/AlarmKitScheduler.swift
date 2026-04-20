@@ -9,17 +9,18 @@
 //  `BlinkBreakCore` package is platform-agnostic by design.
 //
 //  Why `.alarm(schedule:)` and not `.timer(duration:)`: a timer-backed alarm
-//  implies a countdown Live Activity that surfaces a notification *before* the
-//  alarm fires. Using a fixed-date schedule with an alert-only presentation
-//  avoids the Live Activity surface entirely.
+//  implies a countdown Live Activity that the system mirrors to a paired
+//  Apple Watch, producing notifications *before* the alarm fires. Using a
+//  fixed-date schedule with an alert-only presentation avoids the Live Activity
+//  surface entirely.
 //
 
-import ActivityKit
-import AlarmKit
-import AppIntents
-import BlinkBreakCore
 import Foundation
+import AlarmKit
+import ActivityKit
+import AppIntents
 import SwiftUI
+import BlinkBreakCore
 
 /// Marker metadata for our alarms. AlarmKit requires a Metadata generic on the
 /// configuration value even when we don't carry any extra data.
@@ -30,11 +31,15 @@ public struct BlinkBreakAlarmMetadata: AlarmMetadata {
 @available(iOS 26.1, *)
 public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
 
-    private let persistence: PersistenceProtocol
+    /// UserDefaults key for the persisted alarm-id → kind mapping. Survives app kill
+    /// so reconciliation on launch can correlate the still-scheduled system alarm with
+    /// its semantic kind.
+    private static let mappingDefaultsKey = "blinkbreak.alarmkit.idToKind.v1"
+
     private let lock = NSLock()
     /// Maps the alarm UUIDs we've scheduled to their semantic kind so we can
     /// translate AlarmKit `[Alarm]` snapshots back into our `AlarmEvent` vocabulary.
-    /// Persisted via `PersistenceProtocol` on every change.
+    /// Persisted to UserDefaults on every change.
     private var idToKind: [UUID: AlarmKind]
     /// Tracks which alarm IDs are currently alerting per the most recent
     /// `alarmUpdates` snapshot. Used by `currentAlarms()` for reconciliation.
@@ -44,15 +49,14 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
     private let eventContinuation: AsyncStream<AlarmEvent>.Continuation
     private var observerTask: Task<Void, Never>?
 
-    public init(persistence: PersistenceProtocol) {
+    public init() {
         // Restore the mapping from prior sessions so reconciliation finds alarms
         // scheduled before the app was killed.
-        self.persistence = persistence
-        self.idToKind = persistence.loadAlarmIdMapping()
+        self.idToKind = Self.loadMapping()
 
-        let (stream, continuation) = AsyncStream.makeStream(of: AlarmEvent.self)
-        self.events = stream
-        self.eventContinuation = continuation
+        var cont: AsyncStream<AlarmEvent>.Continuation!
+        self.events = AsyncStream { c in cont = c }
+        self.eventContinuation = cont
 
         // Subscribe to AlarmKit's update stream and translate each delta into our
         // `.fired` / `.dismissed` event vocabulary.
@@ -61,8 +65,8 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
             var lastKnown: Set<UUID> = []
             for await alarms in AlarmManager.shared.alarmUpdates {
                 guard let self else { return }
-                let nowAlerting = Set(alarms.lazy.filter { $0.state == .alerting }.map(\.id))
-                let nowKnown = Set(alarms.lazy.map(\.id))
+                let nowAlerting = Set(alarms.filter { $0.state == .alerting }.map { $0.id })
+                let nowKnown = Set(alarms.map(\.id))
                 let known = self.snapshotMapping()
 
                 // Update the alerting set so currentAlarms() reflects live state.
@@ -128,7 +132,7 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
         idToKind[id] = kind
         let snapshot = idToKind
         lock.unlock()
-        persistence.saveAlarmIdMapping(snapshot)
+        Self.saveMapping(snapshot)
     }
 
     private func forgetMapping(id: UUID) {
@@ -137,7 +141,7 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
         alertingIds.remove(id)
         let snapshot = idToKind
         lock.unlock()
-        persistence.saveAlarmIdMapping(snapshot)
+        Self.saveMapping(snapshot)
     }
 
     private func clearAllMappings() {
@@ -145,7 +149,29 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
         idToKind.removeAll()
         alertingIds.removeAll()
         lock.unlock()
-        persistence.saveAlarmIdMapping([:])
+        Self.saveMapping([:])
+    }
+
+    // MARK: - Mapping persistence
+
+    /// Wire format: dictionary of `UUID.uuidString → AlarmKind.rawValue`.
+    private static func loadMapping() -> [UUID: AlarmKind] {
+        guard let raw = UserDefaults.standard.dictionary(forKey: mappingDefaultsKey) as? [String: String] else {
+            return [:]
+        }
+        var result: [UUID: AlarmKind] = [:]
+        for (idString, kindString) in raw {
+            if let id = UUID(uuidString: idString),
+               let kind = AlarmKind(rawValue: kindString) {
+                result[id] = kind
+            }
+        }
+        return result
+    }
+
+    private static func saveMapping(_ mapping: [UUID: AlarmKind]) {
+        let raw = Dictionary(uniqueKeysWithValues: mapping.map { ($0.key.uuidString, $0.value.rawValue) })
+        UserDefaults.standard.set(raw, forKey: mappingDefaultsKey)
     }
 
     // MARK: - AlarmSchedulerProtocol

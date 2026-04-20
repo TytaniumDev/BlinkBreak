@@ -7,9 +7,8 @@
 //  because that's where bugs hide.
 //
 
-@testable import BlinkBreakCore
-import Foundation
 import Testing
+@testable import BlinkBreakCore
 
 @Suite("GitHubIssueReporter — formatting")
 struct BugReporterFormattingTests {
@@ -98,6 +97,24 @@ struct BugReporterFormattingTests {
         #expect(body.contains("Look at this &lt;script&gt;alert(1)&lt;/script&gt; and &lt;details&gt;something&lt;/details&gt;"))
         #expect(!body.contains("<script>"))
         #expect(!body.contains("<details>something</details>"))
+    }
+
+    @Test("body sanitizes triple backticks in log messages")
+    func bodySanitizesMarkdownBlocks() {
+        let report = DiagnosticReport(
+            timestamp: Date(),
+            deviceInfo: DeviceInfo(iosVersion: "1", deviceModel: "2", appVersion: "3", buildNumber: "4", isTestFlight: true),
+            sessionState: "idle",
+            sessionRecord: .idle,
+            weeklySchedule: .empty,
+            logEntries: [LogEntry(timestamp: Date(), level: .info, message: "Sneaky ``` injected ``` code")]
+        )
+        let body = GitHubIssueReporter.formatBody(
+            userDescription: "test",
+            report: report
+        )
+        #expect(body.contains("Sneaky ` ` ` injected ` ` ` code"))
+        #expect(!body.contains("``` injected ```"))
     }
 
     @Test("NoopBugReporter does not throw")

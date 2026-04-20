@@ -80,12 +80,39 @@ targets:
         # AlarmKit user-permission prompt copy. Shown the first time we call
         # AlarmManager.shared.requestAuthorization().
         NSAlarmKitUsageDescription: "BlinkBreak schedules alarms to remind you to take 20-second eye-rest breaks every 20 minutes."
+    entitlements:
+      path: BlinkBreak/BlinkBreak.entitlements
+      properties: {}
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreak
         TARGETED_DEVICE_FAMILY: "1,2"  # iPhone + iPad
         ENABLE_PREVIEWS: YES
         SWIFT_EMIT_LOC_STRINGS: NO
+    scheme:
+      testTargets:
+        - BlinkBreakTests
+      gatherCoverageData: true
+
+  # =========================================================================
+  # Unit test target (runs BlinkBreakCore tests via the iOS scheme; the
+  # package-level `swift test` run covers these too, this is for Xcode / CI
+  # running xcodebuild test).
+  # =========================================================================
+  BlinkBreakTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: BlinkBreakTests
+    dependencies:
+      - target: BlinkBreak
+      - package: BlinkBreakCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreakTests
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/BlinkBreak.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BlinkBreak"
+        GENERATE_INFOPLIST_FILE: YES
 
   # =========================================================================
   # UI test target — XCUITest integration suite.
@@ -115,6 +142,11 @@ schemes:
         BlinkBreak: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - BlinkBreakTests
+      gatherCoverageData: true
     profile:
       config: Release
     analyze:
@@ -142,4 +174,3 @@ schemes:
       environmentVariables:
         BB_BREAK_INTERVAL: "3"
         BB_LOOKAWAY_DURATION: "3"
-        BB_DISABLE_SOUND: "1"

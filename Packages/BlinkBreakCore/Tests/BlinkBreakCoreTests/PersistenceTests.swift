@@ -5,9 +5,8 @@
 //  Sanity tests for InMemoryPersistence and SessionRecord Codable round-tripping.
 //
 
-@testable import BlinkBreakCore
-import Foundation
 import Testing
+@testable import BlinkBreakCore
 
 @Suite("Persistence + SessionRecord")
 struct PersistenceTests {
@@ -62,20 +61,33 @@ struct PersistenceTests {
         #expect(decoded == original)
     }
 
-    @Test("SessionRecord decodes legacy JSON with extra fields")
+    @Test("SessionRecord round-trips lastUpdatedAt through JSON")
+    func lastUpdatedAtRoundTrip() throws {
+        let when = Date(timeIntervalSince1970: 1_700_001_234)
+        let record = SessionRecord(
+            sessionActive: true,
+            currentCycleId: UUID(),
+            cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            breakActiveStartedAt: nil,
+            lastUpdatedAt: when
+        )
+        let data = try JSONEncoder().encode(record)
+        let decoded = try JSONDecoder().decode(SessionRecord.self, from: data)
+        #expect(decoded.lastUpdatedAt == when)
+    }
+
+    @Test("SessionRecord decodes legacy JSON without lastUpdatedAt")
     func legacyRecordDecodes() throws {
-        // Legacy records had a "lastUpdatedAt" field that's no longer used.
-        // Codable should silently drop unknown keys.
         let legacyJSON = Data("""
         {
             "sessionActive": true,
             "currentCycleId": "11111111-2222-3333-4444-555555555555",
-            "cycleStartedAt": 1700000000,
-            "lastUpdatedAt": 1700000050
+            "cycleStartedAt": 1700000000
         }
         """.utf8)
         let decoded = try JSONDecoder().decode(SessionRecord.self, from: legacyJSON)
         #expect(decoded.sessionActive == true)
+        #expect(decoded.lastUpdatedAt == nil)
     }
 
     @Test("SessionRecord without manualStopDate decodes cleanly (backward compat)")

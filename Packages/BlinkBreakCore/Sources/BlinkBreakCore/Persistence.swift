@@ -41,14 +41,6 @@ public protocol PersistenceProtocol: Sendable {
 
     /// Persist the alarm-sound mute preference.
     func saveAlarmSoundMuted(_ muted: Bool)
-
-    /// Load the persisted alarm-id → AlarmKind mapping. The AlarmKit-backed scheduler
-    /// uses this to translate `AlarmManager.shared.alarmUpdates` snapshots back into
-    /// our semantic event vocabulary across app launches.
-    func loadAlarmIdMapping() -> [UUID: AlarmKind]
-
-    /// Persist the alarm-id → AlarmKind mapping.
-    func saveAlarmIdMapping(_ mapping: [UUID: AlarmKind])
 }
 
 // MARK: - Real implementation
@@ -109,25 +101,6 @@ public final class UserDefaultsPersistence: PersistenceProtocol, @unchecked Send
     public func saveAlarmSoundMuted(_ muted: Bool) {
         defaults.set(muted, forKey: BlinkBreakConstants.alarmSoundMutedKey)
     }
-
-    public func loadAlarmIdMapping() -> [UUID: AlarmKind] {
-        guard let raw = defaults.dictionary(forKey: BlinkBreakConstants.alarmIdMappingKey) as? [String: String] else {
-            return [:]
-        }
-        var result: [UUID: AlarmKind] = [:]
-        for (idString, kindString) in raw {
-            if let id = UUID(uuidString: idString),
-               let kind = AlarmKind(rawValue: kindString) {
-                result[id] = kind
-            }
-        }
-        return result
-    }
-
-    public func saveAlarmIdMapping(_ mapping: [UUID: AlarmKind]) {
-        let raw = Dictionary(uniqueKeysWithValues: mapping.map { ($0.key.uuidString, $0.value.rawValue) })
-        defaults.set(raw, forKey: BlinkBreakConstants.alarmIdMappingKey)
-    }
 }
 
 // MARK: - In-memory implementation (for tests)
@@ -141,7 +114,6 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
     private var record: SessionRecord
     private var schedule: WeeklySchedule?
     private var alarmSoundMuted: Bool = false
-    private var alarmIdMapping: [UUID: AlarmKind] = [:]
 
     public init(initial: SessionRecord = .idle) {
         self.record = initial
@@ -187,17 +159,5 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
         lock.lock()
         defer { lock.unlock() }
         alarmSoundMuted = muted
-    }
-
-    public func loadAlarmIdMapping() -> [UUID: AlarmKind] {
-        lock.lock()
-        defer { lock.unlock() }
-        return alarmIdMapping
-    }
-
-    public func saveAlarmIdMapping(_ mapping: [UUID: AlarmKind]) {
-        lock.lock()
-        defer { lock.unlock() }
-        alarmIdMapping = mapping
     }
 }

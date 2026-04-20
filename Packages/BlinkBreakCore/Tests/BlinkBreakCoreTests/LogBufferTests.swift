@@ -5,8 +5,8 @@
 //  Tests for the in-memory log ring buffer used by bug reports.
 //
 
-@testable import BlinkBreakCore
 import Testing
+@testable import BlinkBreakCore
 
 @Suite("LogBuffer")
 struct LogBufferTests {
@@ -17,7 +17,7 @@ struct LogBufferTests {
         buffer.log(.info, "hello")
         buffer.log(.error, "oops")
 
-        let entries = buffer.snapshot()
+        let entries = buffer.drain()
         #expect(entries.count == 2)
         #expect(entries[0].level == .info)
         #expect(entries[0].message == "hello")
@@ -25,13 +25,13 @@ struct LogBufferTests {
         #expect(entries[1].message == "oops")
     }
 
-    @Test("snapshot returns entries in insertion order with timestamps")
-    func snapshotReturnsInOrder() {
+    @Test("drain returns entries in insertion order with timestamps")
+    func drainReturnsInOrder() {
         let buffer = LogBuffer(capacity: 10)
         buffer.log(.debug, "first")
         buffer.log(.warning, "second")
 
-        let entries = buffer.snapshot()
+        let entries = buffer.drain()
         #expect(entries[0].timestamp <= entries[1].timestamp)
     }
 
@@ -43,20 +43,20 @@ struct LogBufferTests {
         buffer.log(.info, "c")
         buffer.log(.info, "d")
 
-        let entries = buffer.snapshot()
+        let entries = buffer.drain()
         #expect(entries.count == 3)
         #expect(entries[0].message == "b")
         #expect(entries[1].message == "c")
         #expect(entries[2].message == "d")
     }
 
-    @Test("snapshot does not clear the buffer")
-    func snapshotDoesNotClear() {
+    @Test("drain does not clear the buffer")
+    func drainDoesNotClear() {
         let buffer = LogBuffer(capacity: 10)
         buffer.log(.info, "persistent")
 
-        _ = buffer.snapshot()
-        let entries = buffer.snapshot()
+        _ = buffer.drain()
+        let entries = buffer.drain()
         #expect(entries.count == 1)
         #expect(entries[0].message == "persistent")
     }
@@ -71,7 +71,18 @@ struct LogBufferTests {
                 }
             }
         }
-        let entries = buffer.snapshot()
+        let entries = buffer.drain()
         #expect(entries.count == 100)
+    }
+
+    @Test("log truncates message longer than 1000 characters")
+    func logMessageLengthIsLimited() {
+        let buffer = LogBuffer(capacity: 5)
+        let longMessage = String(repeating: "a", count: 2000)
+        buffer.log(.info, longMessage)
+        let entries = buffer.drain()
+        #expect(entries.count == 1)
+        #expect(entries[0].message.count == 1000)
+        #expect(entries[0].message == String(repeating: "a", count: 1000))
     }
 }

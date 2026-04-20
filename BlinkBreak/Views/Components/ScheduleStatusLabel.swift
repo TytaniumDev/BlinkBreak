@@ -23,7 +23,7 @@ struct ScheduleStatusLabel: View {
 
 #Preview("Before window") {
     ZStack {
-        Color("BackgroundCalmTop").ignoresSafeArea()
+        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
         ScheduleStatusLabel(text: "Starts at 9:00 AM")
     }
 }

@@ -11,13 +11,12 @@
 //  The slide-to-stop system control already produces the same dismissed event, so both
 //  controls converge on the same "proceed to look-away" behavior.
 //
-//  perform() is provided by BlinkBreakAlarmDismissIntent's protocol extension.
-//
 
 import AppIntents
+import AlarmKit
 
 @available(iOS 26.1, *)
-struct StartBreakIntent: BlinkBreakAlarmDismissIntent {
+struct StartBreakIntent: LiveActivityIntent {
 
     static var title: LocalizedStringResource = "Start break"
     static var description = IntentDescription("Acknowledge the break reminder and start the 20-second look-away.")
@@ -29,5 +28,12 @@ struct StartBreakIntent: BlinkBreakAlarmDismissIntent {
 
     init(alarmID: String) {
         self.alarmID = alarmID
+    }
+
+    func perform() async throws -> some IntentResult {
+        if let id = UUID(uuidString: alarmID) {
+            try? AlarmManager.shared.cancel(id: id)
+        }
+        return .result()
     }
 }

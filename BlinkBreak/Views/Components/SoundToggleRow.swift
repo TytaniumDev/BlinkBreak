@@ -32,12 +32,12 @@ struct SoundToggleRow: View {
     SoundToggleRow(isMuted: false, onToggle: { _ in })
         .foregroundStyle(.white)
         .padding(24)
-        .background(Color("BackgroundCalmTop"))
+        .background(Color(red: 0.04, green: 0.06, blue: 0.08))
 }
 
 #Preview("Sound Off") {
     SoundToggleRow(isMuted: true, onToggle: { _ in })
         .foregroundStyle(.white)
         .padding(24)
-        .background(Color("BackgroundCalmTop"))
+        .background(Color(red: 0.04, green: 0.06, blue: 0.08))
 }

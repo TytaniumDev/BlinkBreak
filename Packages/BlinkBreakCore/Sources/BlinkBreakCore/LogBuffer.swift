@@ -3,7 +3,7 @@
 //  BlinkBreakCore
 //
 //  Thread-safe in-memory ring buffer for diagnostic logs. Code throughout BlinkBreakCore
-//  writes short messages here; the bug report collector snapshots the buffer when submitting.
+//  writes short messages here; the bug report collector drains the buffer when submitting.
 //
 //  Flutter analogue: similar to a bounded List<LogEntry> behind a mutex, read by a
 //  diagnostics screen or crash reporter.
@@ -50,7 +50,8 @@ public final class LogBuffer: @unchecked Sendable {
     /// Append a log entry at the current time. If the buffer is full, the oldest entry
     /// is evicted.
     public func log(_ level: LogLevel, _ message: String) {
-        let entry = LogEntry(timestamp: Date(), level: level, message: message)
+        let truncatedMessage = String(message.prefix(1000))
+        let entry = LogEntry(timestamp: Date(), level: level, message: truncatedMessage)
         lock.lock()
         defer { lock.unlock() }
         if storage.count >= capacity {
@@ -60,7 +61,7 @@ public final class LogBuffer: @unchecked Sendable {
     }
 
     /// Return all buffered entries in insertion order. Does not clear the buffer.
-    public func snapshot() -> [LogEntry] {
+    public func drain() -> [LogEntry] {
         lock.lock()
         defer { lock.unlock() }
         return storage

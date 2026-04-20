@@ -4,7 +4,7 @@
 //
 //  Protocol for submitting bug reports, plus a GitHub Issues implementation and a
 //  no-op mock. The protocol follows the same dependency-injection pattern as
-//  AlarmSchedulerProtocol and PersistenceProtocol.
+//  NotificationSchedulerProtocol and WatchConnectivityProtocol.
 //
 //  Flutter analogue: an abstract BugReportService with a GitHubBugReportService
 //  and a NoopBugReportService for tests/previews.
@@ -132,7 +132,8 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
         // Log entries (collapsible)
         if !report.logEntries.isEmpty {
             let logLines = report.logEntries.map { entry in
-                "[\(iso.string(from: entry.timestamp))] [\(entry.level.rawValue)] \(entry.message)"
+                let safeMessage = entry.message.replacingOccurrences(of: "```", with: "` ` `")
+                return "[\(iso.string(from: entry.timestamp))] [\(entry.level.rawValue)] \(safeMessage)"
             }
             sections.append("""
             <details>
