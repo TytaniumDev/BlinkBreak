@@ -12,18 +12,19 @@
 import BlinkBreakCore
 import SwiftUI
 
+// Computed once at process start (Swift disallows `static let` in generic types, so
+// this lives at file scope). A locale change that moves the first weekday
+// (e.g. US Sunday-first → UK Monday-first) requires an app restart to reflect —
+// acceptable since iOS restarts the app on most locale switches anyway.
+private let orderedWeekdays: [Weekday] = {
+    let first = Calendar.current.firstWeekday
+    return (0..<7).compactMap { Weekday(calendarWeekday: (first + $0 - 1) % 7 + 1) }
+}()
+
 struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
     @ObservedObject var controller: Controller
     @State private var expandedDay: Weekday?
-
-    // Computed once at process start. A locale change that moves the first weekday
-    // (e.g. US Sunday-first → UK Monday-first) requires an app restart to reflect —
-    // acceptable since iOS restarts the app on most locale switches anyway.
-    private static let orderedWeekdays: [Weekday] = {
-        let first = Calendar.current.firstWeekday
-        return (0..<7).compactMap { Weekday(calendarWeekday: (first + $0 - 1) % 7 + 1) }
-    }()
 
     private let dayNames: [Weekday: String] = [
         .sunday: "Sun", .monday: "Mon", .tuesday: "Tue", .wednesday: "Wed",
@@ -44,7 +45,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
             if controller.weeklySchedule.isEnabled {
                 VStack(spacing: 1) {
-                    ForEach(Self.orderedWeekdays, id: \.self) { weekday in
+                    ForEach(orderedWeekdays, id: \.self) { weekday in
                         DayRow(
                             dayName: dayNames[weekday] ?? "",
                             daySchedule: dayBinding(for: weekday),
@@ -102,8 +103,8 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
     }
 
     private func rowShape(for weekday: Weekday) -> some Shape {
-        let isFirst = weekday == Self.orderedWeekdays.first
-        let isLast = weekday == Self.orderedWeekdays.last
+        let isFirst = weekday == orderedWeekdays.first
+        let isLast = weekday == orderedWeekdays.last
         return UnevenRoundedRectangle(
             topLeadingRadius: isFirst ? 10 : 2,
             bottomLeadingRadius: isLast ? 10 : 2,
