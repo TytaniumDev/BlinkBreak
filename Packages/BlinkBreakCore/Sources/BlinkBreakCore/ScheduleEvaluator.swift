@@ -39,8 +39,9 @@ public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Send
         let sched = schedule()
         guard sched.isEnabled else { return false }
 
-        let weekday = calendar.component(.weekday, from: date)
-        guard let day = sched.days[weekday], day.isEnabled else { return false }
+        let calendarWeekday = calendar.component(.weekday, from: date)
+        guard let weekday = Weekday(calendarWeekday: calendarWeekday),
+              let day = sched.days[weekday], day.isEnabled else { return false }
 
         guard let startHour = day.startTime.hour, let startMinute = day.startTime.minute,
               let endHour = day.endTime.hour, let endMinute = day.endTime.minute else {
@@ -57,7 +58,7 @@ public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Send
         // Manual stop override: if the user stopped during today's window, don't auto-restart.
         if let stopDate = manualStopDate {
             let stopWeekday = calendar.component(.weekday, from: stopDate)
-            if stopWeekday == weekday && calendar.isDate(stopDate, inSameDayAs: date) {
+            if stopWeekday == calendarWeekday && calendar.isDate(stopDate, inSameDayAs: date) {
                 let stopMinutes = calendar.component(.hour, from: stopDate) * 60
                     + calendar.component(.minute, from: stopDate)
                 if stopMinutes >= startMinutes && stopMinutes < endMinutes {
@@ -73,8 +74,9 @@ public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Send
         let sched = schedule()
         guard sched.isEnabled else { return nil }
 
-        let weekday = calendar.component(.weekday, from: date)
-        if let day = sched.days[weekday], day.isEnabled,
+        let calendarWeekday = calendar.component(.weekday, from: date)
+        if let weekday = Weekday(calendarWeekday: calendarWeekday),
+           let day = sched.days[weekday], day.isEnabled,
            let startHour = day.startTime.hour, let startMinute = day.startTime.minute,
            let endHour = day.endTime.hour, let endMinute = day.endTime.minute {
 
@@ -96,10 +98,11 @@ public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Send
     private func nextStartText(from date: Date, schedule sched: WeeklySchedule, calendar: Calendar) -> String? {
         for dayOffset in 1...7 {
             guard let future = calendar.date(byAdding: .day, value: dayOffset, to: date) else { continue }
-            let wd = calendar.component(.weekday, from: future)
-            if let d = sched.days[wd], d.isEnabled,
+            let calendarWeekday = calendar.component(.weekday, from: future)
+            guard let weekday = Weekday(calendarWeekday: calendarWeekday) else { continue }
+            if let d = sched.days[weekday], d.isEnabled,
                let h = d.startTime.hour, let m = d.startTime.minute {
-                let dayName = calendar.shortWeekdaySymbols[wd - 1]
+                let dayName = calendar.shortWeekdaySymbols[calendarWeekday - 1]
                 return "Next: \(dayName) \(formatScheduleTime(hour: h, minute: m))"
             }
         }
@@ -114,8 +117,9 @@ public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Send
             guard let checkDate = calendar.date(byAdding: .day, value: dayOffset, to: date) else {
                 continue
             }
-            let weekday = calendar.component(.weekday, from: checkDate)
-            guard let day = sched.days[weekday], day.isEnabled,
+            let calendarWeekday = calendar.component(.weekday, from: checkDate)
+            guard let weekday = Weekday(calendarWeekday: calendarWeekday),
+                  let day = sched.days[weekday], day.isEnabled,
                   let startHour = day.startTime.hour, let startMinute = day.startTime.minute,
                   let endHour = day.endTime.hour, let endMinute = day.endTime.minute else {
                 continue

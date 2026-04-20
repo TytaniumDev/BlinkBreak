@@ -3,7 +3,7 @@
 //  BlinkBreakCore
 //
 //  Thread-safe in-memory ring buffer for diagnostic logs. Code throughout BlinkBreakCore
-//  writes short messages here; the bug report collector drains the buffer when submitting.
+//  writes short messages here; the bug report collector snapshots the buffer when submitting.
 //
 //  Flutter analogue: similar to a bounded List<LogEntry> behind a mutex, read by a
 //  diagnostics screen or crash reporter.
@@ -60,7 +60,7 @@ public final class LogBuffer: @unchecked Sendable {
     }
 
     /// Return all buffered entries in insertion order. Does not clear the buffer.
-    public func drain() -> [LogEntry] {
+    public func snapshot() -> [LogEntry] {
         lock.lock()
         defer { lock.unlock() }
         return storage

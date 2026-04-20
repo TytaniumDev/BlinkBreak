@@ -10,9 +10,9 @@
 //  Flutter DevTools preview to render without touching real services.
 //
 
-import Foundation
-import Combine
 import BlinkBreakCore
+import Combine
+import Foundation
 
 /// A SwiftUI-preview-friendly stand-in for `SessionController`. Conforms to
 /// `SessionControllerProtocol` so any view that depends on the protocol can render
@@ -30,15 +30,15 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
 
     // MARK: - SessionControllerProtocol
 
-    func start() {
+    func start() async {
         state = .running(cycleStartedAt: Date())
     }
 
-    func stop() {
+    func stop() async {
         state = .idle
     }
 
-    func acknowledgeCurrentBreak() {
+    func acknowledgeCurrentBreak() async {
         state = .breakActive(startedAt: Date())
     }
 
@@ -50,11 +50,11 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
         weeklySchedule = schedule
     }
 
-    func updateAlarmSound(muted: Bool) {
+    func updateAlarmSound(muted: Bool) async {
         muteAlarmSound = muted
     }
 
-    func triggerBreakNow() {
+    func triggerBreakNow() async {
         // No-op in previews.
     }
 

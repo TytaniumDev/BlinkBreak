@@ -14,7 +14,7 @@ import SwiftUI
 /// Flutter analogue: a Scaffold with a red background color, edge-to-edge.
 struct AlertBackground: View {
     var body: some View {
-        Color(red: 0.69, green: 0.00, blue: 0.13)  // deep red, high contrast
+        Color("BackgroundAlert")
             .ignoresSafeArea()
     }
 }

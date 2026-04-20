@@ -9,8 +9,8 @@
 //  that listens for device shake events.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 /// Invisible UIKit view controller that intercepts shake gestures. Layered into the
 /// SwiftUI view hierarchy via `ShakeDetectorView`.
@@ -138,7 +138,7 @@ struct ShakeDetectorView<Content: View>: View {
         uname(&systemInfo)
         return withUnsafePointer(to: &systemInfo.machine) {
             $0.withMemoryRebound(to: CChar.self, capacity: 1) {
-                String(validatingUTF8: $0) ?? "unknown"
+                String(validatingCString: $0) ?? "unknown"
             }
         }
     }

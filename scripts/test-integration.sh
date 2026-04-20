@@ -30,6 +30,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+source scripts/lib/ensure-xcconfig.sh
 
 DEVELOPER_DIR="$(xcode-select -p)"
 if [[ "$DEVELOPER_DIR" == *"CommandLineTools"* ]]; then
@@ -45,13 +46,7 @@ if ! command -v xcodegen >/dev/null 2>&1; then
 fi
 
 echo "→ Regenerating Xcode project via xcodegen..."
-# BugReport.xcconfig is gitignored (contains a GitHub PAT). Create a stub if
-# missing so xcodegen doesn't fail validation on the configFiles reference.
-XCCONFIG="BlinkBreak/BugReport/BugReport.xcconfig"
-if [ ! -f "$XCCONFIG" ]; then
-  echo "  creating stub $XCCONFIG (gitignored)..."
-  cp BlinkBreak/BugReport/BugReport.xcconfig.example "$XCCONFIG"
-fi
+ensure_bug_report_xcconfig
 xcodegen generate >/dev/null
 echo "  ok — project regenerated."
 
@@ -73,7 +68,7 @@ echo ""
 xcodebuild test \
   -project BlinkBreak.xcodeproj \
   -scheme BlinkBreakUITests \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
   -quiet
 
 echo ""

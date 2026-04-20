@@ -10,8 +10,8 @@
 //  `triggerBreakNow()`, and `updateAlarmSound(muted:)` (via SoundToggleRow).
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 // Cache the a11y duration formatter to avoid allocations in the TimelineView render loop
 private let a11yDurationFormatter: DateComponentsFormatter = {
@@ -52,21 +52,21 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
 
                 SoundToggleRow(
                     isMuted: controller.muteAlarmSound,
-                    onToggle: { controller.updateAlarmSound(muted: $0) }
+                    onToggle: { muted in Task { await controller.updateAlarmSound(muted: muted) } }
                 )
                 .padding(.top, 4)
 
                 Spacer()
 
                 Button("Take break now") {
-                    controller.triggerBreakNow()
+                    Task { await controller.triggerBreakNow() }
                 }
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.7))
                 .accessibilityIdentifier("button.running.takeBreakNow")
 
                 Button(role: .destructive) {
-                    controller.stop()
+                    Task { await controller.stop() }
                 } label: {
                     Text("Stop")
                         .frame(maxWidth: .infinity)

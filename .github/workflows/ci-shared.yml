@@ -30,8 +30,6 @@ jobs:
 
   Test:
     runs-on: macos-15
-    env:
-      BLINKBREAK_FULL_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Select latest available Xcode
@@ -40,7 +38,5 @@ jobs:
           echo "Using $XCODE"
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
-      - name: Install xcodegen
-        run: brew install xcodegen
       - name: Test
         run: ./scripts/test.sh

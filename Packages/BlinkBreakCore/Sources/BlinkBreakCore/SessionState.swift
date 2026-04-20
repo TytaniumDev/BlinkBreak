@@ -15,13 +15,13 @@ import Foundation
 /// and observed by all views.
 ///
 /// ```
-///    idle ────(Start)────► running ────(primary notification fires)────► breakPending
+///    idle ────(Start)────► running ────(break-due alarm fires)──────► breakPending
 ///      ▲                      │                                              │
-///      │                      │                                   (user taps "Start break")
+///      │                      │                                  (user taps "Start break")
 ///      │                      │                                              │
-///   (Stop, from any state)   (Stop)                                           ▼
+///   (Stop, from any state)   (Stop)                                          ▼
 ///      │                      │                                         breakActive
-///      └──────────────────────┴──────(done notification, 20 s later)────────┘
+///      └──────────────────────┴──────(look-away alarm fires, 20 s later)─────┘
 /// ```
 public enum SessionState: Equatable, Sendable {
 
@@ -33,9 +33,9 @@ public enum SessionState: Equatable, Sendable {
     ///   The next break fires at `cycleStartedAt + BlinkBreakConstants.breakInterval`.
     case running(cycleStartedAt: Date)
 
-    /// The primary break notification has fired. Awaiting user acknowledgment.
-    /// If the app is foregrounded, show the red alert UI. If not, the cascade is
-    /// buzzing the Watch in the background and this state is never visibly rendered.
+    /// The break-due alarm has fired. AlarmKit shows the full-screen alert; this
+    /// state drives the in-app red UI for users who tap into the app from the
+    /// lock screen instead of the alarm UI.
     /// - Parameter cycleStartedAt: When the 20-minute countdown for this cycle started.
     case breakPending(cycleStartedAt: Date)
 
