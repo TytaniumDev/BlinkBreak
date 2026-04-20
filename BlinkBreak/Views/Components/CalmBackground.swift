@@ -17,8 +17,8 @@ struct CalmBackground: View {
     var body: some View {
         LinearGradient(
             colors: [
-                Color(red: 0.04, green: 0.06, blue: 0.08),
-                Color(red: 0.02, green: 0.10, blue: 0.12)
+                Color("BackgroundCalmTop"),
+                Color("BackgroundCalmBottom")
             ],
             startPoint: .top,
             endPoint: .bottom

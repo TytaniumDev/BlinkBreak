@@ -10,8 +10,8 @@
 //  Flutter analogue: a ListTile-style widget with a Switch trailing widget.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 struct DayRow: View {
     let dayName: String
@@ -112,7 +112,7 @@ struct DayRow: View {
 
 #Preview("Enabled") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
+        Color("BackgroundCalmTop").ignoresSafeArea()
         DayRow(
             dayName: "Monday",
             daySchedule: .constant(DaySchedule(
@@ -127,7 +127,7 @@ struct DayRow: View {
 
 #Preview("Disabled") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
+        Color("BackgroundCalmTop").ignoresSafeArea()
         DayRow(
             dayName: "Saturday",
             daySchedule: .constant(DaySchedule(
@@ -142,7 +142,7 @@ struct DayRow: View {
 
 #Preview("Expanded") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
+        Color("BackgroundCalmTop").ignoresSafeArea()
         DayRow(
             dayName: "Monday",
             daySchedule: .constant(DaySchedule(

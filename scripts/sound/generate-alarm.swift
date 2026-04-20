@@ -10,8 +10,8 @@
 // iOS caps custom UNNotificationSound files at 30 seconds, so we stay safely under.
 //
 
-import Foundation
 import AVFoundation
+import Foundation
 
 // MARK: - Parameters
 

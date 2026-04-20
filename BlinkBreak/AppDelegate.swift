@@ -10,9 +10,9 @@
 //  from iOS and forwards them into your Dart code via a method channel.
 //
 
-import UIKit
 import BackgroundTasks
 import BlinkBreakCore
+import UIKit
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
 
@@ -25,9 +25,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         // BGTaskScheduler registration must happen before the app finishes launching.
         // The controller doesn't exist yet, so we pass a closure that reads it lazily.
-        ScheduleTaskManager.registerBackgroundTaskHandler { [weak self] in
-            self?.controller
-        }
+        ScheduleTaskManager.registerBackgroundTaskHandler(
+            persistence: BlinkBreakApp.sharedPersistence,
+            controllerProvider: { [weak self] in self?.controller }
+        )
 
         return true
     }

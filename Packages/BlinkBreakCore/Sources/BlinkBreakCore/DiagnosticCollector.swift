@@ -33,7 +33,7 @@ public struct DiagnosticCollector: Sendable {
     public func collect(deviceInfo: DeviceInfo) async -> DiagnosticReport {
         let record = persistence.load()
         let schedule = persistence.loadSchedule() ?? .empty
-        let logs = logBuffer.drain()
+        let logs = logBuffer.snapshot()
 
         return DiagnosticReport(
             timestamp: Date(),

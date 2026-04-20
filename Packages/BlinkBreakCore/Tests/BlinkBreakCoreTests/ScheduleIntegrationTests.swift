@@ -5,56 +5,15 @@
 //  Tests for SessionController's schedule-driven auto-start/stop behavior.
 //
 
-import Testing
-import Foundation
 @testable import BlinkBreakCore
+import Foundation
+import Testing
 
 @MainActor
 @Suite("SessionController — schedule integration")
 struct ScheduleIntegrationTests {
 
-    @MainActor
-    final class Fixture {
-        let alarmScheduler = MockAlarmScheduler()
-        let persistence = InMemoryPersistence()
-        let evaluator = MockScheduleEvaluator()
-        let nowBox: NowBox
-        let controller: SessionController
-
-        init() {
-            let box = NowBox(value: Date(timeIntervalSince1970: 1_700_000_000))
-            self.nowBox = box
-            self.controller = SessionController(
-                alarmScheduler: alarmScheduler,
-                persistence: persistence,
-                scheduleEvaluator: evaluator,
-                clock: { box.value }
-            )
-        }
-
-        func advance(by seconds: TimeInterval) {
-            nowBox.value = nowBox.value.addingTimeInterval(seconds)
-        }
-    }
-
-    final class NowBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storage: Date
-        init(value: Date) { self.storage = value }
-        var value: Date {
-            get { lock.lock(); defer { lock.unlock() }; return storage }
-            set { lock.lock(); defer { lock.unlock() }; storage = newValue }
-        }
-    }
-
-    /// SessionController spawns Tasks for alarm-scheduling work. Yield + sleep briefly
-    /// to let those flush before assertions.
-    private func settle() async {
-        for _ in 0..<3 {
-            await Task.yield()
-            try? await Task.sleep(for: .milliseconds(1))
-        }
-    }
+    typealias Fixture = TestFixture
 
     @Test("reconcile auto-starts when evaluator says active and state is idle")
     func autoStart() async {
@@ -97,10 +56,8 @@ struct ScheduleIntegrationTests {
     func stopSetsManualStopDate() async {
         let f = Fixture()
         f.evaluator.stubbedShouldBeActive = true
-        f.controller.start()
-        await settle()
-        f.controller.stop()
-        await settle()
+        await f.controller.start()
+        await f.controller.stop()
         #expect(f.persistence.load().manualStopDate != nil)
     }
 
@@ -108,10 +65,8 @@ struct ScheduleIntegrationTests {
     func stopNoManualStopDateOutsideWindow() async {
         let f = Fixture()
         f.evaluator.stubbedShouldBeActive = false
-        f.controller.start()
-        await settle()
-        f.controller.stop()
-        await settle()
+        await f.controller.start()
+        await f.controller.stop()
         #expect(f.persistence.load().manualStopDate == nil)
     }
 
@@ -133,8 +88,7 @@ struct ScheduleIntegrationTests {
     func manualStartNotAutoStopped() async {
         let f = Fixture()
         f.controller.updateSchedule(.default)
-        f.controller.start()
-        await settle()
+        await f.controller.start()
         #expect(f.controller.state != .idle)
 
         f.evaluator.stubbedShouldBeActive = false
@@ -147,8 +101,7 @@ struct ScheduleIntegrationTests {
     func manualStartSurvivesMultipleTicks() async {
         let f = Fixture()
         f.controller.updateSchedule(.default)
-        f.controller.start()
-        await settle()
+        await f.controller.start()
         f.evaluator.stubbedShouldBeActive = false
         for _ in 0..<5 {
             f.advance(by: 1)

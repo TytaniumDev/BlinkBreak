@@ -23,21 +23,23 @@ The project is deliberately structured to make Swift/SwiftUI easier to learn if 
 
 ## Architecture
 
-Three software units, each with one clear purpose:
+### In 30 seconds
+
+BlinkBreak is two Swift modules. `BlinkBreakCore` is a local Swift Package that holds the entire state machine and has zero UI dependencies. The iOS app wraps Core with SwiftUI views, an AlarmKit scheduler, and a BGTask handler. Views are stateless: they read `@Published state` and call protocol methods. This split is enforced by `scripts/lint.sh`.
+
+### Details
 
 ```
 BlinkBreak/
 ├── Packages/BlinkBreakCore/        ← all business logic (Swift Package)
-├── BlinkBreak/                     ← iOS app target (SwiftUI views + glue)
-├── BlinkBreak Watch App/           ← watchOS app target (SwiftUI views + glue)
-└── BlinkBreakTests/                ← iOS-scheme test target (hosts BlinkBreakCore tests)
+└── BlinkBreak/                     ← iOS app target (SwiftUI views + AlarmKit glue)
 ```
 
-**`BlinkBreakCore`** is a local Swift Package that contains everything non-UI: the session state machine, the notification scheduler wrapper, the WatchConnectivity wrapper, persistence, and the `SessionController` that coordinates them. It has **zero UI framework imports** — no `SwiftUI`, no `UIKit`, no `WatchKit`. This is a hard rule enforced by `scripts/lint.sh`.
+**`BlinkBreakCore`** is a local Swift Package that contains everything non-UI: the session state machine, the alarm scheduler protocol, persistence, the schedule evaluator, and the `SessionController` that coordinates them. It has **zero UI framework imports** — no `SwiftUI`, no `UIKit`. This is a hard rule enforced by `scripts/lint.sh`.
 
-**`BlinkBreak`** (iOS) and **`BlinkBreak Watch App`** (watchOS) import `BlinkBreakCore` and contain only SwiftUI views + tiny `AppDelegate` plumbing. Views depend on the `SessionControllerProtocol`, never on the concrete class, so `PreviewSessionController` can render any state in SwiftUI previews without running real timers.
+**`BlinkBreak`** imports `BlinkBreakCore` and contains only SwiftUI views, the `AlarmKitScheduler` (a concrete `AlarmManager.shared` wrapper), and tiny `AppDelegate` plumbing. Views depend on `SessionControllerProtocol`, never on the concrete class, so `PreviewSessionController` can render any state in SwiftUI previews without scheduling real alarms.
 
-See [`docs/superpowers/specs/2026-04-10-blinkbreak-design.md`](docs/superpowers/specs/2026-04-10-blinkbreak-design.md) for the full design document — state machine, notification cascade mechanics, WatchConnectivity sync, error handling, testing strategy.
+See [`docs/superpowers/specs/2026-04-10-blinkbreak-design.md`](docs/superpowers/specs/2026-04-10-blinkbreak-design.md) for the full design document.
 
 ## Prerequisites
 
@@ -331,10 +333,7 @@ BlinkBreak/
 │       ├── RunningView.swift
 │       ├── BreakPendingView.swift
 │       ├── BreakActiveView.swift
-│       ├── PermissionDeniedView.swift
 │       └── Components/                      reusable small components
-├── BlinkBreak Watch App/           watchOS app target
-├── BlinkBreakTests/                iOS scheme test target
 ├── Packages/
 │   └── BlinkBreakCore/             local Swift Package (all business logic)
 │       ├── Package.swift

@@ -6,8 +6,8 @@
 //  No icon per design feedback — explainer text carries the meaning instead.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 struct IdleView<Controller: SessionControllerProtocol>: View {
 
@@ -31,7 +31,7 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
 
             SoundToggleRow(
                 isMuted: controller.muteAlarmSound,
-                onToggle: { controller.updateAlarmSound(muted: $0) }
+                onToggle: { muted in Task { await controller.updateAlarmSound(muted: muted) } }
             )
             .padding(.top, 8)
 
@@ -42,7 +42,7 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
                 .padding(.bottom, 4)
 
             Button {
-                controller.start()
+                Task { await controller.start() }
             } label: {
                 Text("Start")
                     .frame(maxWidth: .infinity)

@@ -8,8 +8,8 @@
 //  - Override `nextAssignedId` to make assertions deterministic.
 //
 
-import Foundation
 @testable import BlinkBreakCore
+import Foundation
 
 final class MockAlarmScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
 
