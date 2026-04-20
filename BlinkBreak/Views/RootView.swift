@@ -13,8 +13,8 @@
 //  switch expression that returns the appropriate child widget.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 struct RootView<Controller: SessionControllerProtocol>: View {
 
@@ -39,10 +39,17 @@ struct RootView<Controller: SessionControllerProtocol>: View {
             Group {
                 switch controller.state {
                 case .idle:
-                    IdleView(
-                        controller: controller,
-                        scheduleStatusText: scheduleEvaluator.statusText(at: Date(), calendar: .current)
-                    )
+                    // TimelineView refreshes the schedule status each minute so the
+                    // "Starts at …" / "Active until …" text updates as time crosses
+                    // the window boundary without requiring a scenePhase event.
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        IdleView(
+                            controller: controller,
+                            scheduleStatusText: scheduleEvaluator.statusText(
+                                at: context.date, calendar: .current
+                            )
+                        )
+                    }
                 case .running(let cycleStartedAt):
                     RunningView(controller: controller, cycleStartedAt: cycleStartedAt)
                 case .breakPending:

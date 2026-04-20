@@ -10,8 +10,8 @@
 //  Flutter analogue: this is `void main() { runApp(MyApp()); }` + the root `MaterialApp`.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 @main
 struct BlinkBreakApp: App {
@@ -33,13 +33,13 @@ struct BlinkBreakApp: App {
 
     // Shared instances used by both the SessionController and the ScheduleTaskManager
     // so we don't create duplicate persistence / evaluator objects.
-    private static let sharedPersistence = UserDefaultsPersistence()
+    static let sharedPersistence = UserDefaultsPersistence()
     private static let sharedEvaluator = ScheduleEvaluator(schedule: {
         sharedPersistence.loadSchedule() ?? .empty
     })
 
     @MainActor
-    private static let sharedAlarmScheduler = AlarmKitScheduler()
+    private static let sharedAlarmScheduler = AlarmKitScheduler(persistence: sharedPersistence)
 
     // @StateObject owns an observable object for the entire lifetime of the app.
     // Flutter analogue: a top-level ChangeNotifierProvider that lives for as long

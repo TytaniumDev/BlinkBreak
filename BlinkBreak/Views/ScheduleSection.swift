@@ -9,21 +9,22 @@
 //  day rows, backed by a ChangeNotifier that persists on every change.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
     @ObservedObject var controller: Controller
-    @State private var expandedDay: Int?
+    @State private var expandedDay: Weekday?
 
-    private static var orderedWeekdays: [Int] {
+    private static var orderedWeekdays: [Weekday] {
         let first = Calendar.current.firstWeekday
-        return (0..<7).map { (first + $0 - 1) % 7 + 1 }
+        return (0..<7).compactMap { Weekday(calendarWeekday: (first + $0 - 1) % 7 + 1) }
     }
 
-    private let dayNames: [Int: String] = [
-        1: "Sun", 2: "Mon", 3: "Tue", 4: "Wed", 5: "Thu", 6: "Fri", 7: "Sat"
+    private let dayNames: [Weekday: String] = [
+        .sunday: "Sun", .monday: "Mon", .tuesday: "Tue", .wednesday: "Wed",
+        .thursday: "Thu", .friday: "Fri", .saturday: "Sat"
     ]
 
     var body: some View {
@@ -32,7 +33,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
                 Text("Schedule")
                     .font(.subheadline.weight(.medium))
                 Spacer()
-                Toggle("Enable Schedule", isOn: masterToggleBinding)
+                Toggle("Enable Schedule", isOn: scheduleToggleBinding)
                     .labelsHidden()
                     .tint(.green)
             }
@@ -54,7 +55,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
         .accessibilityIdentifier("section.schedule")
     }
 
-    private var masterToggleBinding: Binding<Bool> {
+    private var scheduleToggleBinding: Binding<Bool> {
         Binding(
             get: { controller.weeklySchedule.isEnabled },
             set: { newValue in
@@ -69,7 +70,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
         )
     }
 
-    private func dayBinding(for weekday: Int) -> Binding<DaySchedule> {
+    private func dayBinding(for weekday: Weekday) -> Binding<DaySchedule> {
         Binding(
             get: {
                 controller.weeklySchedule.days[weekday] ?? DaySchedule(
@@ -86,7 +87,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
         )
     }
 
-    private func expandedBinding(for weekday: Int) -> Binding<Bool> {
+    private func expandedBinding(for weekday: Weekday) -> Binding<Bool> {
         Binding(
             get: { expandedDay == weekday },
             set: { isExpanding in
@@ -97,7 +98,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
         )
     }
 
-    private func rowShape(for weekday: Int) -> some Shape {
+    private func rowShape(for weekday: Weekday) -> some Shape {
         let isFirst = weekday == Self.orderedWeekdays.first
         let isLast = weekday == Self.orderedWeekdays.last
         return UnevenRoundedRectangle(
@@ -111,7 +112,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
 #Preview("Enabled") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
+        Color("BackgroundCalmTop").ignoresSafeArea()
         ScheduleSection(controller: {
             let c = PreviewSessionController(state: .idle)
             c.weeklySchedule = .default
@@ -124,7 +125,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
 #Preview("Disabled") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
+        Color("BackgroundCalmTop").ignoresSafeArea()
         ScheduleSection(controller: PreviewSessionController(state: .idle))
             .foregroundStyle(.white)
             .padding(24)

@@ -5,9 +5,9 @@
 //  Tests for the diagnostic report assembly logic.
 //
 
-import Testing
-import Foundation
 @testable import BlinkBreakCore
+import Foundation
+import Testing
 
 @Suite("DiagnosticCollector")
 struct DiagnosticCollectorTests {
@@ -27,8 +27,7 @@ struct DiagnosticCollectorTests {
             sessionActive: true,
             currentCycleId: UUID(),
             cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            breakActiveStartedAt: nil,
-            lastUpdatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            breakActiveStartedAt: nil
         )
         persistence.save(record)
 

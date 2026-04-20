@@ -7,44 +7,15 @@
 //  the current clock.
 //
 
-import Testing
-import Foundation
 @testable import BlinkBreakCore
+import Foundation
+import Testing
 
 @MainActor
 @Suite("SessionController — reconciliation")
 struct ReconciliationTests {
 
-    @MainActor
-    final class Fixture {
-        let alarmScheduler = MockAlarmScheduler()
-        let persistence = InMemoryPersistence()
-        let nowBox = NowBox(value: Date(timeIntervalSince1970: 1_700_000_000))
-        let controller: SessionController
-
-        init() {
-            let box = nowBox
-            self.controller = SessionController(
-                alarmScheduler: alarmScheduler,
-                persistence: persistence,
-                clock: { box.value }
-            )
-        }
-
-        func advance(by seconds: TimeInterval) {
-            nowBox.value = nowBox.value.addingTimeInterval(seconds)
-        }
-    }
-
-    final class NowBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storage: Date
-        init(value: Date) { self.storage = value }
-        var value: Date {
-            get { lock.lock(); defer { lock.unlock() }; return storage }
-            set { lock.lock(); defer { lock.unlock() }; storage = newValue }
-        }
-    }
+    typealias Fixture = TestFixture
 
     @Test("reconcile with no persisted session → idle")
     func noSession() async {
