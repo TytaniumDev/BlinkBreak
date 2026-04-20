@@ -17,10 +17,13 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
     @ObservedObject var controller: Controller
     @State private var expandedDay: Weekday?
 
-    private static var orderedWeekdays: [Weekday] {
+    // Computed once at process start. A locale change that moves the first weekday
+    // (e.g. US Sunday-first → UK Monday-first) requires an app restart to reflect —
+    // acceptable since iOS restarts the app on most locale switches anyway.
+    private static let orderedWeekdays: [Weekday] = {
         let first = Calendar.current.firstWeekday
         return (0..<7).compactMap { Weekday(calendarWeekday: (first + $0 - 1) % 7 + 1) }
-    }
+    }()
 
     private let dayNames: [Weekday: String] = [
         .sunday: "Sun", .monday: "Mon", .tuesday: "Tue", .wednesday: "Wed",

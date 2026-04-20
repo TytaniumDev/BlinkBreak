@@ -15,10 +15,11 @@ import PackageDescription
 let package = Package(
     name: "BlinkBreakCore",
     // Minimum platforms. macOS is included so the package can be tested on a dev Mac
-    // without Xcode.app. The package itself is platform-agnostic; the iOS app target
-    // that imports it sets its own iOS 26.1 deployment floor in project.yml.
+    // without Xcode.app. The package itself is platform-agnostic and could run on
+    // iOS 26.0, but we pin to 26.1 so the Core and app target share one floor —
+    // the AlarmKitScheduler in the app target needs 26.1.
     platforms: [
-        .iOS(.v26),
+        .iOS("26.1"),
         .macOS(.v14)
     ],
     products: [
