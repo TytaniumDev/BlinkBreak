@@ -61,8 +61,8 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
             var lastKnown: Set<UUID> = []
             for await alarms in AlarmManager.shared.alarmUpdates {
                 guard let self else { return }
-                let nowAlerting = Set(alarms.filter { $0.state == .alerting }.map { $0.id })
-                let nowKnown = Set(alarms.map(\.id))
+                let nowAlerting = Set(alarms.lazy.filter { $0.state == .alerting }.map(\.id))
+                let nowKnown = Set(alarms.lazy.map(\.id))
                 let known = self.snapshotMapping()
 
                 // Update the alerting set so currentAlarms() reflects live state.
