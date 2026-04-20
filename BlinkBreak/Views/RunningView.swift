@@ -10,8 +10,8 @@
 //  `triggerBreakNow()`, and `updateAlarmSound(muted:)` (via SoundToggleRow).
 //
 
-import BlinkBreakCore
 import SwiftUI
+import BlinkBreakCore
 
 // Cache the a11y duration formatter to avoid allocations in the TimelineView render loop
 private let a11yDurationFormatter: DateComponentsFormatter = {
@@ -31,9 +31,6 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
     }
 
     var body: some View {
-        // Cache the formatted time string outside the render loop since breakFireTime doesn't change
-        let fireTimeText = breakFireTimeFormatted
-
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
             let total = Int(remainingSeconds.rounded(.up))
@@ -49,27 +46,27 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                     .accessibilityValue(a11yDurationFormatter.string(from: remainingSeconds) ?? countdownLabel)
                     .accessibilityIdentifier("label.running.countdown")
 
-                Text("Fires at \(fireTimeText)")
+                Text("Fires at \(breakFireTimeFormatted)")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.6))
 
                 SoundToggleRow(
                     isMuted: controller.muteAlarmSound,
-                    onToggle: { muted in Task { await controller.updateAlarmSound(muted: muted) } }
+                    onToggle: { controller.updateAlarmSound(muted: $0) }
                 )
                 .padding(.top, 4)
 
                 Spacer()
 
                 Button("Take break now") {
-                    Task { await controller.triggerBreakNow() }
+                    controller.triggerBreakNow()
                 }
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.7))
                 .accessibilityIdentifier("button.running.takeBreakNow")
 
                 Button(role: .destructive) {
-                    Task { await controller.stop() }
+                    controller.stop()
                 } label: {
                     Text("Stop")
                         .frame(maxWidth: .infinity)

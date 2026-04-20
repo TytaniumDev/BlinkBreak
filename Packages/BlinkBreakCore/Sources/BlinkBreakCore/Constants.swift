@@ -48,9 +48,9 @@ public enum BlinkBreakConstants {
 
     /// Filename (without directory path) of the bundled custom alarm sound used by
     /// AlarmKit. iOS looks for this in the app bundle and truncates at 30 seconds.
-    /// Returns nil when `BB_DISABLE_SOUND` is set so XCUITest runs are silent.
+    /// Returns nil when running under the XCUITest environment so simulator tests are silent.
     public static let breakSoundFileName: String? = {
-        if ProcessInfo.processInfo.environment["BB_DISABLE_SOUND"] != nil {
+        if ProcessInfo.processInfo.environment["BB_BREAK_INTERVAL"] != nil {
             return nil
         }
         return "break-alarm.caf"
@@ -70,11 +70,6 @@ public enum BlinkBreakConstants {
     /// UserDefaults key for the persisted alarm-sound mute preference. Stored
     /// separately from the session record so it survives session resets.
     public static let alarmSoundMutedKey = "BlinkBreak.MuteAlarmSound"
-
-    /// UserDefaults key for the AlarmKit alarm-id → AlarmKind mapping. Survives app
-    /// kill so reconciliation on launch can correlate the still-scheduled system
-    /// alarm with its semantic kind.
-    public static let alarmIdMappingKey = "blinkbreak.alarmkit.idToKind.v1"
 
     // MARK: - Schedule task identifier
 

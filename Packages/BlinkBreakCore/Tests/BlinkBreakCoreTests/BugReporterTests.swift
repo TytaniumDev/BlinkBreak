@@ -7,9 +7,8 @@
 //  because that's where bugs hide.
 //
 
-@testable import BlinkBreakCore
-import Foundation
 import Testing
+@testable import BlinkBreakCore
 
 @Suite("GitHubIssueReporter — formatting")
 struct BugReporterFormattingTests {

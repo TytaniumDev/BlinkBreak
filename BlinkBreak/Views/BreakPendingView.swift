@@ -11,8 +11,8 @@
 //  cycleId from persistence. The view doesn't know or care about cycleIds.
 //
 
-import BlinkBreakCore
 import SwiftUI
+import BlinkBreakCore
 
 struct BreakPendingView<Controller: SessionControllerProtocol>: View {
 
@@ -39,11 +39,11 @@ struct BreakPendingView<Controller: SessionControllerProtocol>: View {
 
             VStack(spacing: 12) {
                 Button {
-                    Task { await controller.acknowledgeCurrentBreak() }
+                    controller.acknowledgeCurrentBreak()
                 } label: {
                     Text("Start break")
                         .frame(maxWidth: .infinity)
-                        .foregroundStyle(Color("BackgroundAlert"))
+                        .foregroundStyle(Color(red: 0.69, green: 0.00, blue: 0.13))
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -51,7 +51,7 @@ struct BreakPendingView<Controller: SessionControllerProtocol>: View {
                 .accessibilityIdentifier("button.breakPending.startBreak")
 
                 Button(role: .destructive) {
-                    Task { await controller.stop() }
+                    controller.stop()
                 } label: {
                     Text("Stop")
                         .frame(maxWidth: .infinity)

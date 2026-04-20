@@ -12,9 +12,9 @@
 // a subtle blue accent ring, and a large white "BB" monogram in the center.
 //
 
+import Foundation
 import CoreGraphics
 import CoreText
-import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 

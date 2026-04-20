@@ -4,7 +4,7 @@
 //
 //  Protocol for submitting bug reports, plus a GitHub Issues implementation and a
 //  no-op mock. The protocol follows the same dependency-injection pattern as
-//  AlarmSchedulerProtocol and PersistenceProtocol.
+//  NotificationSchedulerProtocol and WatchConnectivityProtocol.
 //
 //  Flutter analogue: an abstract BugReportService with a GitHubBugReportService
 //  and a NoopBugReportService for tests/previews.

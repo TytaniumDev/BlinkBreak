@@ -5,9 +5,9 @@
 //  Tests for the pure schedule evaluation logic.
 //
 
-@testable import BlinkBreakCore
-import Foundation
 import Testing
+import Foundation
+@testable import BlinkBreakCore
 
 @Suite("ScheduleEvaluator — shouldBeActive")
 struct ScheduleEvaluatorShouldBeActiveTests {
@@ -31,8 +31,8 @@ struct ScheduleEvaluatorShouldBeActiveTests {
         ScheduleEvaluator(schedule: { schedule })
     }
 
-    @Test("Returns false when schedule toggle is off")
-    func scheduleToggleOff() {
+    @Test("Returns false when master toggle is off")
+    func masterToggleOff() {
         var schedule = WeeklySchedule.default
         schedule.isEnabled = false
         let eval = evaluator(schedule: schedule)
@@ -178,8 +178,8 @@ struct ScheduleEvaluatorNextTransitionTests {
                                          calendar: calendar) == nil)
     }
 
-    @Test("Returns nil when schedule toggle is off")
-    func scheduleToggleOff() {
+    @Test("Returns nil when master toggle is off")
+    func masterToggleOff() {
         var schedule = WeeklySchedule.default
         schedule.isEnabled = false
         let eval = evaluator(schedule: schedule)

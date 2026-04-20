@@ -8,9 +8,9 @@
 //  Written in Swift Testing (the `import Testing` framework), not legacy XCTest.
 //
 
-@testable import BlinkBreakCore
-import Foundation
 import Testing
+import Foundation
+@testable import BlinkBreakCore
 
 @Suite("WeeklySchedule — data model")
 struct WeeklyScheduleTests {
@@ -32,12 +32,12 @@ struct WeeklyScheduleTests {
         let schedule = WeeklySchedule(
             isEnabled: true,
             days: [
-                .monday: DaySchedule(isEnabled: true,
-                                     startTime: DateComponents(hour: 9, minute: 0),
-                                     endTime: DateComponents(hour: 17, minute: 0)),
-                .saturday: DaySchedule(isEnabled: false,
-                                       startTime: DateComponents(hour: 10, minute: 0),
-                                       endTime: DateComponents(hour: 14, minute: 0))
+                2: DaySchedule(isEnabled: true,
+                               startTime: DateComponents(hour: 9, minute: 0),
+                               endTime: DateComponents(hour: 17, minute: 0)),
+                7: DaySchedule(isEnabled: false,
+                               startTime: DateComponents(hour: 10, minute: 0),
+                               endTime: DateComponents(hour: 14, minute: 0))
             ]
         )
         let data = try JSONEncoder().encode(schedule)
@@ -49,7 +49,7 @@ struct WeeklyScheduleTests {
     func defaultSchedule() {
         let schedule = WeeklySchedule.default
         #expect(schedule.isEnabled == true)
-        for weekday: Weekday in [.monday, .tuesday, .wednesday, .thursday, .friday] {
+        for weekday in 2...6 {
             let day = schedule.days[weekday]
             #expect(day != nil)
             #expect(day?.isEnabled == true)
@@ -58,25 +58,16 @@ struct WeeklyScheduleTests {
             #expect(day?.endTime.hour == 17)
             #expect(day?.endTime.minute == 0)
         }
-        for weekday: Weekday in [.sunday, .saturday] {
+        for weekday in [1, 7] {
             let day = schedule.days[weekday]
             #expect(day != nil)
             #expect(day?.isEnabled == false)
         }
     }
 
-    @Test("WeeklySchedule.empty has the schedule toggle off")
+    @Test("WeeklySchedule.empty has master toggle off")
     func emptySchedule() {
         let schedule = WeeklySchedule.empty
         #expect(schedule.isEnabled == false)
-    }
-
-    @Test("Weekday raw values match Calendar.weekday numbering")
-    func weekdayRawValues() {
-        #expect(Weekday.sunday.rawValue == 1)
-        #expect(Weekday.saturday.rawValue == 7)
-        #expect(Weekday(calendarWeekday: 3) == .tuesday)
-        #expect(Weekday(calendarWeekday: 0) == nil)
-        #expect(Weekday(calendarWeekday: 8) == nil)
     }
 }

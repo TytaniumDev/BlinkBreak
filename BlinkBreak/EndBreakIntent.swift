@@ -12,13 +12,12 @@
 //  The slide-to-stop system control already produces the same dismissed event, so both
 //  controls converge on the same "proceed to next cycle" behavior.
 //
-//  perform() is provided by BlinkBreakAlarmDismissIntent's protocol extension.
-//
 
 import AppIntents
+import AlarmKit
 
 @available(iOS 26.1, *)
-struct EndBreakIntent: BlinkBreakAlarmDismissIntent {
+struct EndBreakIntent: LiveActivityIntent {
 
     static var title: LocalizedStringResource = "End break"
     static var description = IntentDescription("Acknowledge the break is over.")
@@ -30,5 +29,12 @@ struct EndBreakIntent: BlinkBreakAlarmDismissIntent {
 
     init(alarmID: String) {
         self.alarmID = alarmID
+    }
+
+    func perform() async throws -> some IntentResult {
+        if let id = UUID(uuidString: alarmID) {
+            try? AlarmManager.shared.cancel(id: id)
+        }
+        return .result()
     }
 }

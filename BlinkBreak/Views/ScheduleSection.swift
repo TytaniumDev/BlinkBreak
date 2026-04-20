@@ -9,26 +9,21 @@
 //  day rows, backed by a ChangeNotifier that persists on every change.
 //
 
-import BlinkBreakCore
 import SwiftUI
-
-// Computed once at process start (Swift disallows `static let` in generic types, so
-// this lives at file scope). A locale change that moves the first weekday
-// (e.g. US Sunday-first → UK Monday-first) requires an app restart to reflect —
-// acceptable since iOS restarts the app on most locale switches anyway.
-private let orderedWeekdays: [Weekday] = {
-    let first = Calendar.current.firstWeekday
-    return (0..<7).compactMap { Weekday(calendarWeekday: (first + $0 - 1) % 7 + 1) }
-}()
+import BlinkBreakCore
 
 struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
     @ObservedObject var controller: Controller
-    @State private var expandedDay: Weekday?
+    @State private var expandedDay: Int?
 
-    private let dayNames: [Weekday: String] = [
-        .sunday: "Sun", .monday: "Mon", .tuesday: "Tue", .wednesday: "Wed",
-        .thursday: "Thu", .friday: "Fri", .saturday: "Sat"
+    private static var orderedWeekdays: [Int] {
+        let first = Calendar.current.firstWeekday
+        return (0..<7).map { (first + $0 - 1) % 7 + 1 }
+    }
+
+    private let dayNames: [Int: String] = [
+        1: "Sun", 2: "Mon", 3: "Tue", 4: "Wed", 5: "Thu", 6: "Fri", 7: "Sat"
     ]
 
     var body: some View {
@@ -37,7 +32,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
                 Text("Schedule")
                     .font(.subheadline.weight(.medium))
                 Spacer()
-                Toggle("Enable Schedule", isOn: scheduleToggleBinding)
+                Toggle("Enable Schedule", isOn: masterToggleBinding)
                     .labelsHidden()
                     .tint(.green)
             }
@@ -45,7 +40,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
             if controller.weeklySchedule.isEnabled {
                 VStack(spacing: 1) {
-                    ForEach(orderedWeekdays, id: \.self) { weekday in
+                    ForEach(Self.orderedWeekdays, id: \.self) { weekday in
                         DayRow(
                             dayName: dayNames[weekday] ?? "",
                             daySchedule: dayBinding(for: weekday),
@@ -59,7 +54,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
         .accessibilityIdentifier("section.schedule")
     }
 
-    private var scheduleToggleBinding: Binding<Bool> {
+    private var masterToggleBinding: Binding<Bool> {
         Binding(
             get: { controller.weeklySchedule.isEnabled },
             set: { newValue in
@@ -74,7 +69,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
         )
     }
 
-    private func dayBinding(for weekday: Weekday) -> Binding<DaySchedule> {
+    private func dayBinding(for weekday: Int) -> Binding<DaySchedule> {
         Binding(
             get: {
                 controller.weeklySchedule.days[weekday] ?? DaySchedule(
@@ -91,7 +86,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
         )
     }
 
-    private func expandedBinding(for weekday: Weekday) -> Binding<Bool> {
+    private func expandedBinding(for weekday: Int) -> Binding<Bool> {
         Binding(
             get: { expandedDay == weekday },
             set: { isExpanding in
@@ -102,9 +97,9 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
         )
     }
 
-    private func rowShape(for weekday: Weekday) -> some Shape {
-        let isFirst = weekday == orderedWeekdays.first
-        let isLast = weekday == orderedWeekdays.last
+    private func rowShape(for weekday: Int) -> some Shape {
+        let isFirst = weekday == Self.orderedWeekdays.first
+        let isLast = weekday == Self.orderedWeekdays.last
         return UnevenRoundedRectangle(
             topLeadingRadius: isFirst ? 10 : 2,
             bottomLeadingRadius: isLast ? 10 : 2,
@@ -116,7 +111,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
 #Preview("Enabled") {
     ZStack {
-        Color("BackgroundCalmTop").ignoresSafeArea()
+        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
         ScheduleSection(controller: {
             let c = PreviewSessionController(state: .idle)
             c.weeklySchedule = .default
@@ -129,7 +124,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
 #Preview("Disabled") {
     ZStack {
-        Color("BackgroundCalmTop").ignoresSafeArea()
+        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
         ScheduleSection(controller: PreviewSessionController(state: .idle))
             .foregroundStyle(.white)
             .padding(24)

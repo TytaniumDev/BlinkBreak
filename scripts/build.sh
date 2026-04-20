@@ -15,7 +15,6 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-source scripts/lib/ensure-xcconfig.sh
 
 echo "→ Building BlinkBreakCore package..."
 (
@@ -30,7 +29,13 @@ if ! command -v xcodegen >/dev/null 2>&1; then
   echo "  xcodegen not installed. Install via 'brew install xcodegen'."
   exit 1
 fi
-ensure_bug_report_xcconfig
+# BugReport.xcconfig is gitignored (contains a GitHub PAT). Create a stub if
+# missing so xcodegen doesn't fail validation on the configFiles reference.
+XCCONFIG="BlinkBreak/BugReport/BugReport.xcconfig"
+if [ ! -f "$XCCONFIG" ]; then
+  echo "  creating stub $XCCONFIG (gitignored)..."
+  cp BlinkBreak/BugReport/BugReport.xcconfig.example "$XCCONFIG"
+fi
 xcodegen generate
 echo "  ok — BlinkBreak.xcodeproj generated."
 

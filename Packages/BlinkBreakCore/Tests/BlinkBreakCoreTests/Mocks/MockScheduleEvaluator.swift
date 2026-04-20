@@ -5,8 +5,8 @@
 //  Test mock for ScheduleEvaluating. Returns configurable stubbed values.
 //
 
-@testable import BlinkBreakCore
 import Foundation
+@testable import BlinkBreakCore
 
 final class MockScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Sendable {
 
