@@ -63,8 +63,11 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
             var lastKnown: Set<UUID> = []
             for await alarms in AlarmManager.shared.alarmUpdates {
                 guard let self else { return }
-                let nowAlerting = Set(alarms.filter { $0.state == .alerting }.map { $0.id })
-                let nowKnown = Set(alarms.map(\.id))
+                // ⚡ Bolt Optimization: Use .lazy on the alarm collections to prevent allocating
+                // intermediate arrays for every alarmUpdates snapshot. This reduces memory churn
+                // when processing system alarm states into our local Set representations.
+                let nowAlerting = Set(alarms.lazy.filter { $0.state == .alerting }.map { $0.id })
+                let nowKnown = Set(alarms.lazy.map(\.id))
                 let known = self.snapshotMapping()
 
                 // Update the alerting set so currentAlarms() reflects live state.
@@ -168,7 +171,9 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
     }
 
     private static func saveMapping(_ mapping: [UUID: AlarmKind]) {
-        let raw = Dictionary(uniqueKeysWithValues: mapping.map { ($0.key.uuidString, $0.value.rawValue) })
+        // ⚡ Bolt Optimization: Use .lazy mapping to avoid intermediate array allocation
+        // before converting into the uniqueKeysWithValues Dictionary.
+        let raw = Dictionary(uniqueKeysWithValues: mapping.lazy.map { ($0.key.uuidString, $0.value.rawValue) })
         UserDefaults.standard.set(raw, forKey: mappingDefaultsKey)
     }
 
