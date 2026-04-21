@@ -12,3 +12,8 @@
 **Vulnerability:** The LogBuffer accepted unbounded log messages, and the BugReporter did not sanitize triple backticks (` ``` `) from log entry messages before embedding them in the Markdown body of the GitHub issue.
 **Learning:** This combination could lead to Memory Exhaustion (DoS via large log sizes keeping them in memory) and Markdown Injection (where an unescaped triple backtick breaks out of the intended details `<details>` code block).
 **Prevention:** Bound unbounded strings (using `.prefix(1000)`) before retaining them in memory, and specifically sanitize inputs before placing them into formatted contexts (like Markdown code blocks or HTML).
+
+## 2024-05-26 - [Prevent concurrent API submissions from ShakeDetector]
+**Vulnerability:** The bug report submission UI (`ShakeDetectorView`) allowed the user to tap "Send" multiple times rapidly while the async submission Task was running. This could cause concurrent network requests, potentially triggering GitHub API rate limiting or creating duplicate issues.
+**Learning:** Client-side rate limiting and UI-level debounce are essential to protect backend infrastructure and prevent redundant operations when relying on asynchronous network calls triggered by user interaction.
+**Prevention:** Implement a local state flag (e.g., `@State private var isSubmitting = false`) to disable the submission UI button during the in-flight request, and add a guard within the submit action itself to abort if already submitting.

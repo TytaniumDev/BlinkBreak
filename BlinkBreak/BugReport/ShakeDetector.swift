@@ -45,6 +45,7 @@ struct ShakeDetectorView<Content: View>: View {
     @State private var bugDescription = ""
     @State private var showingToast = false
     @State private var toastMessage = ""
+    @State private var isSubmitting = false
 
     private var isTestFlight: Bool {
         Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
@@ -65,6 +66,7 @@ struct ShakeDetectorView<Content: View>: View {
                 Button("Send") {
                     submitReport()
                 }
+                .disabled(isSubmitting)
             } message: {
                 Text("Your report will create a GitHub issue with diagnostic data (no personal info).")
             }
@@ -83,7 +85,11 @@ struct ShakeDetectorView<Content: View>: View {
     }
 
     private func submitReport() {
+        guard !isSubmitting else { return }
+        isSubmitting = true
         Task {
+            defer { isSubmitting = false }
+
             do {
                 let deviceInfo = DeviceInfo(
                     iosVersion: UIDevice.current.systemVersion,
