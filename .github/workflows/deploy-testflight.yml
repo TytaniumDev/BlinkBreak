@@ -62,7 +62,8 @@ jobs:
             "ASC_ISSUER_ID",
             "ASC_API_KEY_CONTENT",
             "ASC_API_KEY_IS_BASE64",
-            "BUG_REPORT_GITHUB_TOKEN"
+            "BUG_REPORT_GITHUB_TOKEN",
+            "SENTRY_AUTH_TOKEN"
           ]'
           # Mask every value in the log before using it.
           echo "$SECRETS" | jq -r --argjson keys "$KEYS" '
@@ -113,6 +114,7 @@ jobs:
           ASC_ISSUER_ID: ${{ env.ASC_ISSUER_ID }}
           ASC_API_KEY_CONTENT: ${{ env.ASC_API_KEY_CONTENT }}
           ASC_API_KEY_IS_BASE64: ${{ env.ASC_API_KEY_IS_BASE64 }}
+          SENTRY_AUTH_TOKEN: ${{ env.SENTRY_AUTH_TOKEN }}
           # Tell fastlane it's running non-interactively.
           FASTLANE_HIDE_CHANGELOG: "1"
           FASTLANE_SKIP_UPDATE_CHECK: "1"
