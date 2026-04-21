@@ -48,20 +48,12 @@ final class SessionControllerFixture {
     init(evaluator: MockScheduleEvaluator? = nil) {
         let box = nowBox
         self.evaluator = evaluator
-        if let evaluator {
-            self.controller = SessionController(
-                alarmScheduler: alarmScheduler,
-                persistence: persistence,
-                scheduleEvaluator: evaluator,
-                clock: { box.value }
-            )
-        } else {
-            self.controller = SessionController(
-                alarmScheduler: alarmScheduler,
-                persistence: persistence,
-                clock: { box.value }
-            )
-        }
+        self.controller = SessionController(
+            alarmScheduler: alarmScheduler,
+            persistence: persistence,
+            scheduleEvaluator: evaluator ?? NoopScheduleEvaluator(),
+            clock: { box.value }
+        )
     }
 
     func advance(by seconds: TimeInterval) {

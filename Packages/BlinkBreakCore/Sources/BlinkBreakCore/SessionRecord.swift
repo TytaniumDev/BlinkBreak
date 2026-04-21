@@ -78,4 +78,48 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         breakActiveStartedAt: nil,
         lastUpdatedAt: nil
     )
+
+    // MARK: - Codable
+    //
+    // Custom coding to support a legacy key: earlier builds persisted
+    // `breakActiveStartedAt` under the name `lookAwayStartedAt`. Users upgrading
+    // mid-break-active would otherwise silently lose that timestamp. Encoding
+    // always uses the new key; decoding accepts either.
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionActive
+        case currentCycleId
+        case cycleStartedAt
+        case breakActiveStartedAt
+        case lastUpdatedAt
+        case manualStopDate
+        case wasAutoStarted
+        case currentAlarmId
+        case lookAwayStartedAt // legacy
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.sessionActive = try c.decodeIfPresent(Bool.self, forKey: .sessionActive) ?? false
+        self.currentCycleId = try c.decodeIfPresent(UUID.self, forKey: .currentCycleId)
+        self.cycleStartedAt = try c.decodeIfPresent(Date.self, forKey: .cycleStartedAt)
+        self.breakActiveStartedAt = try c.decodeIfPresent(Date.self, forKey: .breakActiveStartedAt)
+            ?? c.decodeIfPresent(Date.self, forKey: .lookAwayStartedAt)
+        self.lastUpdatedAt = try c.decodeIfPresent(Date.self, forKey: .lastUpdatedAt)
+        self.manualStopDate = try c.decodeIfPresent(Date.self, forKey: .manualStopDate)
+        self.wasAutoStarted = try c.decodeIfPresent(Bool.self, forKey: .wasAutoStarted)
+        self.currentAlarmId = try c.decodeIfPresent(UUID.self, forKey: .currentAlarmId)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(sessionActive, forKey: .sessionActive)
+        try c.encodeIfPresent(currentCycleId, forKey: .currentCycleId)
+        try c.encodeIfPresent(cycleStartedAt, forKey: .cycleStartedAt)
+        try c.encodeIfPresent(breakActiveStartedAt, forKey: .breakActiveStartedAt)
+        try c.encodeIfPresent(lastUpdatedAt, forKey: .lastUpdatedAt)
+        try c.encodeIfPresent(manualStopDate, forKey: .manualStopDate)
+        try c.encodeIfPresent(wasAutoStarted, forKey: .wasAutoStarted)
+        try c.encodeIfPresent(currentAlarmId, forKey: .currentAlarmId)
+    }
 }

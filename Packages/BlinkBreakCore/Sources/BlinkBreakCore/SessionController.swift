@@ -203,8 +203,17 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     kind: .breakDue,
                     muteSound: muteSound
                 )
+            } catch AlarmSchedulerError.authorizationDenied {
+                self.logBuffer.log(.error, "replaceRunningAlarm: authorization denied — stopping session")
+                self.authorizationDenied = true
+                self.stop()
+                return
             } catch {
-                self.logBuffer.log(.error, "replaceRunningAlarm: reschedule failed: \(error)")
+                // Cancel already succeeded but reschedule failed — the session is now
+                // in a zombie state where no break alarm will ever fire. Stop cleanly
+                // rather than leaving the UI claiming we're running.
+                self.logBuffer.log(.error, "replaceRunningAlarm: reschedule failed, stopping session: \(error)")
+                self.stop()
                 return
             }
             var record = self.persistence.load()
@@ -245,8 +254,17 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// On `.notDetermined`, this will trigger the system prompt the first time; on
     /// subsequent calls it's a read.
     public func refreshAuthorization() async {
-        let granted = (try? await alarmScheduler.requestAuthorizationIfNeeded()) ?? false
-        authorizationDenied = !granted
+        do {
+            let granted = try await alarmScheduler.requestAuthorizationIfNeeded()
+            authorizationDenied = !granted
+        } catch AlarmSchedulerError.authorizationDenied {
+            authorizationDenied = true
+        } catch {
+            // Transient scheduler error — don't flip the UI to permission-denied on a
+            // one-off failure. Leave `authorizationDenied` unchanged; a later reconcile
+            // will re-query.
+            logBuffer.log(.warning, "refreshAuthorization: transient error, leaving state unchanged: \(error)")
+        }
     }
 
     // MARK: - Reconciliation

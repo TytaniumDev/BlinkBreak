@@ -67,12 +67,10 @@ struct BlinkBreakApp: App {
                 .onAppear {
                     appDelegate.controller = controller
 
-                    // Request AlarmKit authorization on first launch. Subsequent launches
-                    // are a no-op because iOS remembers the user's decision. The
-                    // controller also publishes `authorizationDenied` so the UI can route
-                    // to `PermissionDeniedView` when the prompt was rejected.
-                    Task { await controller.refreshAuthorization() }
-
+                    // `reconcile()` kicks off with `refreshAuthorization()` internally,
+                    // which handles first-launch authorization prompting and publishes
+                    // `authorizationDenied` for the `PermissionDeniedView` routing in
+                    // `RootView`. No need for a separate auth call here.
                     Task { await controller.reconcile() }
 
                     // Set up the ScheduleTaskManager for foreground schedule checks.
