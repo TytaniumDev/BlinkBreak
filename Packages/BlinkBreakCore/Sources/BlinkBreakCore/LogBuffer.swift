@@ -38,6 +38,7 @@ public final class LogBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [LogEntry]
     private let capacity: Int
+    private var observer: (@Sendable (LogEntry) -> Void)?
 
     /// Create a buffer with the given maximum capacity. Use `LogBuffer.shared` in production;
     /// create isolated instances in tests.
@@ -53,17 +54,29 @@ public final class LogBuffer: @unchecked Sendable {
         let truncatedMessage = String(message.prefix(1000))
         let entry = LogEntry(timestamp: Date(), level: level, message: truncatedMessage)
         lock.lock()
-        defer { lock.unlock() }
         if storage.count >= capacity {
             storage.removeFirst()
         }
         storage.append(entry)
+        let observer = self.observer
+        lock.unlock()
+        observer?(entry)
     }
 
     /// Return all buffered entries in insertion order. Does not clear the buffer.
-    public func drain() -> [LogEntry] {
+    public func snapshot() -> [LogEntry] {
         lock.lock()
         defer { lock.unlock() }
         return storage
+    }
+
+    /// Register a callback invoked synchronously on every `log()`. Used by
+    /// SentryBootstrap to mirror entries as Sentry breadcrumbs in real time so
+    /// they're persisted by Sentry's crash handler before a fatal crash (unlike
+    /// `beforeSend`, which runs on next launch after the buffer has been lost).
+    public func setObserver(_ observer: (@Sendable (LogEntry) -> Void)?) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.observer = observer
     }
 }

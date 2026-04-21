@@ -9,10 +9,8 @@
 //  The DSN is a public-facing credential (safe to commit; it's embedded in every
 //  shipped app binary anyway). It identifies the project, not an auth secret.
 //
-//  dSYM uploads: enable the App Store Connect integration in Sentry project
-//  settings (Settings → Integrations → App Store Connect). That auto-fetches
-//  dSYMs from Apple after each TestFlight / App Store upload, which avoids
-//  needing a sentry-cli build phase.
+//  dSYM uploads: handled by fastlane-plugin-sentry in the `beta` lane after each
+//  TestFlight build. No Xcode build phase needed.
 //
 
 import Foundation
@@ -23,12 +21,25 @@ enum SentryBootstrap {
 
     private static let dsn = "https://fd928e6484dcf31e36e47fbfa3ee22d3@o4510951154712576.ingest.us.sentry.io/4511259403747328"
 
+    // Single-shot guard. `start()` is called from BlinkBreakApp.init() and should
+    // only initialize the SDK once per process; extra calls are no-ops.
+    private static let hasStarted = NSLock()
+    nonisolated(unsafe) private static var didStart = false
+
     /// Starts Sentry. Safe to call more than once; subsequent calls are no-ops.
     /// No-op in DEBUG builds.
     static func start() {
         #if DEBUG
         return
         #else
+        hasStarted.lock()
+        if didStart {
+            hasStarted.unlock()
+            return
+        }
+        didStart = true
+        hasStarted.unlock()
+
         SentrySDK.start { options in
             options.dsn = dsn
             options.releaseName = Self.releaseName
@@ -39,23 +50,20 @@ enum SentryBootstrap {
             // inside the free tier and avoids paying for spans we don't use).
             options.tracesSampleRate = 0.0
             options.profilesSampleRate = 0.0
-            options.beforeSend = { event in
-                // Attach the in-memory log ring buffer to every event as
-                // breadcrumbs. Gives us the last ~500 diagnostic lines leading
-                // up to the crash or error.
-                let entries = LogBuffer.shared.drain()
-                var breadcrumbs = event.breadcrumbs ?? []
-                for entry in entries.suffix(100) {
-                    let crumb = Breadcrumb()
-                    crumb.timestamp = entry.timestamp
-                    crumb.level = Self.sentryLevel(for: entry.level)
-                    crumb.category = "blinkbreak"
-                    crumb.message = entry.message
-                    breadcrumbs.append(crumb)
-                }
-                event.breadcrumbs = breadcrumbs
-                return event
-            }
+        }
+
+        // Mirror log entries into Sentry as breadcrumbs in real time. This is
+        // required for hard crashes: `beforeSend` runs on the NEXT launch after
+        // a crash, by which point LogBuffer is empty. Sentry persists
+        // breadcrumbs to disk with the crash report, so adding them at log-time
+        // is what actually gets them into the crash payload.
+        LogBuffer.shared.setObserver { entry in
+            let crumb = Breadcrumb()
+            crumb.timestamp = entry.timestamp
+            crumb.level = Self.sentryLevel(for: entry.level)
+            crumb.category = "blinkbreak"
+            crumb.message = entry.message
+            SentrySDK.addBreadcrumb(crumb)
         }
         #endif
     }
