@@ -23,9 +23,11 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
     @Published var state: SessionState
     @Published var weeklySchedule: WeeklySchedule = .empty
     @Published var muteAlarmSound: Bool = false
+    @Published var authorizationDenied: Bool = false
 
-    init(state: SessionState = .idle) {
+    init(state: SessionState = .idle, authorizationDenied: Bool = false) {
         self.state = state
+        self.authorizationDenied = authorizationDenied
     }
 
     // MARK: - SessionControllerProtocol
@@ -58,6 +60,10 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
         // No-op in previews.
     }
 
+    func refreshAuthorization() async {
+        // No-op in previews.
+    }
+
     // MARK: - Preview fixtures
 
     /// Preview states for each scenario a view might render.
@@ -80,4 +86,6 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
             state: .breakActive(startedAt: Date().addingTimeInterval(-5))
         )
     }
+
+    static let permissionDenied = PreviewSessionController(state: .idle, authorizationDenied: true)
 }

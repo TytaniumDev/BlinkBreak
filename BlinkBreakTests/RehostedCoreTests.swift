@@ -22,7 +22,10 @@ struct RehostedCoreTests {
 
     @Test("BlinkBreakCore is importable from the iOS test target")
     func importsOK() {
-        // Sanity: ensure the core library is linked into this target.
-        #expect(BlinkBreakConstants.breakInterval == 20 * 60)
+        // Sanity: ensure the core library is linked into this target. Don't
+        // assert the concrete 20*60 value — the UITests scheme sets
+        // BB_BREAK_INTERVAL=3 which this test target can inherit, making a
+        // literal check flaky. Just prove the symbol resolves and is positive.
+        #expect(BlinkBreakConstants.breakInterval > 0)
     }
 }

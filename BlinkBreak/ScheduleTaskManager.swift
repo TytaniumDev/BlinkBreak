@@ -34,7 +34,10 @@ final class ScheduleTaskManager {
     /// finishes launching (i.e., in `didFinishLaunchingWithOptions`). The handler
     /// is a static method because `BGTaskScheduler.shared.register` must happen
     /// before `UIApplication` returns from launch, before any instance is available.
-    static func registerBackgroundTaskHandler(controllerProvider: @escaping @MainActor () -> SessionController?) {
+    static func registerBackgroundTaskHandler(
+        evaluator: ScheduleEvaluatorProtocol,
+        controllerProvider: @escaping @MainActor () -> SessionController?
+    ) {
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: BlinkBreakConstants.scheduleTaskId,
             using: nil
@@ -43,12 +46,13 @@ final class ScheduleTaskManager {
                 task.setTaskCompleted(success: false)
                 return
             }
-            handleBackgroundTask(bgTask, controllerProvider: controllerProvider)
+            handleBackgroundTask(bgTask, evaluator: evaluator, controllerProvider: controllerProvider)
         }
     }
 
     private static func handleBackgroundTask(
         _ task: BGAppRefreshTask,
+        evaluator: ScheduleEvaluatorProtocol,
         controllerProvider: @escaping @MainActor () -> SessionController?
     ) {
         let workTask = Task { @MainActor in
@@ -57,10 +61,6 @@ final class ScheduleTaskManager {
             }
             guard !Task.isCancelled else { return }
 
-            // Re-schedule the next background task for the next transition date.
-            let evaluator = ScheduleEvaluator(schedule: {
-                UserDefaultsPersistence().loadSchedule() ?? .empty
-            })
             guard let nextDate = evaluator.nextTransitionDate(from: Date(), calendar: .current) else {
                 BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: BlinkBreakConstants.scheduleTaskId)
                 task.setTaskCompleted(success: true)
