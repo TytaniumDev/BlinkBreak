@@ -5,7 +5,7 @@
 //  The breakActive-state view. Calm dark theme. No countdown UI — the entire point
 //  of the 20-second rest is to stop looking at screens. The user doesn't need
 //  to see this view; it's here only for the rare case they foreground the app
-//  mid-break. A haptic on the Watch will tell them when the 20 seconds are up.
+//  mid-break. The AlarmKit takeover fires when the 20 seconds are up.
 //
 //  The only interactive element is the Stop button, in case the user is ending
 //  their session entirely.

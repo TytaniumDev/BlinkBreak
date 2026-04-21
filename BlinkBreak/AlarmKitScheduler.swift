@@ -9,10 +9,9 @@
 //  `BlinkBreakCore` package is platform-agnostic by design.
 //
 //  Why `.alarm(schedule:)` and not `.timer(duration:)`: a timer-backed alarm
-//  implies a countdown Live Activity that the system mirrors to a paired
-//  Apple Watch, producing notifications *before* the alarm fires. Using a
-//  fixed-date schedule with an alert-only presentation avoids the Live Activity
-//  surface entirely.
+//  implies a countdown Live Activity that the system surfaces as a running
+//  countdown before the alarm fires. Using a fixed-date schedule with an
+//  alert-only presentation avoids the Live Activity surface entirely.
 //
 
 import Foundation

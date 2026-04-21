@@ -29,6 +29,9 @@ struct BlinkBreakApp: App {
             UserDefaults.standard.removeObject(forKey: BlinkBreakConstants.sessionRecordKey)
             UserDefaults.standard.removeObject(forKey: BlinkBreakConstants.alarmSoundMutedKey)
         }
+
+        // Release-only crash / error reporting. No-op in DEBUG.
+        SentryBootstrap.start()
     }
 
     // Shared instances used by both the SessionController and the ScheduleTaskManager

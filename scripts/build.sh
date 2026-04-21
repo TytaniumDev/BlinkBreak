@@ -44,7 +44,7 @@ echo "→ Checking for full Xcode.app..."
 DEVELOPER_DIR="$(xcode-select -p)"
 if [[ "$DEVELOPER_DIR" == *"CommandLineTools"* ]]; then
   echo "  ⚠ Only Command Line Tools are installed at $DEVELOPER_DIR."
-  echo "  xcodebuild cannot compile iOS/watchOS targets without full Xcode.app."
+  echo "  xcodebuild cannot compile iOS targets without full Xcode.app."
   echo "  Install Xcode from the Mac App Store, then run:"
   echo "    sudo xcode-select -s /Applications/Xcode.app"
   echo "  Skipping xcodebuild phase."

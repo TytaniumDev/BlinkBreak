@@ -17,8 +17,6 @@
 #   - Rapid start/stop stress testing
 #
 # What the suite CANNOT cover (requires on-device manual verification):
-#   - Watch haptic feedback (Taptic Engine is a no-op in the watchOS simulator)
-#   - Real iPhone ↔ Watch notification forwarding
 #   - Focus Mode break-through semantics
 #   - Actual custom alarm sound playback through the speaker
 #
@@ -80,5 +78,5 @@ echo ""
 echo "✓ Integration tests passed."
 echo ""
 echo "Reminder: this suite does NOT verify hardware-dependent behavior"
-echo "(Watch haptics, notification forwarding, Focus Mode). Those still"
+echo "(Focus Mode break-through, real alarm-volume playback). Those still"
 echo "require the manual on-device checklist before shipping."

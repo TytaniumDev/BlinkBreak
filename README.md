@@ -1,8 +1,8 @@
 # BlinkBreak
 
-> A 20-20-20 rule eye-rest reminder for iOS and Apple Watch.
+> A 20-20-20 rule eye-rest reminder for iOS.
 
-Every 20 minutes, BlinkBreak tells you to look at something 20 feet away for 20 seconds. The reminder is delivered as a 30-second alarm-style haptic cascade on your wrist so it's hard to miss while you're gaming or working at a PC.
+Every 20 minutes, BlinkBreak tells you to look at something 20 feet away for 20 seconds. The reminder is delivered as a full-screen AlarmKit takeover that plays at alarm volume regardless of silent switch, Focus, or DND — so it's hard to miss while you're gaming or working at a PC.
 
 ## For Flutter developers new to iOS
 
@@ -18,26 +18,24 @@ The project is deliberately structured to make Swift/SwiftUI easier to learn if 
 | Local Swift Package | Local `path:` dependency in `pubspec.yaml` |
 | XCTest / Swift Testing | `flutter_test` with `test()` / `expect()` |
 | SwiftUI `#Preview` | Flutter's `WidgetbookUseCase` / `flutter_preview` |
-| `UNUserNotificationCenter` | `flutter_local_notifications` |
-| `WatchConnectivity` / `WCSession` | Platform channel between a Flutter app and a WearOS companion |
+| `AlarmKit` / `AlarmManager.shared` | `flutter_local_notifications` with full-screen intent |
 
 ## Architecture
 
-Three software units, each with one clear purpose:
+Two software units, each with one clear purpose:
 
 ```
 BlinkBreak/
 ├── Packages/BlinkBreakCore/        ← all business logic (Swift Package)
 ├── BlinkBreak/                     ← iOS app target (SwiftUI views + glue)
-├── BlinkBreak Watch App/           ← watchOS app target (SwiftUI views + glue)
 └── BlinkBreakTests/                ← iOS-scheme test target (hosts BlinkBreakCore tests)
 ```
 
-**`BlinkBreakCore`** is a local Swift Package that contains everything non-UI: the session state machine, the notification scheduler wrapper, the WatchConnectivity wrapper, persistence, and the `SessionController` that coordinates them. It has **zero UI framework imports** — no `SwiftUI`, no `UIKit`, no `WatchKit`. This is a hard rule enforced by `scripts/lint.sh`.
+**`BlinkBreakCore`** is a local Swift Package that contains everything non-UI: the session state machine, the `AlarmSchedulerProtocol` abstraction, persistence, and the `SessionController` that coordinates them. It has **zero UI framework imports** — no `SwiftUI`, no `UIKit`, no `WatchKit`, and no `AlarmKit`. This is a hard rule enforced by `scripts/lint.sh`.
 
-**`BlinkBreak`** (iOS) and **`BlinkBreak Watch App`** (watchOS) import `BlinkBreakCore` and contain only SwiftUI views + tiny `AppDelegate` plumbing. Views depend on the `SessionControllerProtocol`, never on the concrete class, so `PreviewSessionController` can render any state in SwiftUI previews without running real timers.
+**`BlinkBreak`** (iOS) imports `BlinkBreakCore` and contains only SwiftUI views, the concrete `AlarmKitScheduler`, and tiny `AppDelegate` plumbing. Views depend on `SessionControllerProtocol`, never on the concrete class, so `PreviewSessionController` can render any state in SwiftUI previews without running real alarms.
 
-See [`docs/superpowers/specs/2026-04-10-blinkbreak-design.md`](docs/superpowers/specs/2026-04-10-blinkbreak-design.md) for the full design document — state machine, notification cascade mechanics, WatchConnectivity sync, error handling, testing strategy.
+See [`docs/superpowers/specs/2026-04-10-blinkbreak-design.md`](docs/superpowers/specs/2026-04-10-blinkbreak-design.md) for the original design document. Note that parts of it describe the pre-AlarmKit architecture (WatchConnectivity, notification cascade); the current implementation is AlarmKit-driven — see the "Alarming system" section below for the up-to-date description.
 
 ## Prerequisites
 
@@ -79,7 +77,7 @@ open BlinkBreak.xcodeproj
 # 4. In Xcode: select the BlinkBreak scheme, pick a simulator or device, and hit ▶
 ```
 
-On first launch, the app asks for notification permission. Grant it — BlinkBreak does not work without notifications.
+On first launch, the app asks for AlarmKit permission. Grant it — BlinkBreak does not work without alarms.
 
 ## Running tests
 
@@ -115,26 +113,17 @@ Two checks:
 
 ## TestFlight deployment
 
-TestFlight uploads are scaffolded in `.github/workflows/deploy-testflight.yml` but **disabled by default** — only `workflow_dispatch` is wired up. To enable automatic deploys on push to `main`:
+TestFlight deploys run automatically on push to `main` via `.github/workflows/deploy-testflight.yml`. The workflow uses Fastlane + match + pilot; secrets are centralized in Doppler (project `blinkbreak`, config `prd`) and pulled into the job at runtime.
 
-1. **Enroll in the Apple Developer Program.** $99/yr via [developer.apple.com/programs](https://developer.apple.com/programs/).
-2. **Create an App Store Connect API key.** In [App Store Connect → Users and Access → Integrations → Team Keys](https://appstoreconnect.apple.com/access/api), create a new key with "App Manager" access. Download the `.p8` file (you only get one chance).
-3. **Export your Distribution certificate.** From Xcode's Signing & Capabilities tab or from Keychain Access, export the distribution certificate as a `.p12` file with a password.
-4. **Base64-encode both files:**
-   ```bash
-   base64 -i AuthKey_XXX.p8 | pbcopy      # paste into APPSTORE_API_KEY_P8
-   base64 -i Certificate.p12 | pbcopy     # paste into BUILD_CERTIFICATE_P12
-   ```
-5. **Set the four required secrets** in your repo: `Settings → Secrets and variables → Actions → New repository secret`:
-   - `APPSTORE_API_KEY_ID` — the Key ID shown in ASC (e.g. `ABC1234567`)
-   - `APPSTORE_API_ISSUER_ID` — the Issuer ID shown at the top of the Integrations page
-   - `APPSTORE_API_KEY_P8` — the base64-encoded `.p8` contents
-   - `BUILD_CERTIFICATE_P12` — the base64-encoded `.p12` contents
-   - `BUILD_CERTIFICATE_PASSWORD` — the password you set on the `.p12` export
-6. **Set your Team ID in `project.yml`.** Find it in [Apple Developer → Membership](https://developer.apple.com/account). Update the `DEVELOPMENT_TEAM` setting.
-7. **Enable the deploy workflow.** In `.github/workflows/deploy-testflight.yml`, add `push: { branches: [main] }` under `on:`, and in `release.yml` uncomment the `gh workflow run deploy-testflight.yml` line in `trigger-deploy`.
+The only GitHub repo secret required is `DOPPLER_TOKEN`. Doppler holds everything else:
 
-After enrollment, every push to `main` will run CI, then TestFlight upload.
+- `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_CONTENT`, `ASC_API_KEY_IS_BASE64` — App Store Connect API key (App Manager role)
+- `MATCH_PASSWORD` — AES key for the `TytaniumDev/BlinkBreak-certificates` repo
+- `MATCH_SSH_PRIVATE_KEY` — deploy key for that certs repo
+- `MATCH_KEYCHAIN_PASSWORD` — ephemeral CI keychain password
+- `BUG_REPORT_GITHUB_TOKEN` — fine-grained PAT for the shake-to-report feature
+
+To seed signing assets the first time, run `fastlane seed_certs` locally (see `fastlane/Fastfile`). After that, every push to `main` archives with the Distribution profile from match and uploads to TestFlight.
 
 ## State machine
 
@@ -333,7 +322,6 @@ BlinkBreak/
 │       ├── BreakActiveView.swift
 │       ├── PermissionDeniedView.swift
 │       └── Components/                      reusable small components
-├── BlinkBreak Watch App/           watchOS app target
 ├── BlinkBreakTests/                iOS scheme test target
 ├── Packages/
 │   └── BlinkBreakCore/             local Swift Package (all business logic)

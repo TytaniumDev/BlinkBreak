@@ -33,9 +33,8 @@ public enum SessionState: Equatable, Sendable {
     ///   The next break fires at `cycleStartedAt + BlinkBreakConstants.breakInterval`.
     case running(cycleStartedAt: Date)
 
-    /// The primary break notification has fired. Awaiting user acknowledgment.
-    /// If the app is foregrounded, show the red alert UI. If not, the cascade is
-    /// buzzing the Watch in the background and this state is never visibly rendered.
+    /// The break-due alarm has fired. Awaiting user acknowledgment via the
+    /// AlarmKit takeover's "Start break" button or the in-app BreakPendingView.
     /// - Parameter cycleStartedAt: When the 20-minute countdown for this cycle started.
     case breakPending(cycleStartedAt: Date)
 

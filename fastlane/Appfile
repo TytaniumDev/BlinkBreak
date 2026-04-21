@@ -1,2 +1,2 @@
-app_identifier(["com.tytaniumdev.BlinkBreak", "com.tytaniumdev.BlinkBreak.watchkitapp"])
+app_identifier(["com.tytaniumdev.BlinkBreak"])
 team_id("F2HXQGU2CC")
