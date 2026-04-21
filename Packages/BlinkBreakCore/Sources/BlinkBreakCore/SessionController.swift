@@ -35,6 +35,10 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// Whether the alarm sound is muted. Loaded from persistence on init.
     @Published public private(set) var muteAlarmSound: Bool = false
 
+    /// True when the AlarmKit authorization prompt has been denied. Views check this
+    /// to swap the idle UI for a "go to Settings" prompt.
+    @Published public private(set) var authorizationDenied: Bool = false
+
     // MARK: - Dependencies
 
     private let alarmScheduler: AlarmSchedulerProtocol
@@ -42,6 +46,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     private let clock: @Sendable () -> Date
     private let scheduleEvaluator: ScheduleEvaluatorProtocol
     private let calendar: Calendar
+    private let logBuffer: LogBuffer
 
     private var eventTask: Task<Void, Never>?
 
@@ -59,13 +64,15 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         persistence: PersistenceProtocol,
         scheduleEvaluator: ScheduleEvaluatorProtocol = NoopScheduleEvaluator(),
         calendar: Calendar = .current,
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() },
+        logBuffer: LogBuffer = .shared
     ) {
         self.alarmScheduler = alarmScheduler
         self.persistence = persistence
         self.scheduleEvaluator = scheduleEvaluator
         self.calendar = calendar
         self.clock = clock
+        self.logBuffer = logBuffer
         self.weeklySchedule = persistence.loadSchedule() ?? .empty
         self.muteAlarmSound = persistence.loadAlarmSoundMuted()
 
@@ -92,6 +99,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     /// Core start logic. Used by both `start()` (manual) and `evaluateSchedule()` (auto).
     private func startSession(wasAutoStarted: Bool = false) {
+        logBuffer.log(.info, "start: beginning session (auto=\(wasAutoStarted))")
         Task { [weak self] in
             guard let self else { return }
             await self.alarmScheduler.cancelAll()
@@ -106,8 +114,12 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     kind: .breakDue,
                     muteSound: self.muteAlarmSound
                 )
+            } catch AlarmSchedulerError.authorizationDenied {
+                self.logBuffer.log(.warning, "start: authorization denied")
+                self.authorizationDenied = true
+                return
             } catch {
-                // Authorization not granted, scheduling failed — stay idle.
+                self.logBuffer.log(.error, "start: scheduling failed: \(error)")
                 return
             }
 
@@ -122,12 +134,15 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             )
             self.persistence.save(record)
             self.state = .running(cycleStartedAt: cycleStartedAt)
+            self.authorizationDenied = false
+            self.logBuffer.log(.info, "start: running, alarm=\(alarmId.uuidString.prefix(8))")
         }
     }
 
     /// Stops the current session. Transitions any-state → idle. Cancels all alarms.
     public func stop() {
         let now = clock()
+        logBuffer.log(.info, "stop: from state \(state.description)")
         Task { [weak self] in
             await self?.alarmScheduler.cancelAll()
         }
@@ -156,54 +171,44 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         // is already alerting on-screen, so there is nothing useful to reschedule.
         guard case .running(let cycleStartedAt) = state,
               let currentAlarmId = persistence.load().currentAlarmId else { return }
-        let now = clock()
         let remaining = max(1, cycleStartedAt
             .addingTimeInterval(BlinkBreakConstants.breakInterval)
-            .timeIntervalSince(now))
-        Task { [weak self] in
-            guard let self else { return }
-            await self.alarmScheduler.cancel(alarmId: currentAlarmId)
-            let newId: UUID
-            do {
-                newId = try await self.alarmScheduler.scheduleCountdown(
-                    duration: remaining,
-                    kind: .breakDue,
-                    muteSound: muted
-                )
-            } catch { return }
-            // Re-check session is still active and the alarm we replaced is still the
-            // current one before persisting. stop() or a concurrent reschedule may have
-            // updated currentAlarmId while the async cancel/schedule was in flight.
-            var record = self.persistence.load()
-            guard record.sessionActive, record.currentAlarmId == currentAlarmId else {
-                await self.alarmScheduler.cancel(alarmId: newId)
-                return
-            }
-            record.currentAlarmId = newId
-            self.persistence.save(record)
-        }
+            .timeIntervalSince(clock()))
+        logBuffer.log(.info, "updateAlarmSound: muted=\(muted), rescheduling \(Int(remaining))s")
+        replaceRunningAlarm(previousAlarmId: currentAlarmId, duration: remaining, muteSound: muted)
     }
 
-    /// Cancel the current alarm and reschedule it to fire in 1 second.
+    /// Cancel the current alarm and reschedule it to fire in 1 second. Wired to the
+    /// "Take break now" button; no-op outside the `.running` state.
     public func triggerBreakNow() {
         guard case .running = state,
               let currentAlarmId = persistence.load().currentAlarmId else { return }
+        logBuffer.log(.info, "triggerBreakNow: rescheduling break-due alarm to 1s")
+        replaceRunningAlarm(previousAlarmId: currentAlarmId, duration: 1, muteSound: muteAlarmSound)
+    }
+
+    /// Cancel the break-due alarm currently attached to the running session and schedule
+    /// a replacement with new timing. Used by both `updateAlarmSound(muted:)` and
+    /// `triggerBreakNow()`. If `stop()` or a concurrent call changes `currentAlarmId`
+    /// while we're awaiting the scheduler, the replacement is cancelled and the record
+    /// left untouched.
+    private func replaceRunningAlarm(previousAlarmId: UUID, duration: TimeInterval, muteSound: Bool) {
         Task { [weak self] in
             guard let self else { return }
-            await self.alarmScheduler.cancel(alarmId: currentAlarmId)
+            await self.alarmScheduler.cancel(alarmId: previousAlarmId)
             let newId: UUID
             do {
                 newId = try await self.alarmScheduler.scheduleCountdown(
-                    duration: 1,
+                    duration: duration,
                     kind: .breakDue,
-                    muteSound: self.muteAlarmSound
+                    muteSound: muteSound
                 )
-            } catch { return }
-            // Re-check session is still active and the alarm we replaced is still the
-            // current one before persisting. stop() or a concurrent reschedule may have
-            // updated currentAlarmId while the async cancel/schedule was in flight.
+            } catch {
+                self.logBuffer.log(.error, "replaceRunningAlarm: reschedule failed: \(error)")
+                return
+            }
             var record = self.persistence.load()
-            guard record.sessionActive, record.currentAlarmId == currentAlarmId else {
+            guard record.sessionActive, record.currentAlarmId == previousAlarmId else {
                 await self.alarmScheduler.cancel(alarmId: newId)
                 return
             }
@@ -230,8 +235,18 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// current set of scheduled alarms + the current clock. Never trusts in-memory state.
     /// Called on launch, on foreground, and on periodic ticks.
     public func reconcile() async {
+        await refreshAuthorization()
         await reconcileState()
         evaluateSchedule()
+        logBuffer.log(.info, "reconcile: state=\(state.description), authDenied=\(authorizationDenied)")
+    }
+
+    /// Query the scheduler's authorization state and publish whether it's denied.
+    /// On `.notDetermined`, this will trigger the system prompt the first time; on
+    /// subsequent calls it's a read.
+    public func refreshAuthorization() async {
+        let granted = (try? await alarmScheduler.requestAuthorizationIfNeeded()) ?? false
+        authorizationDenied = !granted
     }
 
     // MARK: - Reconciliation
@@ -353,6 +368,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     }
 
     private func handleFired(kind: AlarmKind) {
+        logBuffer.log(.info, "fired: kind=\(kind.rawValue)")
         let record = persistence.load()
         guard record.sessionActive,
               let cycleStartedAt = record.cycleStartedAt else { return }
@@ -376,12 +392,14 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
               record.currentAlarmId == alarmId,
               record.currentCycleId != nil,
               record.cycleStartedAt != nil else {
+            logBuffer.log(.debug, "dismissed: ignored stale alarm \(alarmId.uuidString.prefix(8))")
             return
         }
 
         switch kind {
         case .breakDue:
             // User acknowledged the break. Schedule the look-away countdown.
+            logBuffer.log(.info, "dismissed breakDue: scheduling look-away")
             Task { [weak self] in
                 guard let self else { return }
                 let breakActiveStartedAt = self.clock()
@@ -393,6 +411,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                         muteSound: self.muteAlarmSound
                     )
                 } catch {
+                    self.logBuffer.log(.error, "dismissed breakDue: look-away schedule failed, stopping: \(error)")
                     self.stop()
                     return
                 }
@@ -405,6 +424,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             }
         case .lookAwayDone:
             // Look-away period over. Roll to a new cycle.
+            logBuffer.log(.info, "dismissed lookAwayDone: rolling to next cycle")
             Task { [weak self] in
                 guard let self else { return }
                 let nextCycleId = UUID()
@@ -417,6 +437,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                         muteSound: self.muteAlarmSound
                     )
                 } catch {
+                    self.logBuffer.log(.error, "dismissed lookAwayDone: next-cycle schedule failed, stopping: \(error)")
                     self.stop()
                     return
                 }

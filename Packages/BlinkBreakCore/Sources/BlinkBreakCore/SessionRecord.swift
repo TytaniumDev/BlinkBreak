@@ -3,12 +3,9 @@
 //  BlinkBreakCore
 //
 //  The Codable persistence struct stored in UserDefaults. Small on purpose: the
-//  pending notification queue is the source of truth for "what happens next";
-//  this record is just what lets the UI rehydrate on launch.
-//
-//  `lastUpdatedAt` is a staleness marker used by `SessionController.handleRemoteSnapshot`
-//  to drop out-of-order snapshot deliveries. It's optional for Codable backwards
-//  compatibility with pre-redesign persisted records.
+//  AlarmKit system alarm set is the source of truth for "what happens next";
+//  this record carries the cycle metadata needed to interpret those alarms on
+//  launch.
 //
 //  Flutter analogue: the @JsonSerializable() model you'd stash in SharedPreferences.
 //
@@ -41,19 +38,6 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// stops vs. crashes during reconciliation. Optional so legacy records decode
     /// without migration.
     public var manualStopDate: Date?
-
-    /// Backwards-compatible coding keys: `breakActiveStartedAt` is encoded as
-    /// `"lookAwayStartedAt"` so existing persisted records decode without migration.
-    enum CodingKeys: String, CodingKey {
-        case sessionActive
-        case currentCycleId
-        case cycleStartedAt
-        case breakActiveStartedAt = "lookAwayStartedAt"
-        case lastUpdatedAt
-        case manualStopDate
-        case wasAutoStarted
-        case currentAlarmId
-    }
 
     /// Whether this session was started automatically by the weekly schedule evaluator
     /// (as opposed to the user manually tapping Start). Only schedule-started sessions

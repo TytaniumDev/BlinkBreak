@@ -57,7 +57,16 @@ public protocol SessionControllerProtocol: ObservableObject {
     func updateAlarmSound(muted: Bool)
 
     /// Immediately cancel the current break alarm and reschedule it to fire in
-    /// 1 second. Only meaningful in the `.running` state; no-op otherwise.
-    /// Intended for manually testing the full break-alarm transition.
+    /// 1 second. Wired to the "Take break now" button in `RunningView`. No-op
+    /// outside the `.running` state.
     func triggerBreakNow()
+
+    /// True when the AlarmKit authorization prompt has been denied. Views route
+    /// to `PermissionDeniedView` while this is true and the state is `.idle`.
+    var authorizationDenied: Bool { get }
+
+    /// Query the current authorization state and update `authorizationDenied`.
+    /// Called on launch and on foregrounding so the view reflects "settings toggled
+    /// while the app was backgrounded".
+    func refreshAuthorization() async
 }
