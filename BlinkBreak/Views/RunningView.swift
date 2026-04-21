@@ -31,11 +31,6 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
     }
 
     var body: some View {
-        // ⚡ Bolt Optimization: Cache the expensive Date.formatted string outside the TimelineView.
-        // This avoids re-evaluating the DateFormatter allocation/formatting on every 1-second tick,
-        // significantly reducing main-thread allocation overhead and memory churn.
-        let cachedBreakFireTimeFormatted = breakFireTimeFormatted
-
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
             let total = Int(remainingSeconds.rounded(.up))
@@ -51,7 +46,7 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                     .accessibilityValue(a11yDurationFormatter.string(from: remainingSeconds) ?? countdownLabel)
                     .accessibilityIdentifier("label.running.countdown")
 
-                Text("Fires at \(cachedBreakFireTimeFormatted)")
+                Text("Fires at \(breakFireTimeFormatted)")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.6))
 
