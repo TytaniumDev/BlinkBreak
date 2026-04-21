@@ -25,9 +25,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         // BGTaskScheduler registration must happen before the app finishes launching.
         // The controller doesn't exist yet, so we pass a closure that reads it lazily.
-        ScheduleTaskManager.registerBackgroundTaskHandler { [weak self] in
-            self?.controller
-        }
+        ScheduleTaskManager.registerBackgroundTaskHandler(
+            evaluator: BlinkBreakApp.sharedEvaluator,
+            controllerProvider: { [weak self] in self?.controller }
+        )
 
         return true
     }

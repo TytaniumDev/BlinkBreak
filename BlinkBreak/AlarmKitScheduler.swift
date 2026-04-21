@@ -27,7 +27,6 @@ public struct BlinkBreakAlarmMetadata: AlarmMetadata {
     public init() {}
 }
 
-@available(iOS 26.1, *)
 public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
 
     /// UserDefaults key for the persisted alarm-id → kind mapping. Survives app kill
@@ -199,7 +198,7 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
         let (alert, secondaryIntent) = Self.presentation(for: kind, alarmID: id)
         let attributes = AlarmAttributes<BlinkBreakAlarmMetadata>(
             presentation: AlarmPresentation(alert: alert),
-            tintColor: .blue
+            tintColor: Color("AccentColor")
         )
         let sound: AlertConfiguration.AlertSound
         if muteSound {
@@ -243,7 +242,7 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
                 secondaryButton: button,
                 secondaryButtonBehavior: .custom
             )
-            return (alert, StartBreakIntent(alarmID: alarmID.uuidString))
+            return (alert, DismissAlarmIntent(alarmID: alarmID.uuidString))
         case .lookAwayDone:
             let button = AlarmButton(text: "End break", textColor: .white, systemImageName: "checkmark")
             let alert = AlarmPresentation.Alert(
@@ -251,7 +250,7 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
                 secondaryButton: button,
                 secondaryButtonBehavior: .custom
             )
-            return (alert, EndBreakIntent(alarmID: alarmID.uuidString))
+            return (alert, DismissAlarmIntent(alarmID: alarmID.uuidString))
         }
     }
 

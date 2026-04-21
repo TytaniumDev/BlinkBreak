@@ -35,14 +35,16 @@ struct BlinkBreakApp: App {
     }
 
     // Shared instances used by both the SessionController and the ScheduleTaskManager
-    // so we don't create duplicate persistence / evaluator objects.
-    private static let sharedPersistence = UserDefaultsPersistence()
-    private static let sharedEvaluator = ScheduleEvaluator(schedule: {
+    // so we don't create duplicate persistence / evaluator objects. Exposed at
+    // internal access so AppDelegate can pass the same evaluator into the background
+    // task handler registration.
+    static let sharedPersistence = UserDefaultsPersistence()
+    static let sharedEvaluator = ScheduleEvaluator(schedule: {
         sharedPersistence.loadSchedule() ?? .empty
     })
 
     @MainActor
-    private static let sharedAlarmScheduler = AlarmKitScheduler()
+    static let sharedAlarmScheduler = AlarmKitScheduler()
 
     // @StateObject owns an observable object for the entire lifetime of the app.
     // Flutter analogue: a top-level ChangeNotifierProvider that lives for as long
@@ -68,12 +70,10 @@ struct BlinkBreakApp: App {
                 .onAppear {
                     appDelegate.controller = controller
 
-                    // Request AlarmKit authorization on first launch. Subsequent launches
-                    // are a no-op because iOS remembers the user's decision.
-                    Task {
-                        _ = try? await Self.sharedAlarmScheduler.requestAuthorizationIfNeeded()
-                    }
-
+                    // `reconcile()` kicks off with `refreshAuthorization()` internally,
+                    // which handles first-launch authorization prompting and publishes
+                    // `authorizationDenied` for the `PermissionDeniedView` routing in
+                    // `RootView`. No need for a separate auth call here.
                     Task { await controller.reconcile() }
 
                     // Set up the ScheduleTaskManager for foreground schedule checks.

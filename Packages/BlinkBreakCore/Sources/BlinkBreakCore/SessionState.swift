@@ -15,13 +15,13 @@ import Foundation
 /// and observed by all views.
 ///
 /// ```
-///    idle ────(Start)────► running ────(primary notification fires)────► breakPending
-///      ▲                      │                                              │
-///      │                      │                                   (user taps "Start break")
-///      │                      │                                              │
-///   (Stop, from any state)   (Stop)                                           ▼
-///      │                      │                                         breakActive
-///      └──────────────────────┴──────(done notification, 20 s later)────────┘
+///    idle ────(Start)────► running ────(break-due alarm fires)────► breakPending
+///      ▲                      │                                         │
+///      │                      │                              (user taps "Start break")
+///      │                      │                                         │
+///   (Stop, from any state)   (Stop)                                      ▼
+///      │                      │                                    breakActive
+///      └──────────────────────┴──────(look-away alarm, 20 s later)───────┘
 /// ```
 public enum SessionState: Equatable, Sendable {
 
@@ -33,14 +33,14 @@ public enum SessionState: Equatable, Sendable {
     ///   The next break fires at `cycleStartedAt + BlinkBreakConstants.breakInterval`.
     case running(cycleStartedAt: Date)
 
-    /// The break-due alarm has fired. Awaiting user acknowledgment via the
-    /// AlarmKit takeover's "Start break" button or the in-app BreakPendingView.
+    /// The break-due alarm has fired. AlarmKit is showing the full-screen alert UI;
+    /// the app (if foregrounded) renders this state while the user acknowledges.
     /// - Parameter cycleStartedAt: When the 20-minute countdown for this cycle started.
     case breakPending(cycleStartedAt: Date)
 
     /// The user has tapped "Start break". The 20-second break is counting down.
-    /// - Parameter startedAt: When the break began. The `done` haptic
-    ///   fires at `startedAt + BlinkBreakConstants.lookAwayDuration`.
+    /// - Parameter startedAt: When the break began. The look-away alarm fires at
+    ///   `startedAt + BlinkBreakConstants.lookAwayDuration`.
     case breakActive(startedAt: Date)
 }
 

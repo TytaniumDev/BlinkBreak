@@ -21,7 +21,7 @@ struct RootView<Controller: SessionControllerProtocol>: View {
     /// The session controller driving the app. Injected from BlinkBreakApp so that
     /// previews can substitute a PreviewSessionController.
     @ObservedObject var controller: Controller
-    var scheduleEvaluator: ScheduleEvaluatorProtocol = NoopScheduleEvaluator()
+    let scheduleEvaluator: ScheduleEvaluatorProtocol
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -37,18 +37,22 @@ struct RootView<Controller: SessionControllerProtocol>: View {
 
             // Swap the foreground content based on state.
             Group {
-                switch controller.state {
-                case .idle:
-                    IdleView(
-                        controller: controller,
-                        scheduleStatusText: scheduleEvaluator.statusText(at: Date(), calendar: .current)
-                    )
-                case .running(let cycleStartedAt):
-                    RunningView(controller: controller, cycleStartedAt: cycleStartedAt)
-                case .breakPending:
-                    BreakPendingView(controller: controller)
-                case .breakActive:
-                    BreakActiveView(controller: controller)
+                if controller.authorizationDenied, case .idle = controller.state {
+                    PermissionDeniedView()
+                } else {
+                    switch controller.state {
+                    case .idle:
+                        IdleView(
+                            controller: controller,
+                            scheduleStatusText: scheduleEvaluator.statusText(at: Date(), calendar: .current)
+                        )
+                    case .running(let cycleStartedAt):
+                        RunningView(controller: controller, cycleStartedAt: cycleStartedAt)
+                    case .breakPending:
+                        BreakPendingView(controller: controller)
+                    case .breakActive:
+                        BreakActiveView(controller: controller)
+                    }
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: controller.state)
@@ -63,17 +67,21 @@ struct RootView<Controller: SessionControllerProtocol>: View {
 }
 
 #Preview("Idle") {
-    RootView(controller: PreviewSessionController.idle)
+    RootView(controller: PreviewSessionController.idle, scheduleEvaluator: NoopScheduleEvaluator())
 }
 
 #Preview("Running") {
-    RootView(controller: PreviewSessionController.running)
+    RootView(controller: PreviewSessionController.running, scheduleEvaluator: NoopScheduleEvaluator())
 }
 
 #Preview("Break Pending") {
-    RootView(controller: PreviewSessionController.breakPending)
+    RootView(controller: PreviewSessionController.breakPending, scheduleEvaluator: NoopScheduleEvaluator())
 }
 
 #Preview("Break Active") {
-    RootView(controller: PreviewSessionController.breakActive)
+    RootView(controller: PreviewSessionController.breakActive, scheduleEvaluator: NoopScheduleEvaluator())
+}
+
+#Preview("Permission Denied") {
+    RootView(controller: PreviewSessionController.permissionDenied, scheduleEvaluator: NoopScheduleEvaluator())
 }

@@ -2,9 +2,9 @@
 //  PermissionDeniedView.swift
 //  BlinkBreak
 //
-//  Shown in place of IdleView when the user has denied notification permission.
-//  The app does not work without notifications, so instead of trying to degrade
-//  gracefully we tell the user how to fix it.
+//  Shown in place of IdleView when the user has denied AlarmKit permission.
+//  Without authorization we can't schedule alarms, so the app is non-functional;
+//  surface a clear path back to Settings instead of failing silently.
 //
 
 import SwiftUI
@@ -15,12 +15,12 @@ struct PermissionDeniedView: View {
         VStack(alignment: .leading, spacing: 12) {
             EyebrowLabel(text: "BlinkBreak")
 
-            Text("Notifications are off")
+            Text("Alarms are off")
                 .font(.title2.weight(.semibold))
 
             Text(
-                "BlinkBreak can't remind you to take breaks without permission to send notifications. "
-                + "Open Settings and enable notifications for BlinkBreak to continue."
+                "BlinkBreak needs permission to schedule alarms for break reminders. "
+                + "Open Settings and enable alarms for BlinkBreak to continue."
             )
             .font(.subheadline)
             .foregroundStyle(.white.opacity(0.7))
@@ -38,6 +38,7 @@ struct PermissionDeniedView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .accessibilityIdentifier("button.permissionDenied.openSettings")
         }
         .padding(24)
     }

@@ -20,57 +20,7 @@ import Foundation
 @Suite("SessionController — state machine")
 struct SessionControllerTests {
 
-    // MARK: - Fixtures
-
-    @MainActor
-    final class Fixture {
-        let alarmScheduler = MockAlarmScheduler()
-        let persistence = InMemoryPersistence()
-        let nowBox = NowBox(value: Date(timeIntervalSince1970: 1_700_000_000))
-        let controller: SessionController
-
-        init() {
-            let box = nowBox
-            self.controller = SessionController(
-                alarmScheduler: alarmScheduler,
-                persistence: persistence,
-                clock: { box.value }
-            )
-        }
-
-        func advance(by seconds: TimeInterval) {
-            nowBox.value = nowBox.value.addingTimeInterval(seconds)
-        }
-    }
-
-    /// Thread-safe mutable box around a `Date` so the fixture's `clock` closure can
-    /// capture it by reference and read the latest value on each call.
-    final class NowBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storage: Date
-        init(value: Date) { self.storage = value }
-        var value: Date {
-            get {
-                lock.lock(); defer { lock.unlock() }
-                return storage
-            }
-            set {
-                lock.lock(); defer { lock.unlock() }
-                storage = newValue
-            }
-        }
-    }
-
-    /// SessionController spawns Tasks for alarm-scheduling work. Tests need to let
-    /// those tasks complete before asserting. `settle()` yields a few times — that's
-    /// enough for any awaited sequence in the controller to flush given everything
-    /// runs on the main actor.
-    private func settle() async {
-        for _ in 0..<3 {
-            await Task.yield()
-            try? await Task.sleep(for: .milliseconds(1))
-        }
-    }
+    typealias Fixture = SessionControllerFixture
 
     // MARK: - start()
 
