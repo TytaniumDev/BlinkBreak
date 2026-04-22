@@ -9,3 +9,7 @@
 ## 2026-04-21 - Collection .lazy modifier
 **Learning:** Chained collection operations like `.filter { ... }.map { ... }` allocate intermediate arrays. When the final result is immediately consumed by a `Set` or `Dictionary` initializer, this allocation is pure memory overhead.
 **Action:** Use `.lazy` (e.g., `array.lazy.filter { ... }.map { ... }`) when feeding data into new collections to avoid intermediate array allocations and reduce memory churn.
+
+## 2026-04-21 - Intermediate Allocations with joined
+**Learning:** Mapping over a collection to format strings before calling `joined(separator:)` allocates an intermediate array of strings.
+**Action:** Use `.lazy.map` (e.g., `array.lazy.map { ... }.joined(separator:)`) to avoid the intermediate array allocation.
