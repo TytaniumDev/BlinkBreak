@@ -92,12 +92,15 @@ public final class GitHubIssueReporter: BugReporterProtocol, @unchecked Sendable
         let sanitizedDescription = userDescription
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "```", with: "` ` `")
 
         // User description
         sections.append("""
         ## Description
 
+        ```text
         \(sanitizedDescription)
+        ```
         """)
 
         // Device info

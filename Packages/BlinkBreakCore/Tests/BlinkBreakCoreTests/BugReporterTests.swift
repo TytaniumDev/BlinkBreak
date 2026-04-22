@@ -91,10 +91,10 @@ struct BugReporterFormattingTests {
     func bodySanitizesHTML() {
         let report = makeReport(logCount: 0)
         let body = GitHubIssueReporter.formatBody(
-            userDescription: "Look at this <script>alert(1)</script> and <details>something</details>",
+            userDescription: "Look at this <script>alert(1)</script> and <details>something</details>\n```swift\nprint(1)\n```",
             report: report
         )
-        #expect(body.contains("Look at this &lt;script&gt;alert(1)&lt;/script&gt; and &lt;details&gt;something&lt;/details&gt;"))
+        #expect(body.contains("```text\nLook at this &lt;script&gt;alert(1)&lt;/script&gt; and &lt;details&gt;something&lt;/details&gt;\n` ` `swift\nprint(1)\n` ` `\n```"))
         #expect(!body.contains("<script>"))
         #expect(!body.contains("<details>something</details>"))
     }
