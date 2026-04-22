@@ -17,3 +17,8 @@
 **Vulnerability:** The bug report submission UI (`ShakeDetectorView`) allowed the user to tap "Send" multiple times rapidly while the async submission Task was running. This could cause concurrent network requests, potentially triggering GitHub API rate limiting or creating duplicate issues.
 **Learning:** Client-side rate limiting and UI-level debounce are essential to protect backend infrastructure and prevent redundant operations when relying on asynchronous network calls triggered by user interaction.
 **Prevention:** Implement a local state flag (e.g., `@State private var isSubmitting = false`) to disable the submission UI button during the in-flight request, and add a guard within the submit action itself to abort if already submitting.
+
+## 2026-04-22 - [Fix Markdown injection and mention spam in bug reports]
+**Vulnerability:** The bug reporting tool accepted unescaped markdown characters (like ```) in the user description, and did not wrap the description in a fenced code block, opening vectors for Markdown injection such as `@mentions` (notification spam) or Server-Side Request Forgery via image loading.
+**Learning:** When passing untrusted user input into Markdown-rendering APIs (like GitHub Issues), standard HTML sanitization (`<` and `>`) is insufficient. Markdown-specific constructs can be abused to trigger unwanted actions on the hosting platform.
+**Prevention:** Wrap raw user inputs in fenced code blocks (e.g., ` ```text `) when rendering them in Markdown templates, and sanitize backticks (```) within the input to prevent code block breakout attacks.
