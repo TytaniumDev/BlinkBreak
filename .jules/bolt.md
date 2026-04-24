@@ -9,3 +9,7 @@
 ## 2026-04-21 - Collection .lazy modifier
 **Learning:** Chained collection operations like `.filter { ... }.map { ... }` allocate intermediate arrays. When the final result is immediately consumed by a `Set` or `Dictionary` initializer, this allocation is pure memory overhead.
 **Action:** Use `.lazy` (e.g., `array.lazy.filter { ... }.map { ... }`) when feeding data into new collections to avoid intermediate array allocations and reduce memory churn.
+
+## 2026-04-24 - Caching .formatted() in TimelineView
+**Learning:** Even though `Date.formatted()` is an improvement over `DateFormatter`, it still comes with a cost. Calling it inside the closure of a `TimelineView` means it's re-evaluating every tick (every second).
+**Action:** When a date doesn't change on every tick (like a `breakFireTime`), extract its formatted string outside the `TimelineView` closure and capture the string to eliminate redundant formatting overhead.
