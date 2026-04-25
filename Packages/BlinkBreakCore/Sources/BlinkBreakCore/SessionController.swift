@@ -414,6 +414,17 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             return
         }
 
+        // If a schedule-started session has rolled past its scheduled end window
+        // (e.g. the break-due alarm sat alerting for hours and the user just now
+        // dismissed it), don't extend the chain. Stop here so the user doesn't get
+        // surprise alarms late at night. Manual sessions are exempt — the user
+        // owns the start/stop on those.
+        if scheduleWantsAutoStop(for: record) {
+            logBuffer.log(.info, "dismissed \(kind.rawValue): outside schedule window, stopping instead of rolling")
+            stop()
+            return
+        }
+
         switch kind {
         case .breakDue:
             // User acknowledged the break. Schedule the look-away countdown.
@@ -472,5 +483,18 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 self.state = .running(cycleStartedAt: nextCycleStartedAt)
             }
         }
+    }
+
+    /// True when a schedule-started session has rolled past the schedule's end window
+    /// at the current clock time. Cycle-rolling consults this before scheduling the
+    /// next alarm so an unattended chain can't keep firing late at night when the
+    /// user only opens the app sporadically and `reconcile()` rarely runs.
+    private func scheduleWantsAutoStop(for record: SessionRecord) -> Bool {
+        guard weeklySchedule.isEnabled, record.wasAutoStarted == true else { return false }
+        return !scheduleEvaluator.shouldBeActive(
+            at: clock(),
+            manualStopDate: record.manualStopDate,
+            calendar: calendar
+        )
     }
 }
