@@ -157,4 +157,97 @@ struct ScheduleIntegrationTests {
         #expect(f.controller.weeklySchedule == schedule)
         #expect(f.persistence.loadSchedule() == schedule)
     }
+
+    // MARK: - Cross-window dismissal (the "alarm fires past midnight" bug)
+
+    @Test("auto-started session: dismissing breakDue past schedule end stops instead of scheduling look-away")
+    func breakDueDismissedPastWindowStops() async {
+        let (f, evaluator) = makeFixture()
+        f.controller.updateSchedule(.default)
+        evaluator.stubbedShouldBeActive = true
+        await f.controller.reconcile()
+        await settle()
+        #expect(f.controller.state != .idle)
+
+        // Simulate the unattended-phone scenario: the break-due alarm is alerting
+        // and the user finally dismisses it well past the schedule's end.
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        evaluator.stubbedShouldBeActive = false
+        let scheduledBefore = f.alarmScheduler.scheduled.count
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        #expect(f.controller.state == .idle)
+        // No look-away should have been queued.
+        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+    }
+
+    @Test("auto-started session: dismissing lookAwayDone past schedule end stops instead of rolling next cycle")
+    func lookAwayDismissedPastWindowStops() async {
+        let (f, evaluator) = makeFixture()
+        f.controller.updateSchedule(.default)
+        evaluator.stubbedShouldBeActive = true
+        await f.controller.reconcile()
+        await settle()
+
+        // Drive a full break: fire + dismiss break-due (still in window) → look-away scheduled.
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        let lookAwayId = f.alarmScheduler.scheduled.last!.alarmId
+
+        // Look-away ends after the schedule window has closed.
+        evaluator.stubbedShouldBeActive = false
+        let scheduledBefore = f.alarmScheduler.scheduled.count
+        f.alarmScheduler.simulateFire(alarmId: lookAwayId, kind: .lookAwayDone)
+        f.alarmScheduler.simulateDismiss(alarmId: lookAwayId, kind: .lookAwayDone)
+        await settle()
+
+        #expect(f.controller.state == .idle)
+        // No next-cycle break-due should have been queued.
+        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+    }
+
+    @Test("manually started session: dismissing past schedule end still rolls (manual sessions ignore schedule)")
+    func manualSessionRollsRegardlessOfWindow() async {
+        let (f, evaluator) = makeFixture()
+        f.controller.updateSchedule(.default)
+        evaluator.stubbedShouldBeActive = false
+        f.controller.start()
+        await settle()
+        #expect(f.controller.state != .idle)
+
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        // Look-away should have been scheduled — manual sessions ignore the window.
+        let kinds = f.alarmScheduler.scheduled.map(\.kind)
+        #expect(kinds.contains(.lookAwayDone))
+        #expect(f.controller.state != .idle)
+    }
+
+    @Test("auto-started session: dismissing breakDue inside window still schedules look-away")
+    func breakDueDismissedInsideWindowRolls() async {
+        let (f, evaluator) = makeFixture()
+        f.controller.updateSchedule(.default)
+        evaluator.stubbedShouldBeActive = true
+        await f.controller.reconcile()
+        await settle()
+
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        let kinds = f.alarmScheduler.scheduled.map(\.kind)
+        #expect(kinds.contains(.lookAwayDone))
+    }
 }
