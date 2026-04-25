@@ -68,5 +68,5 @@ public protocol SessionControllerProtocol: ObservableObject {
     /// Query the current authorization state and update `authorizationDenied`.
     /// Called on launch and on foregrounding so the view reflects "settings toggled
     /// while the app was backgrounded".
-    func refreshAuthorization() async
+    func refreshPermission() async
 }

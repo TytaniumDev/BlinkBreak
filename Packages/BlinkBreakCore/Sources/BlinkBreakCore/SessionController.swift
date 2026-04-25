@@ -115,7 +115,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     muteSound: self.muteAlarmSound
                 )
             } catch AlarmSchedulerError.authorizationDenied {
-                self.logBuffer.log(.warning, "start: authorization denied")
+                self.logBuffer.log(.warning, "start: permission denied")
                 self.authorizationDenied = true
                 return
             } catch {
@@ -204,7 +204,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     muteSound: muteSound
                 )
             } catch AlarmSchedulerError.authorizationDenied {
-                self.logBuffer.log(.error, "replaceRunningAlarm: authorization denied — stopping session")
+                self.logBuffer.log(.error, "replaceRunningAlarm: permission denied — stopping session")
                 self.authorizationDenied = true
                 self.stop()
                 return
@@ -244,16 +244,16 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// current set of scheduled alarms + the current clock. Never trusts in-memory state.
     /// Called on launch, on foreground, and on periodic ticks.
     public func reconcile() async {
-        await refreshAuthorization()
+        await refreshPermission()
         await reconcileState()
         evaluateSchedule()
-        logBuffer.log(.info, "reconcile: state=\(state.description), authDenied=\(authorizationDenied)")
+        logBuffer.log(.info, "reconcile: state=\(state.description), permissionDenied=\(authorizationDenied)")
     }
 
     /// Query the scheduler's authorization state and publish whether it's denied.
     /// On `.notDetermined`, this will trigger the system prompt the first time; on
     /// subsequent calls it's a read.
-    public func refreshAuthorization() async {
+    public func refreshPermission() async {
         do {
             let granted = try await alarmScheduler.requestAuthorizationIfNeeded()
             authorizationDenied = !granted
@@ -263,7 +263,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             // Transient scheduler error — don't flip the UI to permission-denied on a
             // one-off failure. Leave `authorizationDenied` unchanged; a later reconcile
             // will re-query.
-            logBuffer.log(.warning, "refreshAuthorization: transient error, leaving state unchanged: \(error)")
+            logBuffer.log(.warning, "refreshPermission: transient error, leaving state unchanged: \(error)")
         }
     }
 
