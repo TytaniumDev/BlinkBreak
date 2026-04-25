@@ -70,7 +70,7 @@ struct BlinkBreakApp: App {
                 .onAppear {
                     appDelegate.controller = controller
 
-                    // `reconcile()` kicks off with `refreshAuthorization()` internally,
+                    // `reconcile()` kicks off with `refreshPermission()` internally,
                     // which handles first-launch authorization prompting and publishes
                     // `authorizationDenied` for the `PermissionDeniedView` routing in
                     // `RootView`. No need for a separate auth call here.

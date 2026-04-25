@@ -244,16 +244,16 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// current set of scheduled alarms + the current clock. Never trusts in-memory state.
     /// Called on launch, on foreground, and on periodic ticks.
     public func reconcile() async {
-        await refreshAuthorization()
+        await refreshPermission()
         await reconcileState()
         evaluateSchedule()
-        logBuffer.log(.info, "reconcile: state=\(state.description), permissionBlocked=\(authorizationDenied)")
+        logBuffer.log(.info, "reconcile: state=\(state.description), permissionDenied=\(authorizationDenied)")
     }
 
     /// Query the scheduler's authorization state and publish whether it's denied.
     /// On `.notDetermined`, this will trigger the system prompt the first time; on
     /// subsequent calls it's a read.
-    public func refreshAuthorization() async {
+    public func refreshPermission() async {
         do {
             let granted = try await alarmScheduler.requestAuthorizationIfNeeded()
             authorizationDenied = !granted

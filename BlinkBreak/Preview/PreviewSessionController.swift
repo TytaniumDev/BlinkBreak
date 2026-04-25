@@ -60,7 +60,7 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
         // No-op in previews.
     }
 
-    func refreshAuthorization() async {
+    func refreshPermission() async {
         // No-op in previews.
     }
 
