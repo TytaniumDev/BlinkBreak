@@ -68,7 +68,7 @@ struct ShakeDetectorView<Content: View>: View {
                 }
                 .disabled(isSubmitting)
             } message: {
-                Text("Your report will create a GitHub issue with diagnostic data (no personal info).")
+                Text("Your report will be sent to the developer with diagnostic data (no personal info).")
             }
             .overlay(alignment: .bottom) {
                 if showingToast {

@@ -21,7 +21,14 @@ import Sentry
 final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
 
     func submit(report: DiagnosticReport, userDescription: String) async throws {
-        SentrySDK.configureScope { scope in
+        // Capture a companion event with the session-specific tags scoped to
+        // *this* event via the block overload — the scope changes apply only
+        // inside the block. Using `SentrySDK.configureScope` here would mutate
+        // the global scope, leaking these tags onto every subsequent crash /
+        // event for the rest of the process lifetime. `SentrySDK.capture(feedback:)`
+        // doesn't expose a scope-block overload, so we tag the companion event
+        // and link the feedback to it via `associatedEventId`.
+        let eventId = SentrySDK.capture(message: "User bug report") { scope in
             scope.setTag(value: report.sessionState, key: "session_state")
             scope.setTag(value: String(report.sessionRecord.sessionActive), key: "session_active")
             scope.setTag(value: String(report.weeklySchedule.isEnabled), key: "schedule_enabled")
@@ -32,7 +39,8 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             message: userDescription.isEmpty ? "(no description)" : userDescription,
             name: nil,
             email: nil,
-            source: .custom
+            source: .custom,
+            associatedEventId: eventId
         )
         SentrySDK.capture(feedback: feedback)
     }
