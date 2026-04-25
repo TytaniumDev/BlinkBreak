@@ -68,7 +68,7 @@ struct ShakeDetectorView<Content: View>: View {
                 }
                 .disabled(isSubmitting)
             } message: {
-                Text("Your report will create a GitHub issue with diagnostic data (no personal info).")
+                Text("Your report will be sent to the developer with diagnostic data (no personal info).")
             }
             .overlay(alignment: .bottom) {
                 if showingToast {
@@ -107,15 +107,7 @@ struct ShakeDetectorView<Content: View>: View {
 
                 let report = await collector.collect(deviceInfo: deviceInfo)
 
-                guard let token = BugReportConfig.gitHubToken else {
-                    showToast("Bug reporting not configured")
-                    return
-                }
-
-                let reporter = GitHubIssueReporter(
-                    token: token,
-                    repo: BugReportConfig.gitHubRepo
-                )
+                let reporter = SentryFeedbackReporter()
                 try await reporter.submit(
                     report: report,
                     userDescription: bugDescription

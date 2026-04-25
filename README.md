@@ -121,7 +121,7 @@ The only GitHub repo secret required is `DOPPLER_TOKEN`. Doppler holds everythin
 - `MATCH_PASSWORD` — AES key for the `TytaniumDev/BlinkBreak-certificates` repo
 - `MATCH_SSH_PRIVATE_KEY` — deploy key for that certs repo
 - `MATCH_KEYCHAIN_PASSWORD` — ephemeral CI keychain password
-- `BUG_REPORT_GITHUB_TOKEN` — fine-grained PAT for the shake-to-report feature
+- `SENTRY_AUTH_TOKEN` — Sentry release/dSYM upload token (used by fastlane-plugin-sentry)
 
 To seed signing assets the first time, run `fastlane seed_certs` locally (see `fastlane/Fastfile`). After that, every push to `main` archives with the Distribution profile from match and uploads to TestFlight.
 

@@ -47,9 +47,6 @@ targets:
       - package: BlinkBreakCore
       - package: Sentry
         product: Sentry
-    configFiles:
-      Debug: BlinkBreak/BugReport/BugReport.xcconfig
-      Release: BlinkBreak/BugReport/BugReport.xcconfig
     info:
       path: BlinkBreak/Info.plist
       properties:
@@ -77,9 +74,6 @@ targets:
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        # Bug report PAT, injected via BugReport.xcconfig (gitignored).
-        # Falls back gracefully if the xcconfig is missing.
-        BugReportGitHubToken: $(BUG_REPORT_GITHUB_TOKEN)
         # AlarmKit user-permission prompt copy. Shown the first time we call
         # AlarmManager.shared.requestAuthorization().
         NSAlarmKitUsageDescription: "BlinkBreak schedules alarms to remind you to take 20-second eye-rest breaks every 20 minutes."
