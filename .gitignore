@@ -40,7 +40,6 @@ Package.resolved
 *.mobileprovision
 ExportOptions.plist
 AuthKey_*.p8
-BlinkBreak/BugReport/BugReport.xcconfig
 
 # Fastlane auto-generated artifacts (regenerated on every local run)
 fastlane/README.md
