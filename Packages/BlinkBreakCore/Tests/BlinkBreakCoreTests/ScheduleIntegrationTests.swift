@@ -233,6 +233,30 @@ struct ScheduleIntegrationTests {
         #expect(f.controller.state != .idle)
     }
 
+    @Test("manually started session: dismissing lookAwayDone past schedule end still rolls next cycle")
+    func manualSessionLookAwayRollsRegardlessOfWindow() async {
+        let (f, evaluator) = makeFixture()
+        f.controller.updateSchedule(.default)
+        evaluator.stubbedShouldBeActive = false
+        f.controller.start()
+        await settle()
+
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        let lookAwayId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: lookAwayId, kind: .lookAwayDone)
+        f.alarmScheduler.simulateDismiss(alarmId: lookAwayId, kind: .lookAwayDone)
+        await settle()
+
+        // Manual session should keep rolling — a second break-due should now exist.
+        let breakDueCount = f.alarmScheduler.scheduled.filter { $0.kind == .breakDue }.count
+        #expect(breakDueCount >= 2)
+        #expect(f.controller.state != .idle)
+    }
+
     @Test("auto-started session: dismissing breakDue inside window still schedules look-away")
     func breakDueDismissedInsideWindowRolls() async {
         let (f, evaluator) = makeFixture()
