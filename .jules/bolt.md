@@ -9,3 +9,7 @@
 ## 2026-04-21 - Collection .lazy modifier
 **Learning:** Chained collection operations like `.filter { ... }.map { ... }` allocate intermediate arrays. When the final result is immediately consumed by a `Set` or `Dictionary` initializer, this allocation is pure memory overhead.
 **Action:** Use `.lazy` (e.g., `array.lazy.filter { ... }.map { ... }`) when feeding data into new collections to avoid intermediate array allocations and reduce memory churn.
+
+## 2026-04-25 - SwiftUI TimelineView and Date.formatted()
+**Learning:** Even modern `Date.formatted()` calls are relatively expensive when placed inside a high-frequency render loop like `TimelineView` (e.g., ticking every second for a countdown).
+**Action:** Extract and cache the result of `Date.formatted()` outside the `TimelineView` closure in `var body: some View` if the target date is static relative to the ticking timeline context, significantly reducing main thread overhead.
