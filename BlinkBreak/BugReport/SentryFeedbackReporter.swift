@@ -36,7 +36,7 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
         }
 
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: userDescription.isEmpty ? "(no description)" : String(userDescription.prefix(2000)),
             name: nil,
             email: nil,
             source: .custom,
