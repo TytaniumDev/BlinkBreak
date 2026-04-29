@@ -35,8 +35,9 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             scope.setTag(value: String(report.deviceInfo.isTestFlight), key: "testflight")
         }
 
+        let truncatedDescription = String(userDescription.prefix(2000))
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: truncatedDescription.isEmpty ? "(no description)" : truncatedDescription,
             name: nil,
             email: nil,
             source: .custom,
