@@ -40,18 +40,15 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
     // MARK: - Inspection
 
     var scheduled: [ScheduleCall] {
-        lock.lock(); defer { lock.unlock() }
-        return _scheduled
+        lock.withLock { return _scheduled }
     }
 
     var cancelledIds: [UUID] {
-        lock.lock(); defer { lock.unlock() }
-        return _cancelled
+        lock.withLock { return _cancelled }
     }
 
     var cancelAllCount: Int {
-        lock.lock(); defer { lock.unlock() }
-        return _cancelAllCount
+        lock.withLock { return _cancelAllCount }
     }
 
     // MARK: - Stubbing helpers
@@ -59,27 +56,25 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
     /// Override the next ID returned from `scheduleCountdown`. Useful when a test
     /// needs a specific UUID it can later assert on.
     func setNextAssignedId(_ id: UUID) {
-        lock.lock(); defer { lock.unlock() }
-        _nextAssignedId = id
+        lock.withLock { _nextAssignedId = id }
     }
 
     func stubAuthorization(_ granted: Bool) {
-        lock.lock(); defer { lock.unlock() }
-        _stubbedAuthorization = granted
+        lock.withLock { _stubbedAuthorization = granted }
     }
 
     func setCurrentAlarms(_ alarms: [ScheduledAlarmInfo]) {
-        lock.lock(); defer { lock.unlock() }
-        _currentAlarms = alarms
+        lock.withLock { _currentAlarms = alarms }
     }
 
     func reset() {
-        lock.lock(); defer { lock.unlock() }
-        _scheduled.removeAll()
-        _cancelled.removeAll()
-        _cancelAllCount = 0
-        _currentAlarms.removeAll()
-        _nextAssignedId = nil
+        lock.withLock {
+            _scheduled.removeAll()
+            _cancelled.removeAll()
+            _cancelAllCount = 0
+            _currentAlarms.removeAll()
+            _nextAssignedId = nil
+        }
     }
 
     // MARK: - Event simulation
@@ -98,36 +93,36 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
     // MARK: - AlarmSchedulerProtocol
 
     func requestAuthorizationIfNeeded() async throws -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return _stubbedAuthorization
+        lock.withLock { return _stubbedAuthorization }
     }
 
     func scheduleCountdown(duration: TimeInterval, kind: AlarmKind, muteSound: Bool) async throws -> UUID {
-        lock.lock()
-        let id = _nextAssignedId ?? UUID()
-        _nextAssignedId = nil
-        _scheduled.append(ScheduleCall(alarmId: id, duration: duration, kind: kind, muteSound: muteSound))
-        // Mirror real AlarmKit behavior: scheduling adds the alarm to the system's
-        // active set. `currentAlarms()` should report it until cancellation or fire.
-        _currentAlarms.append(ScheduledAlarmInfo(alarmId: id, kind: kind))
-        lock.unlock()
-        return id
+        lock.withLock {
+            let id = _nextAssignedId ?? UUID()
+            _nextAssignedId = nil
+            _scheduled.append(ScheduleCall(alarmId: id, duration: duration, kind: kind, muteSound: muteSound))
+            // Mirror real AlarmKit behavior: scheduling adds the alarm to the system's
+            // active set. `currentAlarms()` should report it until cancellation or fire.
+            _currentAlarms.append(ScheduledAlarmInfo(alarmId: id, kind: kind))
+            return id
+        }
     }
 
     func cancel(alarmId: UUID) async {
-        lock.lock(); defer { lock.unlock() }
-        _cancelled.append(alarmId)
-        _currentAlarms.removeAll(where: { $0.alarmId == alarmId })
+        lock.withLock {
+            _cancelled.append(alarmId)
+            _currentAlarms.removeAll(where: { $0.alarmId == alarmId })
+        }
     }
 
     func cancelAll() async {
-        lock.lock(); defer { lock.unlock() }
-        _cancelAllCount += 1
-        _currentAlarms.removeAll()
+        lock.withLock {
+            _cancelAllCount += 1
+            _currentAlarms.removeAll()
+        }
     }
 
     func currentAlarms() async -> [ScheduledAlarmInfo] {
-        lock.lock(); defer { lock.unlock() }
-        return _currentAlarms
+        lock.withLock { return _currentAlarms }
     }
 }
