@@ -35,8 +35,10 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             scope.setTag(value: String(report.deviceInfo.isTestFlight), key: "testflight")
         }
 
+        // SECURITY: Bound user input length to prevent massive payload denial-of-service
+        let safeDescription = String(userDescription.prefix(2000))
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: safeDescription.isEmpty ? "(no description)" : safeDescription,
             name: nil,
             email: nil,
             source: .custom,
