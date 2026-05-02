@@ -35,8 +35,11 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             scope.setTag(value: String(report.deviceInfo.isTestFlight), key: "testflight")
         }
 
+        // 🛡️ Security: Bound user input length before passing to third-party SDK to
+        // prevent memory exhaustion and payload DOS.
+        let boundedDescription = String(userDescription.prefix(1000))
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: boundedDescription.isEmpty ? "(no description)" : boundedDescription,
             name: nil,
             email: nil,
             source: .custom,
