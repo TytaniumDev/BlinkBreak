@@ -9,3 +9,11 @@
 ## 2026-04-21 - Collection .lazy modifier
 **Learning:** Chained collection operations like `.filter { ... }.map { ... }` allocate intermediate arrays. When the final result is immediately consumed by a `Set` or `Dictionary` initializer, this allocation is pure memory overhead.
 **Action:** Use `.lazy` (e.g., `array.lazy.filter { ... }.map { ... }`) when feeding data into new collections to avoid intermediate array allocations and reduce memory churn.
+
+## 2025-05-12 - SwiftUI Calendar.current and Array Mapping Overhead
+**Learning:** Repeated `Calendar.current` lookups and array mapping inside SwiftUI view bodies (like in `ScheduleSection.swift`) or layout modifiers cause unnecessary overhead during re-renders. `Calendar.current` lookup can be slow, and array mapping creates new allocations every time.
+**Action:** Cache static or infrequently changing values like `orderedWeekdays` or `Calendar.current` in file-scoped `private let` constants so they are evaluated only once and shared across re-renders.
+
+## 2025-05-12 - SwiftUI TimelineView Scope Overhead
+**Learning:** Wrapping an entire `VStack` or container in a `TimelineView` causes all child views (like static text, buttons, and toggles) to unnecessarily re-evaluate and re-render on every tick (e.g., every second). This wastes CPU cycles on static elements.
+**Action:** Scope `TimelineView` closures as tightly as possible around only the specific views that require the continuous time context to animate or update.
