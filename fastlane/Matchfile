@@ -1,4 +1,4 @@
-git_url("git@github.com:TytaniumDev/BlinkBreak-certificates.git")
+git_url("git@github.com:TytaniumDev/TytaniumDev-certificates.git")
 storage_mode("git")
 type("appstore")
 app_identifier(["com.tytaniumdev.BlinkBreak"])
