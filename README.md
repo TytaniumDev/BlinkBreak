@@ -118,7 +118,7 @@ TestFlight deploys run automatically on push to `main` via `.github/workflows/de
 The only GitHub repo secret required is `DOPPLER_TOKEN`. Doppler holds everything else:
 
 - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_CONTENT`, `ASC_API_KEY_IS_BASE64` — App Store Connect API key (App Manager role)
-- `MATCH_PASSWORD` — AES key for the `TytaniumDev/BlinkBreak-certificates` repo
+- `MATCH_PASSWORD` — AES key for the `TytaniumDev/TytaniumDev-certificates` repo
 - `MATCH_SSH_PRIVATE_KEY` — deploy key for that certs repo
 - `MATCH_KEYCHAIN_PASSWORD` — ephemeral CI keychain password
 - `SENTRY_AUTH_TOKEN` — Sentry release/dSYM upload token (used by fastlane-plugin-sentry)

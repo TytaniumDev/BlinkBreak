@@ -8,7 +8,7 @@ name: Deploy to TestFlight
 #     certificate, which requires the ASC API key to have the Admin role.
 #     We only want to grant App Manager (principle of least privilege).
 #   - Fastlane match stores a CLASSIC Apple Distribution cert encrypted in a
-#     separate private git repo (TytaniumDev/BlinkBreak-certificates) and
+#     separate private git repo (TytaniumDev/TytaniumDev-certificates) and
 #     references it by a deterministic profile name ("match AppStore <bundle>"),
 #     so xcodebuild never touches cloud signing.
 #   - `upload_to_testflight` (pilot) handles the ASC API authentication cleanly.
