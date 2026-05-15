@@ -274,4 +274,40 @@ struct ScheduleIntegrationTests {
         let kinds = f.alarmScheduler.scheduled.map(\.kind)
         #expect(kinds.contains(.lookAwayDone))
     }
+
+    // Regression for BLINKBREAK-3: at lookAwayDone dismissal we used to consult the
+    // schedule only at `clock()`, then schedule the next breakDue `breakInterval`
+    // later. If that next fire-time is past the schedule end (e.g. user dismisses
+    // 30 s before 5 pm Friday with a Mon–Fri 9–5 schedule), the alarm fires
+    // outside the schedule window — sometimes on the next scheduled day.
+    @Test("auto-started session: lookAwayDone dismissed near schedule end stops if next breakDue would fire outside window")
+    func lookAwayDismissedNearWindowEndStops() async {
+        let (f, evaluator) = makeFixture()
+        f.controller.updateSchedule(.default)
+
+        let nowAtDismiss = f.nowBox.value
+        let nextFireTime = nowAtDismiss.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        evaluator.stubbedShouldBeActiveBlock = { date in
+            // In-window at "now" (during dismissal), out-of-window for the next alarm fire-time.
+            return date < nextFireTime
+        }
+
+        await f.controller.reconcile()
+        await settle()
+
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+        let lookAwayId = f.alarmScheduler.scheduled.last!.alarmId
+
+        let scheduledBefore = f.alarmScheduler.scheduled.count
+        f.alarmScheduler.simulateFire(alarmId: lookAwayId, kind: .lookAwayDone)
+        f.alarmScheduler.simulateDismiss(alarmId: lookAwayId, kind: .lookAwayDone)
+        await settle()
+
+        #expect(f.controller.state == .idle)
+        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+    }
 }

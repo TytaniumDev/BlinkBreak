@@ -33,6 +33,10 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             scope.setTag(value: String(report.sessionRecord.sessionActive), key: "session_active")
             scope.setTag(value: String(report.weeklySchedule.isEnabled), key: "schedule_enabled")
             scope.setTag(value: String(report.deviceInfo.isTestFlight), key: "testflight")
+            // Per-submission fingerprint so each companion event becomes its own
+            // issue instead of all of them collapsing into one "User bug report"
+            // group that drowns out the actual user-feedback issues.
+            scope.setFingerprint(["user-bug-report", UUID().uuidString])
         }
 
         let feedback = SentryFeedback(

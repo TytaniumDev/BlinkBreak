@@ -56,15 +56,25 @@ xcrun simctl erase all >/dev/null 2>&1 || true
 sleep 2
 echo "  ok — simulators reset."
 
+# Pick whichever iPhone simulator is installed on this machine. CI runners and
+# local Xcode installs ship different default iPhone families, so hardcoding a
+# single model breaks whenever Xcode updates the bundled simulator set.
+DEVICE_NAME="$(xcrun simctl list devices available \
+  | awk -F '[()]' '/^    iPhone/ { gsub(/^ +/, "", $1); gsub(/ +$/, "", $1); print $1; exit }')"
+if [[ -z "$DEVICE_NAME" ]]; then
+  echo "✗ No iPhone simulator available. Install one via Xcode → Settings → Platforms."
+  exit 1
+fi
+
 echo ""
-echo "→ Running XCUITest integration suite (expect ~4 minutes)..."
+echo "→ Running XCUITest integration suite on \"$DEVICE_NAME\" (expect ~4 minutes)..."
 echo "  BB_BREAK_INTERVAL=3, BB_LOOKAWAY_DURATION=3 set by the UITests scheme."
 echo ""
 
 xcodebuild test \
   -project BlinkBreak.xcodeproj \
   -scheme BlinkBreakUITests \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -destination "platform=iOS Simulator,name=$DEVICE_NAME" \
   -quiet
 
 echo ""

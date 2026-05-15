@@ -452,7 +452,15 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 self.state = .breakActive(startedAt: breakActiveStartedAt)
             }
         case .lookAwayDone:
-            // Look-away period over. Roll to a new cycle.
+            // Look-away period over. Roll to a new cycle — but only if the next
+            // break alarm would fire within the schedule. Without this, a session
+            // that dismisses 30 s before the schedule end pushes a breakDue alarm
+            // past it (BLINKBREAK-3: alarm fired Saturday with a Mon–Fri schedule).
+            if scheduleWantsAutoStopForNextBreakFire(for: record) {
+                logBuffer.log(.info, "dismissed lookAwayDone: next break-due would fire outside schedule, stopping")
+                stop()
+                return
+            }
             logBuffer.log(.info, "dismissed lookAwayDone: rolling to next cycle")
             Task { [weak self] in
                 guard let self else { return }
@@ -493,6 +501,20 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         guard weeklySchedule.isEnabled, record.wasAutoStarted == true else { return false }
         return !scheduleEvaluator.shouldBeActive(
             at: clock(),
+            manualStopDate: record.manualStopDate,
+            calendar: calendar
+        )
+    }
+
+    /// True when the next break-due alarm — scheduled `breakInterval` after now —
+    /// would fire outside the schedule window. Used at cycle-roll to avoid leaving
+    /// an alarm queued for after the schedule end (or, with a long enough interval,
+    /// for the next scheduled day).
+    private func scheduleWantsAutoStopForNextBreakFire(for record: SessionRecord) -> Bool {
+        guard weeklySchedule.isEnabled, record.wasAutoStarted == true else { return false }
+        let nextFire = clock().addingTimeInterval(BlinkBreakConstants.breakInterval)
+        return !scheduleEvaluator.shouldBeActive(
+            at: nextFire,
             manualStopDate: record.manualStopDate,
             calendar: calendar
         )
