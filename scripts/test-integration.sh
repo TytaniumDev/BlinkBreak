@@ -59,8 +59,15 @@ echo "  ok — simulators reset."
 # Pick whichever iPhone simulator is installed on this machine. CI runners and
 # local Xcode installs ship different default iPhone families, so hardcoding a
 # single model breaks whenever Xcode updates the bundled simulator set.
+#
+# `simctl list devices` formats each line as:
+#     iPhone NAME (UUID) (STATE)
+# where NAME may itself contain parens (e.g. "iPhone SE (3rd generation)"), so
+# we strip the trailing UUID/state pair specifically instead of splitting on
+# any `(` — splitting truncates names that carry a generation suffix.
 DEVICE_NAME="$(xcrun simctl list devices available \
-  | awk -F '[()]' '/^    iPhone/ { gsub(/^ +/, "", $1); gsub(/ +$/, "", $1); print $1; exit }')"
+  | sed -nE 's/^    (iPhone.*) \([0-9A-Fa-f-]{36}\) \([A-Za-z]+\) *$/\1/p' \
+  | head -n 1)"
 if [[ -z "$DEVICE_NAME" ]]; then
   echo "✗ No iPhone simulator available. Install one via Xcode → Settings → Platforms."
   exit 1
