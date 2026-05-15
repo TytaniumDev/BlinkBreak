@@ -206,10 +206,14 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
         } else {
             sound = BlinkBreakConstants.breakSoundFileName.map { .named($0) } ?? .default
         }
+        // Wire `DismissAlarmIntent` as the stop intent so the default iOS dismiss
+        // button explicitly cancels the alarm by UUID. Without this, AlarmKit
+        // re-presents the alert after the user taps the default close affordance
+        // (BLINKBREAK-4: "alarm immediately re-triggers after dismissal").
         let configuration = AlarmManager.AlarmConfiguration<BlinkBreakAlarmMetadata>.alarm(
             schedule: .fixed(Date().addingTimeInterval(duration)),
             attributes: attributes,
-            stopIntent: nil,
+            stopIntent: DismissAlarmIntent(alarmID: id.uuidString),
             secondaryIntent: secondaryIntent,
             sound: sound
         )
