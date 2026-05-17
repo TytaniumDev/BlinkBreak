@@ -27,6 +27,11 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
     private var _currentAlarms: [ScheduledAlarmInfo] = []
     private var _stubbedAuthorization: Bool = true
     private var _nextAssignedId: UUID?
+    /// Hook run inside `scheduleCountdown` before it returns. Lets tests simulate
+    /// concurrent state changes (e.g. `stop()` racing with a cycle-roll) by
+    /// mutating persistence or controller state at the moment the production
+    /// code is awaiting the scheduler.
+    var onScheduleCountdown: (@Sendable () async -> Void)?
 
     private let continuation: AsyncStream<AlarmEvent>.Continuation
     let events: AsyncStream<AlarmEvent>
@@ -110,7 +115,9 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
         // Mirror real AlarmKit behavior: scheduling adds the alarm to the system's
         // active set. `currentAlarms()` should report it until cancellation or fire.
         _currentAlarms.append(ScheduledAlarmInfo(alarmId: id, kind: kind))
+        let hook = onScheduleCountdown
         lock.unlock()
+        if let hook { await hook() }
         return id
     }
 

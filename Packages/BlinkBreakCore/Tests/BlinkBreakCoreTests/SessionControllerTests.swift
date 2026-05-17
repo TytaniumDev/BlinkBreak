@@ -270,6 +270,43 @@ struct SessionControllerTests {
         #expect(f.persistence.loadSkipRequestedAlarmId() == nil)
     }
 
+    // Race guard: if `stop()` (or any other path that writes idle) runs while
+    // `rollToNextCycle` is awaiting `scheduleCountdown`, the Task must not
+    // revive the session by writing a fresh running record on return. Both
+    // the breakDue-skip and lookAwayDone cycle-roll go through the same
+    // helper, so testing skip exercises the guard for both.
+    @Test("rollToNextCycle: session stopped during scheduling cancels new alarm and stays idle")
+    func rollToNextCycleRaceGuardCancelsNewAlarmIfStoppedMidAwait() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        // Simulate `stop()` racing with the schedule call: when the Task awaits
+        // the next-cycle scheduleCountdown, persistence flips to idle and the
+        // mock's currentAlarms is cleared.
+        let persistence = f.persistence
+        let scheduler = f.alarmScheduler
+        f.alarmScheduler.onScheduleCountdown = { @Sendable in
+            persistence.save(.idle)
+            await scheduler.cancelAll()
+        }
+
+        f.persistence.saveSkipRequestedAlarmId(breakAlarmId)
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        // The new next-cycle alarm should have been scheduled then cancelled.
+        let nextCycleScheduled = f.alarmScheduler.scheduled.filter { $0.kind == .breakDue }.dropFirst().first
+        if let nextCycleScheduled {
+            #expect(f.alarmScheduler.cancelledIds.contains(nextCycleScheduled.alarmId))
+        }
+        // And the persisted record stays idle — the race-guard prevented a revival.
+        #expect(f.persistence.load().sessionActive == false)
+    }
+
     // The skip marker is keyed to a specific alarm; a stale marker from a
     // previous alarm must NOT skip the look-away on a different alarm.
     @Test("dismissed breakDue with non-matching skip marker → schedules look-away normally")

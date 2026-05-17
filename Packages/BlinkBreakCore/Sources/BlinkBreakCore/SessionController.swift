@@ -472,11 +472,19 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                     self.stop()
                     return
                 }
-                var newRecord = self.persistence.load()
-                newRecord.breakActiveStartedAt = breakActiveStartedAt
-                newRecord.lastUpdatedAt = self.clock()
-                newRecord.currentAlarmId = lookAwayAlarmId
-                self.persistence.save(newRecord)
+                // Re-check after await: stop() may have run while we awaited the
+                // scheduler. If so, cancel the freshly-scheduled alarm and bail
+                // instead of writing a record that contradicts the idle state.
+                var latest = self.persistence.load()
+                guard latest.sessionActive else {
+                    self.logBuffer.log(.info, "dismissed breakDue: session stopped during scheduling, cancelling new look-away")
+                    await self.alarmScheduler.cancel(alarmId: lookAwayAlarmId)
+                    return
+                }
+                latest.breakActiveStartedAt = breakActiveStartedAt
+                latest.lastUpdatedAt = self.clock()
+                latest.currentAlarmId = lookAwayAlarmId
+                self.persistence.save(latest)
                 self.state = .breakActive(startedAt: breakActiveStartedAt)
             }
         case .lookAwayDone:
@@ -515,13 +523,22 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 self.stop()
                 return
             }
+            // Re-check after await: stop() may have run while we awaited the
+            // scheduler. Constructing a fresh running SessionRecord here without
+            // this check would revive a session the user just ended.
+            let latest = self.persistence.load()
+            guard latest.sessionActive else {
+                self.logBuffer.log(.info, "dismissed \(kindLabel): session stopped during scheduling, cancelling new alarm")
+                await self.alarmScheduler.cancel(alarmId: nextAlarmId)
+                return
+            }
             let newRecord = SessionRecord(
                 sessionActive: true,
                 currentCycleId: nextCycleId,
                 cycleStartedAt: nextCycleStartedAt,
                 breakActiveStartedAt: nil,
                 lastUpdatedAt: nextCycleStartedAt,
-                wasAutoStarted: record.wasAutoStarted,
+                wasAutoStarted: latest.wasAutoStarted,
                 currentAlarmId: nextAlarmId
             )
             self.persistence.save(newRecord)
