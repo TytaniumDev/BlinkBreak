@@ -31,8 +31,21 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
 
     /// UserDefaults key for the persisted alarm-id → kind mapping. Survives app kill
     /// so reconciliation on launch can correlate the still-scheduled system alarm with
-    /// its semantic kind.
-    private static let mappingDefaultsKey = "blinkbreak.alarmkit.idToKind.v1"
+    /// its semantic kind. Internal so `TurnOffBlinkBreakIntent` can cancel every
+    /// known BlinkBreak alarm from the AlarmKit alert UI.
+    static let mappingDefaultsKey = "blinkbreak.alarmkit.idToKind.v1"
+
+    /// Cancel every BlinkBreak alarm currently tracked in the persisted mapping and
+    /// clear the mapping. Invoked by `TurnOffBlinkBreakIntent.perform()` so the user
+    /// can fully end the session straight from the alarm UI without the app being
+    /// foregrounded. Safe to call from any process — only touches
+    /// `UserDefaults.standard` and `AlarmManager.shared`.
+    static func cancelAllAlarmsAndClearMapping() {
+        for id in loadMapping().keys {
+            try? AlarmManager.shared.cancel(id: id)
+        }
+        UserDefaults.standard.removeObject(forKey: mappingDefaultsKey)
+    }
 
     private let lock = NSLock()
     /// Maps the alarm UUIDs we've scheduled to their semantic kind so we can
@@ -125,21 +138,27 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
         alertingIds = ids
     }
 
+    // Both remember/forget read-modify-write the persisted mapping rather than
+    // overwriting with the in-memory snapshot. `TurnOffBlinkBreakIntent` clears
+    // UserDefaults directly; a snapshot write here would revive whatever entries
+    // the in-memory `idToKind` still holds before the observer reaps them.
     private func rememberMapping(id: UUID, kind: AlarmKind) {
         lock.lock()
         idToKind[id] = kind
-        let snapshot = idToKind
         lock.unlock()
-        Self.saveMapping(snapshot)
+        var current = Self.loadMapping()
+        current[id] = kind
+        Self.saveMapping(current)
     }
 
     private func forgetMapping(id: UUID) {
         lock.lock()
         idToKind.removeValue(forKey: id)
         alertingIds.remove(id)
-        let snapshot = idToKind
         lock.unlock()
-        Self.saveMapping(snapshot)
+        var current = Self.loadMapping()
+        current.removeValue(forKey: id)
+        Self.saveMapping(current)
     }
 
     private func clearAllMappings() {
@@ -206,14 +225,16 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
         } else {
             sound = BlinkBreakConstants.breakSoundFileName.map { .named($0) } ?? .default
         }
-        // Wire `DismissAlarmIntent` as the stop intent so the default iOS dismiss
-        // button explicitly cancels the alarm by UUID. Without this, AlarmKit
-        // re-presents the alert after the user taps the default close affordance
-        // (BLINKBREAK-4: "alarm immediately re-triggers after dismissal").
+        // System Stop and the custom secondary button do different things:
+        //   - Stop (system, label fixed by AlarmKit since iOS 26.1) → ends the
+        //     entire BlinkBreak session, same semantics as tapping Stop in the
+        //     app. Wired via `TurnOffBlinkBreakIntent`.
+        //   - Secondary "Start break" / "End break" → acknowledges this alarm
+        //     and rolls the cycle forward. Wired via `DismissAlarmIntent`.
         let configuration = AlarmManager.AlarmConfiguration<BlinkBreakAlarmMetadata>.alarm(
             schedule: .fixed(Date().addingTimeInterval(duration)),
             attributes: attributes,
-            stopIntent: DismissAlarmIntent(alarmID: id.uuidString),
+            stopIntent: TurnOffBlinkBreakIntent(),
             secondaryIntent: secondaryIntent,
             sound: sound
         )

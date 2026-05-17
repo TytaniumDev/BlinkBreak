@@ -406,8 +406,19 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     private func handleDismissed(alarmId: UUID, kind: AlarmKind) {
         let record = persistence.load()
-        guard record.sessionActive,
-              record.currentAlarmId == alarmId,
+        // Persistence says the session is no longer active — most often because
+        // the user tapped Stop on the alarm UI and `TurnOffBlinkBreakIntent`
+        // wrote an idle record before the cancellation propagated to us as a
+        // `.dismissed` event. Mirror that into our in-memory state so the UI
+        // doesn't lag a reconcile behind.
+        if !record.sessionActive {
+            if state != .idle {
+                state = .idle
+            }
+            logBuffer.log(.debug, "dismissed: session no longer active, synced state to idle")
+            return
+        }
+        guard record.currentAlarmId == alarmId,
               record.currentCycleId != nil,
               record.cycleStartedAt != nil else {
             logBuffer.log(.debug, "dismissed: ignored stale alarm \(alarmId.uuidString.prefix(8))")

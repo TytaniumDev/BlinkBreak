@@ -216,6 +216,29 @@ struct SessionControllerTests {
         #expect(f.controller.state == stateBefore)
     }
 
+    // External-stop path used by `TurnOffBlinkBreakIntent`: the intent writes
+    // an idle SessionRecord straight to persistence (bypassing the controller),
+    // then cancels the alarm. When the resulting `.dismissed` event reaches the
+    // controller, it must mirror the idle record into in-memory state instead
+    // of scheduling a look-away or rolling the cycle.
+    @Test("dismissed after persistence externally cleared → state syncs to idle, no new alarm queued")
+    func dismissAfterExternalStopSyncsState() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        f.persistence.save(.idle)
+        let scheduledBefore = f.alarmScheduler.scheduled.count
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        #expect(f.controller.state == .idle)
+        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+    }
+
     // MARK: - acknowledgeCurrentBreak()
 
     @Test("acknowledgeCurrentBreak triggers the same flow as alarm dismissal")
