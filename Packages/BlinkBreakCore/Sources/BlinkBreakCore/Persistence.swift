@@ -41,6 +41,18 @@ public protocol PersistenceProtocol: Sendable {
 
     /// Persist the alarm-sound mute preference.
     func saveAlarmSoundMuted(_ muted: Bool)
+
+    /// Read the "skip this alarm" marker written by `SkipBreakIntent` when the user
+    /// taps the system Stop button on a BlinkBreak alarm. Returns the alarm UUID
+    /// the user wanted to skip, or `nil` if no skip is pending. The marker is
+    /// scoped to one alarm so a stale entry from a previous alarm can't be
+    /// mistakenly consumed for a different one.
+    func loadSkipRequestedAlarmId() -> UUID?
+
+    /// Set or clear the skip marker. Pass `nil` to clear. Callers in
+    /// `SessionController.handleDismissed` always clear after reading so the
+    /// marker is consumed exactly once.
+    func saveSkipRequestedAlarmId(_ id: UUID?)
 }
 
 // MARK: - Real implementation
@@ -101,6 +113,21 @@ public final class UserDefaultsPersistence: PersistenceProtocol, @unchecked Send
     public func saveAlarmSoundMuted(_ muted: Bool) {
         defaults.set(muted, forKey: BlinkBreakConstants.alarmSoundMutedKey)
     }
+
+    public func loadSkipRequestedAlarmId() -> UUID? {
+        guard let string = defaults.string(forKey: BlinkBreakConstants.skipRequestedAlarmIdKey) else {
+            return nil
+        }
+        return UUID(uuidString: string)
+    }
+
+    public func saveSkipRequestedAlarmId(_ id: UUID?) {
+        if let id {
+            defaults.set(id.uuidString, forKey: BlinkBreakConstants.skipRequestedAlarmIdKey)
+        } else {
+            defaults.removeObject(forKey: BlinkBreakConstants.skipRequestedAlarmIdKey)
+        }
+    }
 }
 
 // MARK: - In-memory implementation (for tests)
@@ -114,6 +141,7 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
     private var record: SessionRecord
     private var schedule: WeeklySchedule?
     private var alarmSoundMuted: Bool = false
+    private var skipRequestedAlarmId: UUID?
 
     public init(initial: SessionRecord = .idle) {
         self.record = initial
@@ -159,5 +187,17 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
         lock.lock()
         defer { lock.unlock() }
         alarmSoundMuted = muted
+    }
+
+    public func loadSkipRequestedAlarmId() -> UUID? {
+        lock.lock()
+        defer { lock.unlock() }
+        return skipRequestedAlarmId
+    }
+
+    public func saveSkipRequestedAlarmId(_ id: UUID?) {
+        lock.lock()
+        defer { lock.unlock() }
+        skipRequestedAlarmId = id
     }
 }

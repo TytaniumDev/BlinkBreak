@@ -216,11 +216,11 @@ struct SessionControllerTests {
         #expect(f.controller.state == stateBefore)
     }
 
-    // External-stop path used by `TurnOffBlinkBreakIntent`: the intent writes
-    // an idle SessionRecord straight to persistence (bypassing the controller),
-    // then cancels the alarm. When the resulting `.dismissed` event reaches the
-    // controller, it must mirror the idle record into in-memory state instead
-    // of scheduling a look-away or rolling the cycle.
+    // Defensive: persistence shows idle when a dismissed event arrives. Can
+    // happen if `stop()` writes idle while AlarmKit is still propagating the
+    // cancellation it issued, so the .dismissed event lands after the record
+    // has flipped. The controller must mirror the idle record into in-memory
+    // state instead of routing through the normal handlers.
     @Test("dismissed after persistence externally cleared → state syncs to idle, no new alarm queued")
     func dismissAfterExternalStopSyncsState() async {
         let f = Fixture()
@@ -237,6 +237,58 @@ struct SessionControllerTests {
 
         #expect(f.controller.state == .idle)
         #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+    }
+
+    // System Stop on the alarm UI sets a skip marker via `SkipBreakIntent` and
+    // cancels the alarm. The controller must consume the marker, skip the
+    // look-away, and schedule the next breakDue directly — matching the
+    // behavior of a normal lookAwayDone-dismissed cycle roll.
+    @Test("dismissed breakDue with matching skip marker → skips look-away and schedules next breakDue")
+    func dismissBreakDueWithSkipMarkerRollsCycle() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        f.persistence.saveSkipRequestedAlarmId(breakAlarmId)
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        // No look-away scheduled — skipped the break entirely.
+        #expect(!f.alarmScheduler.scheduled.contains(where: { $0.kind == .lookAwayDone }))
+        // Two breakDue calls: the initial one + the post-skip next-cycle.
+        let breakDueCount = f.alarmScheduler.scheduled.filter { $0.kind == .breakDue }.count
+        #expect(breakDueCount == 2)
+        guard case .running = f.controller.state else {
+            Issue.record("expected running after skip, got \(f.controller.state)")
+            return
+        }
+        // Marker is consumed on read so a subsequent dismissed event can't
+        // accidentally trigger another skip.
+        #expect(f.persistence.loadSkipRequestedAlarmId() == nil)
+    }
+
+    // The skip marker is keyed to a specific alarm; a stale marker from a
+    // previous alarm must NOT skip the look-away on a different alarm.
+    @Test("dismissed breakDue with non-matching skip marker → schedules look-away normally")
+    func dismissBreakDueWithStaleSkipMarkerSchedulesLookAway() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        f.persistence.saveSkipRequestedAlarmId(UUID()) // some other alarm
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        // Normal acknowledge path — look-away should have been queued.
+        #expect(f.alarmScheduler.scheduled.contains(where: { $0.kind == .lookAwayDone }))
+        // And the stale marker is cleared even on mismatch.
+        #expect(f.persistence.loadSkipRequestedAlarmId() == nil)
     }
 
     // MARK: - acknowledgeCurrentBreak()
@@ -350,7 +402,6 @@ struct SessionControllerTests {
         #expect(f.alarmScheduler.cancelledIds.isEmpty)
         #expect(f.controller.state == .idle)
     }
-
 
     // MARK: - muteAlarmSound / updateAlarmSound(muted:)
 

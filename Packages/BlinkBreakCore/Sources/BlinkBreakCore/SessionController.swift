@@ -405,12 +405,18 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     }
 
     private func handleDismissed(alarmId: UUID, kind: AlarmKind) {
+        // Consume any "skip this break" marker the system Stop button left
+        // behind via `SkipBreakIntent`. Always clear, even on mismatch, so a
+        // stale marker from a previous alarm can't survive to the next one.
+        let skippedAlarmId = persistence.loadSkipRequestedAlarmId()
+        persistence.saveSkipRequestedAlarmId(nil)
+        let isSkipRequested = skippedAlarmId == alarmId
+
         let record = persistence.load()
-        // Persistence says the session is no longer active — most often because
-        // the user tapped Stop on the alarm UI and `TurnOffBlinkBreakIntent`
-        // wrote an idle record before the cancellation propagated to us as a
-        // `.dismissed` event. Mirror that into our in-memory state so the UI
-        // doesn't lag a reconcile behind.
+        // Defensive: if persistence already shows idle (e.g. an in-flight
+        // `stop()` ran while AlarmKit was still propagating the cancellation),
+        // mirror the idle state into the UI immediately instead of waiting
+        // for the next reconcile.
         if !record.sessionActive {
             if state != .idle {
                 state = .idle
@@ -437,8 +443,19 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         }
 
         switch kind {
+        case .breakDue where isSkipRequested:
+            // User tapped system Stop → skip the look-away. Roll straight to
+            // the next cycle, subject to the same "next breakDue would fire
+            // outside the schedule window" guard the lookAwayDone path uses.
+            if scheduleWantsAutoStopForNextBreakFire(for: record) {
+                logBuffer.log(.info, "dismissed breakDue (skip): next break-due would fire outside schedule, stopping")
+                stop()
+                return
+            }
+            logBuffer.log(.info, "dismissed breakDue (skip): rolling to next cycle")
+            rollToNextCycle(carryingOver: record, kindLabel: "breakDue(skip)")
         case .breakDue:
-            // User acknowledged the break. Schedule the look-away countdown.
+            // User tapped the secondary "Start break". Schedule the look-away countdown.
             logBuffer.log(.info, "dismissed breakDue: scheduling look-away")
             Task { [weak self] in
                 guard let self else { return }
@@ -473,34 +490,42 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 return
             }
             logBuffer.log(.info, "dismissed lookAwayDone: rolling to next cycle")
-            Task { [weak self] in
-                guard let self else { return }
-                let nextCycleId = UUID()
-                let nextCycleStartedAt = self.clock()
-                let nextAlarmId: UUID
-                do {
-                    nextAlarmId = try await self.alarmScheduler.scheduleCountdown(
-                        duration: BlinkBreakConstants.breakInterval,
-                        kind: .breakDue,
-                        muteSound: self.muteAlarmSound
-                    )
-                } catch {
-                    self.logBuffer.log(.error, "dismissed lookAwayDone: next-cycle schedule failed, stopping: \(error)")
-                    self.stop()
-                    return
-                }
-                let newRecord = SessionRecord(
-                    sessionActive: true,
-                    currentCycleId: nextCycleId,
-                    cycleStartedAt: nextCycleStartedAt,
-                    breakActiveStartedAt: nil,
-                    lastUpdatedAt: nextCycleStartedAt,
-                    wasAutoStarted: record.wasAutoStarted,
-                    currentAlarmId: nextAlarmId
+            rollToNextCycle(carryingOver: record, kindLabel: "lookAwayDone")
+        }
+    }
+
+    /// Schedule a fresh breakDue alarm and persist a new running cycle. Shared
+    /// between the lookAwayDone-dismissed path and the breakDue-skip path —
+    /// both produce the same "back to running, next break in `breakInterval`"
+    /// outcome.
+    private func rollToNextCycle(carryingOver record: SessionRecord, kindLabel: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            let nextCycleId = UUID()
+            let nextCycleStartedAt = self.clock()
+            let nextAlarmId: UUID
+            do {
+                nextAlarmId = try await self.alarmScheduler.scheduleCountdown(
+                    duration: BlinkBreakConstants.breakInterval,
+                    kind: .breakDue,
+                    muteSound: self.muteAlarmSound
                 )
-                self.persistence.save(newRecord)
-                self.state = .running(cycleStartedAt: nextCycleStartedAt)
+            } catch {
+                self.logBuffer.log(.error, "dismissed \(kindLabel): next-cycle schedule failed, stopping: \(error)")
+                self.stop()
+                return
             }
+            let newRecord = SessionRecord(
+                sessionActive: true,
+                currentCycleId: nextCycleId,
+                cycleStartedAt: nextCycleStartedAt,
+                breakActiveStartedAt: nil,
+                lastUpdatedAt: nextCycleStartedAt,
+                wasAutoStarted: record.wasAutoStarted,
+                currentAlarmId: nextAlarmId
+            )
+            self.persistence.save(newRecord)
+            self.state = .running(cycleStartedAt: nextCycleStartedAt)
         }
     }
 
