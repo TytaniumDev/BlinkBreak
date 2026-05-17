@@ -27,6 +27,17 @@
 import AppIntents
 import AlarmKit
 import BlinkBreakCore
+import os
+
+/// Unified logging — `LogBuffer.shared` is a per-process singleton, so it would
+/// silently drop messages when the intent runs in a separate process (the system
+/// can route LiveActivityIntents to an intent host while the app is suspended or
+/// killed). `os.Logger` writes to the system log and is reachable from any
+/// process, including via `log show --predicate 'subsystem == "..."'`.
+private let intentLogger = Logger(
+    subsystem: "com.tytaniumdev.BlinkBreak",
+    category: "TurnOffBlinkBreakIntent"
+)
 
 struct TurnOffBlinkBreakIntent: LiveActivityIntent {
 
@@ -42,12 +53,19 @@ struct TurnOffBlinkBreakIntent: LiveActivityIntent {
         var idleRecord = SessionRecord.idle
         let now = Date()
         idleRecord.lastUpdatedAt = now
+        // Set unconditionally even though `SessionController.stop()` only sets it
+        // inside the schedule window. `ScheduleEvaluator.shouldBeActive` only
+        // honours the stop date when it falls inside today's window, so the
+        // extra timestamp outside the window is a harmless no-op — and the
+        // in-window case is exactly the one we need to suppress auto-restart for.
+        // We don't load WeeklySchedule here because the evaluator's gate makes
+        // a conditional write redundant.
         idleRecord.manualStopDate = now
         UserDefaultsPersistence().save(idleRecord)
 
         AlarmKitScheduler.cancelAllAlarmsAndClearMapping()
 
-        LogBuffer.shared.log(.info, "TurnOffBlinkBreakIntent: session stopped from alarm UI")
+        intentLogger.info("session stopped from alarm UI")
 
         return .result()
     }

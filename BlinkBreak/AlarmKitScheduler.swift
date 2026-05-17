@@ -138,21 +138,27 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
         alertingIds = ids
     }
 
+    // Both remember/forget read-modify-write the persisted mapping rather than
+    // overwriting with the in-memory snapshot. `TurnOffBlinkBreakIntent` clears
+    // UserDefaults directly; a snapshot write here would revive whatever entries
+    // the in-memory `idToKind` still holds before the observer reaps them.
     private func rememberMapping(id: UUID, kind: AlarmKind) {
         lock.lock()
         idToKind[id] = kind
-        let snapshot = idToKind
         lock.unlock()
-        Self.saveMapping(snapshot)
+        var current = Self.loadMapping()
+        current[id] = kind
+        Self.saveMapping(current)
     }
 
     private func forgetMapping(id: UUID) {
         lock.lock()
         idToKind.removeValue(forKey: id)
         alertingIds.remove(id)
-        let snapshot = idToKind
         lock.unlock()
-        Self.saveMapping(snapshot)
+        var current = Self.loadMapping()
+        current.removeValue(forKey: id)
+        Self.saveMapping(current)
     }
 
     private func clearAllMappings() {
