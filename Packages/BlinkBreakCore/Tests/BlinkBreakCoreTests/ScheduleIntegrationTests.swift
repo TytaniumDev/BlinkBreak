@@ -310,4 +310,34 @@ struct ScheduleIntegrationTests {
         #expect(f.controller.state == .idle)
         #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
     }
+
+    // Skip-via-stop path mirrors the cycle-roll guard: if a skip near the
+    // schedule end would queue the next breakDue past the window, stop the
+    // session instead of scheduling.
+    @Test("auto-started session: skip near schedule end stops if next breakDue would fire outside window")
+    func skipNearWindowEndStops() async {
+        let (f, evaluator) = makeFixture()
+        f.controller.updateSchedule(.default)
+
+        let nowAtSkip = f.nowBox.value
+        let nextFireTime = nowAtSkip.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        evaluator.stubbedShouldBeActiveBlock = { date in
+            return date < nextFireTime
+        }
+
+        await f.controller.reconcile()
+        await settle()
+
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        f.persistence.saveSkipRequestedAlarmId(breakAlarmId)
+        let scheduledBefore = f.alarmScheduler.scheduled.count
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        #expect(f.controller.state == .idle)
+        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+    }
 }

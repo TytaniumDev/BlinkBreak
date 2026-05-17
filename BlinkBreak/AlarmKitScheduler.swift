@@ -31,21 +31,8 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
 
     /// UserDefaults key for the persisted alarm-id → kind mapping. Survives app kill
     /// so reconciliation on launch can correlate the still-scheduled system alarm with
-    /// its semantic kind. Internal so `TurnOffBlinkBreakIntent` can cancel every
-    /// known BlinkBreak alarm from the AlarmKit alert UI.
-    static let mappingDefaultsKey = "blinkbreak.alarmkit.idToKind.v1"
-
-    /// Cancel every BlinkBreak alarm currently tracked in the persisted mapping and
-    /// clear the mapping. Invoked by `TurnOffBlinkBreakIntent.perform()` so the user
-    /// can fully end the session straight from the alarm UI without the app being
-    /// foregrounded. Safe to call from any process — only touches
-    /// `UserDefaults.standard` and `AlarmManager.shared`.
-    static func cancelAllAlarmsAndClearMapping() {
-        for id in loadMapping().keys {
-            try? AlarmManager.shared.cancel(id: id)
-        }
-        UserDefaults.standard.removeObject(forKey: mappingDefaultsKey)
-    }
+    /// its semantic kind.
+    private static let mappingDefaultsKey = "blinkbreak.alarmkit.idToKind.v1"
 
     private let lock = NSLock()
     /// Maps the alarm UUIDs we've scheduled to their semantic kind so we can
@@ -226,15 +213,16 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
             sound = BlinkBreakConstants.breakSoundFileName.map { .named($0) } ?? .default
         }
         // System Stop and the custom secondary button do different things:
-        //   - Stop (system, label fixed by AlarmKit since iOS 26.1) → ends the
-        //     entire BlinkBreak session, same semantics as tapping Stop in the
-        //     app. Wired via `TurnOffBlinkBreakIntent`.
+        //   - Stop (system, label fixed by AlarmKit since iOS 26.1) → skips this
+        //     reminder. `SkipBreakIntent` writes a marker keyed to `id` so that
+        //     `SessionController.handleDismissed` can schedule the next breakDue
+        //     directly (no look-away in between) when the cancellation reaches it.
         //   - Secondary "Start break" / "End break" → acknowledges this alarm
         //     and rolls the cycle forward. Wired via `DismissAlarmIntent`.
         let configuration = AlarmManager.AlarmConfiguration<BlinkBreakAlarmMetadata>.alarm(
             schedule: .fixed(Date().addingTimeInterval(duration)),
             attributes: attributes,
-            stopIntent: TurnOffBlinkBreakIntent(),
+            stopIntent: SkipBreakIntent(alarmID: id.uuidString),
             secondaryIntent: secondaryIntent,
             sound: sound
         )
