@@ -140,7 +140,7 @@ struct SessionControllerTests {
         }
     }
 
-    @Test("break-due alarm dismissal transitions to breakActive + schedules look-away")
+    @Test("break-due alarm dismissal with ack marker → breakActive + look-away scheduled")
     func breakDismissSchedulesLookAway() async {
         let f = Fixture()
         f.controller.start()
@@ -150,6 +150,9 @@ struct SessionControllerTests {
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
         f.advance(by: 5)
+        // Simulate the secondary "Start break" button: write the ack marker
+        // so the dismissed handler routes to schedule-look-away.
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
@@ -179,6 +182,9 @@ struct SessionControllerTests {
         let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
+        // Ack the breakDue so the controller schedules the look-away
+        // (default-skip would bypass the look-away entirely).
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
         let lookAwayAlarmId = f.alarmScheduler.scheduled.last!.alarmId
@@ -239,12 +245,17 @@ struct SessionControllerTests {
         #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
     }
 
-    // System Stop on the alarm UI sets a skip marker via `SkipBreakIntent` and
-    // cancels the alarm. The controller must consume the marker, skip the
-    // look-away, and schedule the next breakDue directly — matching the
-    // behavior of a normal lookAwayDone-dismissed cycle roll.
-    @Test("dismissed breakDue with matching skip marker → skips look-away and schedules next breakDue")
-    func dismissBreakDueWithSkipMarkerRollsCycle() async {
+    // System Stop on the alarm UI just cancels the alarm. The dismissed
+    // event arrives with no acknowledge marker (since only the secondary
+    // "Start break" button writes one), so the controller defaults to the
+    // skip path: no look-away, roll straight to the next breakDue cycle.
+    //
+    // This also covers the production race where AlarmKit's alarmUpdates
+    // can emit `.dismissed` before the user-tapped intent finishes writing
+    // a marker — the default-skip behavior makes that race harmless rather
+    // than scheduling a surprise 20-second look-away alarm (BLINKBREAK-6).
+    @Test("dismissed breakDue with no ack marker → defaults to skip and schedules next breakDue")
+    func dismissBreakDueWithoutAckMarkerRollsCycle() async {
         let f = Fixture()
         f.controller.start()
         await settle()
@@ -252,7 +263,6 @@ struct SessionControllerTests {
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
-        f.persistence.saveSkipRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
@@ -262,18 +272,15 @@ struct SessionControllerTests {
         let breakDueCount = f.alarmScheduler.scheduled.filter { $0.kind == .breakDue }.count
         #expect(breakDueCount == 2)
         guard case .running = f.controller.state else {
-            Issue.record("expected running after skip, got \(f.controller.state)")
+            Issue.record("expected running after default skip, got \(f.controller.state)")
             return
         }
-        // Marker is consumed on read so a subsequent dismissed event can't
-        // accidentally trigger another skip.
-        #expect(f.persistence.loadSkipRequestedAlarmId() == nil)
     }
 
     // Race guard: if `stop()` (or any other path that writes idle) runs while
     // `rollToNextCycle` is awaiting `scheduleCountdown`, the Task must not
-    // revive the session by writing a fresh running record on return. Both
-    // the breakDue-skip and lookAwayDone cycle-roll go through the same
+    // revive the session by writing a fresh running record on return. The
+    // default skip path and lookAwayDone cycle-roll go through the same
     // helper, so testing skip exercises the guard for both.
     @Test("rollToNextCycle: session stopped during scheduling cancels new alarm and stays idle")
     func rollToNextCycleRaceGuardCancelsNewAlarmIfStoppedMidAwait() async {
@@ -294,7 +301,7 @@ struct SessionControllerTests {
             await scheduler.cancelAll()
         }
 
-        f.persistence.saveSkipRequestedAlarmId(breakAlarmId)
+        // No ack marker → default skip path → rollToNextCycle fires.
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
@@ -307,10 +314,12 @@ struct SessionControllerTests {
         #expect(f.persistence.load().sessionActive == false)
     }
 
-    // The skip marker is keyed to a specific alarm; a stale marker from a
-    // previous alarm must NOT skip the look-away on a different alarm.
-    @Test("dismissed breakDue with non-matching skip marker → schedules look-away normally")
-    func dismissBreakDueWithStaleSkipMarkerSchedulesLookAway() async {
+    // The ack marker is keyed to a specific alarm; a stale marker from a
+    // previous alarm must NOT acknowledge a different alarm. With the
+    // default-skip semantics, a non-matching marker is consumed and the
+    // dismiss falls through to the skip path (same as no marker at all).
+    @Test("dismissed breakDue with non-matching ack marker → consumed and treated as default skip")
+    func dismissBreakDueWithStaleAckMarkerSkipsLookAway() async {
         let f = Fixture()
         f.controller.start()
         await settle()
@@ -318,14 +327,38 @@ struct SessionControllerTests {
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
-        f.persistence.saveSkipRequestedAlarmId(UUID()) // some other alarm
+        f.persistence.saveAcknowledgeRequestedAlarmId(UUID()) // some other alarm
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
-        // Normal acknowledge path — look-away should have been queued.
+        // No look-away should have been queued — non-matching marker doesn't
+        // acknowledge, and the default is skip.
+        #expect(!f.alarmScheduler.scheduled.contains(where: { $0.kind == .lookAwayDone }))
+        // Stale marker is cleared on read so it can't surprise a later alarm.
+        #expect(f.persistence.loadAcknowledgeRequestedAlarmId() == nil)
+    }
+
+    // The ack marker is also cleared on the matching case so a subsequent
+    // dismiss can't re-acknowledge stale state.
+    @Test("dismissed breakDue with matching ack marker → schedules look-away, marker consumed")
+    func dismissBreakDueWithAckMarkerSchedulesLookAway() async {
+        let f = Fixture()
+        f.controller.start()
+        await settle()
+        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
+        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
+        await settle()
+
         #expect(f.alarmScheduler.scheduled.contains(where: { $0.kind == .lookAwayDone }))
-        // And the stale marker is cleared even on mismatch.
-        #expect(f.persistence.loadSkipRequestedAlarmId() == nil)
+        #expect(f.persistence.loadAcknowledgeRequestedAlarmId() == nil)
+        guard case .breakActive = f.controller.state else {
+            Issue.record("expected breakActive after ack, got \(f.controller.state)")
+            return
+        }
     }
 
     // MARK: - acknowledgeCurrentBreak()
@@ -378,6 +411,8 @@ struct SessionControllerTests {
         await settle()
         #expect(f.controller.state.description == "breakPending")
 
+        // Ack the breakDue so the controller schedules the look-away.
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
         #expect(f.controller.state.description == "breakActive")

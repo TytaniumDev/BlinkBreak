@@ -71,11 +71,15 @@ public enum BlinkBreakConstants {
     /// separately from the session record so it survives session resets.
     public static let alarmSoundMutedKey = "BlinkBreak.MuteAlarmSound"
 
-    /// UserDefaults key for the "skip this alarm" marker written by
-    /// `SkipBreakIntent`. Stores the UUID of the alarm the user wants to skip
-    /// so `SessionController.handleDismissed` can route to a skip-the-look-away
-    /// path instead of the normal acknowledge-and-schedule-look-away one.
-    public static let skipRequestedAlarmIdKey = "BlinkBreak.SkipRequestedAlarmId"
+    /// UserDefaults key for the "acknowledge this alarm" marker written by
+    /// `DismissAlarmIntent` when the user taps the secondary "Start break"
+    /// button. Stores the UUID of the alarm the user wants to acknowledge so
+    /// `SessionController.handleDismissed` routes to the schedule-look-away
+    /// path. Default (no marker present) is to skip the look-away and roll
+    /// straight to the next break-due cycle — that makes the AlarmKit race
+    /// where `alarmUpdates` emits before the intent runs harmless instead of
+    /// scheduling a surprise 20-second look-away (BLINKBREAK-6).
+    public static let acknowledgeRequestedAlarmIdKey = "BlinkBreak.AcknowledgeRequestedAlarmId"
 
     // MARK: - Schedule task identifier
 
