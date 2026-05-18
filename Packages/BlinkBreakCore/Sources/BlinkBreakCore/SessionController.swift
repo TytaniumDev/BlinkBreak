@@ -409,14 +409,19 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     }
 
     private func handleDismissed(alarmId: UUID, kind: AlarmKind) {
-        // Consume any "acknowledge this break" marker the secondary "Start
-        // break" button (or `acknowledgeCurrentBreak`) left behind. Always
-        // clear, even on mismatch, so a stale marker from a previous alarm
-        // can't survive to the next one. Absence of marker is the default —
-        // see the breakDue case below.
+        // Consume the "acknowledge this break" marker only when it matches the
+        // dismissed alarm. Clearing on every dismissal (even mismatches) opens
+        // a race: a stale-dismiss event for a previously-reaped alarm fires
+        // before the alarm the marker was written for is dismissed, wiping
+        // the marker and pushing the upcoming dismissal into the default-skip
+        // branch instead of the acknowledge branch. Markers are scoped to a
+        // single alarm UUID and are overwritten by each new intent run, so
+        // limiting the clear to the match case can't accumulate stale markers.
         let ackAlarmId = persistence.loadAcknowledgeRequestedAlarmId()
-        persistence.saveAcknowledgeRequestedAlarmId(nil)
         let isAcknowledgeRequested = ackAlarmId == alarmId
+        if isAcknowledgeRequested {
+            persistence.saveAcknowledgeRequestedAlarmId(nil)
+        }
 
         let record = persistence.load()
         // Defensive: if persistence already shows idle (e.g. an in-flight

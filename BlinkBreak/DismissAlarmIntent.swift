@@ -9,14 +9,18 @@
 //  break-due) or finish it (on look-away).
 //
 //  Mechanics:
-//  1. Write an "acknowledge" marker keyed to the alarm UUID. This is what
-//     distinguishes the secondary button from the system Stop button at
-//     dismiss time — without the marker, `SessionController.handleDismissed`
+//  1. Write an "acknowledge" marker keyed to the alarm UUID. For break-due
+//     dismissals this distinguishes the secondary button from the system
+//     Stop button — without the marker, `SessionController.handleDismissed`
 //     defaults to the skip path (no follow-up look-away). The default-skip
 //     fallback makes the AlarmKit race where the dismissed event lands
 //     before the intent finishes running harmless (BLINKBREAK-6: previously
 //     fell through to the acknowledge path, queueing a 20-second look-away
-//     alarm even when the user tapped Stop).
+//     alarm even when the user tapped Stop). For look-away dismissals the
+//     marker has no behavioral effect — `handleDismissed` rolls the cycle
+//     regardless of `isAcknowledgeRequested` for `.lookAwayDone` — but
+//     writing it unconditionally keeps this intent simple and parallel
+//     across kinds.
 //  2. Cancel the alerting alarm so AlarmKit's `alarmUpdates` emits a
 //     dismissed event the controller can consume.
 //

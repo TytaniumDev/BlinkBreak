@@ -316,9 +316,13 @@ struct SessionControllerTests {
 
     // The ack marker is keyed to a specific alarm; a stale marker from a
     // previous alarm must NOT acknowledge a different alarm. With the
-    // default-skip semantics, a non-matching marker is consumed and the
-    // dismiss falls through to the skip path (same as no marker at all).
-    @Test("dismissed breakDue with non-matching ack marker → consumed and treated as default skip")
+    // default-skip semantics, a non-matching marker is left untouched and
+    // the dismiss falls through to the skip path. We deliberately don't
+    // clear on mismatch: a stale-dismiss event for a previously-reaped
+    // alarm could otherwise wipe a fresh marker the user just wrote for
+    // the active alarm. Markers are overwritten by each new intent run,
+    // so this can't accumulate stale state.
+    @Test("dismissed breakDue with non-matching ack marker → treated as default skip, marker preserved")
     func dismissBreakDueWithStaleAckMarkerSkipsLookAway() async {
         let f = Fixture()
         f.controller.start()
@@ -327,18 +331,21 @@ struct SessionControllerTests {
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
-        f.persistence.saveAcknowledgeRequestedAlarmId(UUID()) // some other alarm
+        let staleMarker = UUID()
+        f.persistence.saveAcknowledgeRequestedAlarmId(staleMarker)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
         // No look-away should have been queued — non-matching marker doesn't
         // acknowledge, and the default is skip.
         #expect(!f.alarmScheduler.scheduled.contains(where: { $0.kind == .lookAwayDone }))
-        // Stale marker is cleared on read so it can't surprise a later alarm.
-        #expect(f.persistence.loadAcknowledgeRequestedAlarmId() == nil)
+        // Non-matching marker is preserved (cleared only on match) so a
+        // stale-dismiss event can't wipe a fresh marker intended for the
+        // active alarm.
+        #expect(f.persistence.loadAcknowledgeRequestedAlarmId() == staleMarker)
     }
 
-    // The ack marker is also cleared on the matching case so a subsequent
+    // The ack marker is cleared on the matching case so a subsequent
     // dismiss can't re-acknowledge stale state.
     @Test("dismissed breakDue with matching ack marker → schedules look-away, marker consumed")
     func dismissBreakDueWithAckMarkerSchedulesLookAway() async {
