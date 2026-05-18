@@ -49,8 +49,13 @@ final class ScreenshotTests: XCTestCase {
         let app = launched(breakInterval: 600) // long enough to not auto-transition mid-capture
         app.waitForButton(A11y.Idle.startButton).tap()
         _ = app.waitForButton(A11y.Running.stopButton)
-        // Let the countdown ring render a frame.
-        Thread.sleep(forTimeInterval: 0.5)
+        // Let the SwiftUI countdown-ring animation settle for one frame so the
+        // screenshot captures the rendered state instead of mid-animation.
+        // There's no specific element to wait on — we just need the runloop to
+        // tick — so an inverted expectation with a short timeout is the
+        // idiomatic XCTest equivalent of `Thread.sleep` that still lets the
+        // runloop process events.
+        letUISettle(0.5)
         snapshot(app, named: "02-running")
     }
 
@@ -64,10 +69,9 @@ final class ScreenshotTests: XCTestCase {
     func test_capture_04_breakActive() throws {
         let app = launched(breakInterval: 3, lookAwayDuration: 60)
         app.waitForButton(A11y.Idle.startButton).tap()
-        _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
-        app.buttons[A11y.BreakPending.startBreakButton].tap()
+        app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10).tap()
         _ = app.waitForElement(A11y.BreakActive.message, timeout: 5)
-        Thread.sleep(forTimeInterval: 0.5)
+        letUISettle(0.5)
         snapshot(app, named: "04-break-active")
     }
 
@@ -91,5 +95,15 @@ final class ScreenshotTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// Block the test thread for `duration` while letting the runloop tick,
+    /// so SwiftUI animations and layout passes complete before a screenshot.
+    /// Equivalent to `Thread.sleep` for our purposes but uses XCTest's wait
+    /// machinery so the runloop continues processing events.
+    private func letUISettle(_ duration: TimeInterval) {
+        let settle = expectation(description: "UI settle")
+        settle.isInverted = true
+        wait(for: [settle], timeout: duration)
     }
 }

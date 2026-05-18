@@ -26,6 +26,10 @@ rm -rf "$RESULT_BUNDLE" "$OUT_DIR"
 mkdir -p "$(dirname "$RESULT_BUNDLE")"
 
 echo "==> Running ScreenshotTests on $DEVICE ($OS)"
+# Don't mask xcodebuild's exit code: a failed test run produces partial or
+# missing screenshots, and the user needs to see that signal so they don't
+# upload broken assets to App Store Connect. `set -o pipefail` ensures the
+# pipeline's exit reflects xcodebuild even when xcpretty exits cleanly.
 xcodebuild test \
     -project BlinkBreak.xcodeproj \
     -scheme BlinkBreakUITests \
@@ -33,7 +37,7 @@ xcodebuild test \
     -only-testing:BlinkBreakUITests/ScreenshotTests \
     -resultBundlePath "$RESULT_BUNDLE" \
     BB_CAPTURE_SCREENSHOTS=1 \
-    | xcpretty || true
+    | xcpretty
 
 echo "==> Exporting PNG attachments to $OUT_DIR"
 xcrun xcresulttool export attachments \
