@@ -31,24 +31,27 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
-            let total = Int(remainingSeconds.rounded(.up))
-            let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
-            let progress = (BlinkBreakConstants.breakInterval - remainingSeconds) / BlinkBreakConstants.breakInterval
+        VStack(spacing: 20) {
+            EyebrowLabel(text: "Next break in")
 
-            VStack(spacing: 20) {
-                EyebrowLabel(text: "Next break in")
+            // ⚡ Bolt: Scoped TimelineView tightly around CountdownRing so static
+            // elements (and their formatted properties) aren't re-evaluated every second.
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
+                let total = Int(remainingSeconds.rounded(.up))
+                let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
+                let progress = (BlinkBreakConstants.breakInterval - remainingSeconds) / BlinkBreakConstants.breakInterval
 
                 CountdownRing(progress: progress, label: countdownLabel)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Time remaining")
                     .accessibilityValue(a11yDurationFormatter.string(from: remainingSeconds) ?? countdownLabel)
                     .accessibilityIdentifier("label.running.countdown")
+            }
 
-                Text("Fires at \(breakFireTimeFormatted)")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.6))
+            Text("Fires at \(breakFireTimeFormatted)")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.6))
 
                 SoundToggleRow(
                     isMuted: controller.muteAlarmSound,
@@ -77,7 +80,6 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                 .accessibilityIdentifier("button.running.stop")
             }
             .padding(24)
-        }
     }
 
     /// Absolute fire time shown to the user as reassurance ("will interrupt me at 2:47 PM").
