@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BlinkBreak — Rest your eyes every 20 minutes</title>
+  <meta name="description" content="BlinkBreak enforces the 20-20-20 rule with a full-screen alarm that cuts through Focus and silent mode.">
+  <meta property="og:title" content="BlinkBreak">
+  <meta property="og:description" content="The 20-20-20 rule, enforced.">
+  <meta property="og:type" content="website">
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #111a2e;
+      --ink: #f5f7ff;
+      --muted: #9aa6c2;
+      --accent: #6ea8ff;
+      --accent-strong: #3b82f6;
+      --border: rgba(255, 255, 255, 0.08);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #fafbff;
+        --panel: #ffffff;
+        --ink: #0b1220;
+        --muted: #4a5573;
+        --accent: #2563eb;
+        --accent-strong: #1d4ed8;
+        --border: rgba(11, 18, 32, 0.08);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.55;
+    }
+    main {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 64px 24px 96px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 40px;
+    }
+    .mark {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 700;
+      font-size: 22px;
+      letter-spacing: -0.5px;
+    }
+    h1 {
+      font-size: 44px;
+      line-height: 1.08;
+      letter-spacing: -1.2px;
+      margin: 0 0 12px;
+    }
+    .tagline {
+      font-size: 20px;
+      color: var(--muted);
+      margin: 0 0 32px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px 28px;
+      margin: 20px 0;
+    }
+    ul { padding-left: 20px; margin: 8px 0; }
+    li { margin: 6px 0; }
+    h2 {
+      font-size: 22px;
+      margin: 40px 0 10px;
+      letter-spacing: -0.3px;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .footer {
+      margin-top: 56px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 14px;
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    code {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 0.92em;
+      background: var(--border);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="mark">BB</div>
+      <div>
+        <div style="font-weight: 600; font-size: 18px;">BlinkBreak</div>
+        <div style="color: var(--muted); font-size: 14px;">iOS · Requires iOS 26</div>
+      </div>
+    </header>
+
+    <h1>Rest your eyes every 20 minutes.</h1>
+    <p class="tagline">BlinkBreak enforces the 20-20-20 rule with a full-screen alarm that actually gets your attention.</p>
+
+    <div class="panel">
+      <strong>The 20-20-20 rule:</strong> every 20 minutes, look at something 20 feet away for 20 seconds.
+      It's what eye doctors recommend for screen use — and the hardest part is remembering to do it.
+    </div>
+
+    <h2>Why a banner won't do</h2>
+    <p>Every other break-reminder app sends a notification. You swipe it away and keep working. BlinkBreak uses Apple's <strong>AlarmKit</strong>: a full-screen takeover that plays at alarm volume, breaks through Focus and Do Not Disturb, and asks you to look away before it dismisses.</p>
+
+    <h2>What's in it</h2>
+    <ul>
+      <li>20-20-20 rule, enforced — not just suggested</li>
+      <li>Full-screen AlarmKit alerts that cut through Focus / silent mode</li>
+      <li>Optional weekly schedule — runs only during work hours</li>
+      <li>Custom alarm sound (or go silent)</li>
+      <li>"Take Break Now" for the midday headache moment</li>
+      <li>No account, no tracking, no network calls</li>
+    </ul>
+
+    <h2>Support</h2>
+    <p>Shake your device inside the app to file a bug report, or email <a href="mailto:tywholland@gmail.com">tywholland@gmail.com</a>. Source available on <a href="https://github.com/TytaniumDev/BlinkBreak">GitHub</a>.</p>
+
+    <div class="footer">
+      <a href="./privacy.html">Privacy policy</a>
+      <a href="https://github.com/TytaniumDev/BlinkBreak">GitHub</a>
+      <a href="mailto:tywholland@gmail.com">Contact</a>
+    </div>
+  </main>
+</body>
+</html>

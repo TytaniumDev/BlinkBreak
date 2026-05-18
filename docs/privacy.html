@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BlinkBreak — Privacy policy</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #111a2e;
+      --ink: #f5f7ff;
+      --muted: #9aa6c2;
+      --accent: #6ea8ff;
+      --border: rgba(255, 255, 255, 0.08);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #fafbff;
+        --panel: #ffffff;
+        --ink: #0b1220;
+        --muted: #4a5573;
+        --accent: #2563eb;
+        --border: rgba(11, 18, 32, 0.08);
+      }
+    }
+    html, body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 64px 24px 96px;
+    }
+    h1 {
+      font-size: 36px;
+      letter-spacing: -0.8px;
+      margin: 0 0 8px;
+    }
+    .updated {
+      color: var(--muted);
+      margin: 0 0 32px;
+    }
+    h2 {
+      font-size: 20px;
+      margin: 32px 0 8px;
+    }
+    a { color: var(--accent); }
+    .back {
+      display: inline-block;
+      margin-bottom: 24px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="./">← BlinkBreak</a>
+    <h1>Privacy policy</h1>
+    <p class="updated">Last updated: April 21, 2026</p>
+
+    <p>BlinkBreak does not collect, store, or transmit any personal information.</p>
+
+    <h2>Data stored on your device</h2>
+    <p>BlinkBreak saves your session state (whether a break cycle is running, the current alarm ID, and your optional weekly schedule) in local app storage. This data never leaves your device.</p>
+
+    <h2>Crash diagnostics</h2>
+    <p>BlinkBreak uses <a href="https://sentry.io/privacy/">Sentry</a> to report anonymous crash and error diagnostics. These reports contain technical information about what went wrong (stack traces, iOS version, device model) and do not include personal data or app content.</p>
+
+    <h2>Bug reports</h2>
+    <p>If you choose to submit a bug report from within the app, the text you enter is posted as a GitHub issue on the public <a href="https://github.com/TytaniumDev/BlinkBreak">TytaniumDev/BlinkBreak</a> repository. Only content you explicitly type and submit is sent.</p>
+
+    <h2>No analytics. No advertising. No account.</h2>
+
+    <h2>Contact</h2>
+    <p><a href="mailto:tywholland@gmail.com">tywholland@gmail.com</a></p>
+  </main>
+</body>
+</html>
