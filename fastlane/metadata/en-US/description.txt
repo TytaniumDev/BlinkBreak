@@ -1,0 +1,12 @@
+BlinkBreak enforces the 20-20-20 rule eye doctors recommend for screen use: every 20 minutes, look at something 20 feet away for 20 seconds.
+
+Unlike a gentle banner you'll swipe away, BlinkBreak uses Apple's AlarmKit to deliver a full-screen alarm you actually notice — it plays at alarm volume regardless of silent switch, Focus, or Do Not Disturb. Tap "Start break", look away for 20 seconds, and get back to work.
+
+• 20-20-20 rule, enforced — not just suggested
+• Full-screen AlarmKit alerts break through Focus and silent mode
+• Optional weekly schedule — runs only during work hours
+• Custom alarm sound, or go silent
+• "Take Break Now" for the midday headache moment
+• No account, no tracking, no network calls — your data never leaves your device
+
+Requires iOS 26 (AlarmKit).

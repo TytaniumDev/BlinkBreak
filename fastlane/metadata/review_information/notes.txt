@@ -1,0 +1,3 @@
+BlinkBreak requires no account and collects no personal data. To test: tap "Start" on the main screen. The app uses AlarmKit; the first launch will prompt for alarm permission.
+
+The shipping app uses a 20-minute break interval and 20-second look-away duration per the 20-20-20 rule, so a natural cycle takes 20+ minutes. To observe a full cycle quickly, the BlinkBreakUITests scheme sets BB_BREAK_INTERVAL=3 and BB_LOOKAWAY_DURATION=3 environment variables that shorten the cycle to ~6 seconds — these are test-only and not present in the Release build.
