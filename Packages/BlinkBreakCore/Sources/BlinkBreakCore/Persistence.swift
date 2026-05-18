@@ -42,17 +42,22 @@ public protocol PersistenceProtocol: Sendable {
     /// Persist the alarm-sound mute preference.
     func saveAlarmSoundMuted(_ muted: Bool)
 
-    /// Read the "skip this alarm" marker written by `SkipBreakIntent` when the user
-    /// taps the system Stop button on a BlinkBreak alarm. Returns the alarm UUID
-    /// the user wanted to skip, or `nil` if no skip is pending. The marker is
-    /// scoped to one alarm so a stale entry from a previous alarm can't be
-    /// mistakenly consumed for a different one.
-    func loadSkipRequestedAlarmId() -> UUID?
+    /// Read the "acknowledge this alarm" marker written by `DismissAlarmIntent`
+    /// when the user taps the secondary "Start break" / "End break" button.
+    /// Returns the alarm UUID the user wanted to acknowledge, or `nil` if no
+    /// ack is pending. Scoped to one alarm so a stale entry from a previous
+    /// alarm can't be mistakenly consumed for a different one.
+    ///
+    /// `SessionController.handleDismissed` consumes the marker (load + clear)
+    /// and treats absence-of-marker as the default skip path — that makes the
+    /// AlarmKit race where the dismissed event arrives before the intent
+    /// finishes running harmless instead of scheduling a surprise look-away.
+    func loadAcknowledgeRequestedAlarmId() -> UUID?
 
-    /// Set or clear the skip marker. Pass `nil` to clear. Callers in
+    /// Set or clear the acknowledge marker. Pass `nil` to clear. Callers in
     /// `SessionController.handleDismissed` always clear after reading so the
     /// marker is consumed exactly once.
-    func saveSkipRequestedAlarmId(_ id: UUID?)
+    func saveAcknowledgeRequestedAlarmId(_ id: UUID?)
 }
 
 // MARK: - Real implementation
@@ -114,18 +119,18 @@ public final class UserDefaultsPersistence: PersistenceProtocol, @unchecked Send
         defaults.set(muted, forKey: BlinkBreakConstants.alarmSoundMutedKey)
     }
 
-    public func loadSkipRequestedAlarmId() -> UUID? {
-        guard let string = defaults.string(forKey: BlinkBreakConstants.skipRequestedAlarmIdKey) else {
+    public func loadAcknowledgeRequestedAlarmId() -> UUID? {
+        guard let string = defaults.string(forKey: BlinkBreakConstants.acknowledgeRequestedAlarmIdKey) else {
             return nil
         }
         return UUID(uuidString: string)
     }
 
-    public func saveSkipRequestedAlarmId(_ id: UUID?) {
+    public func saveAcknowledgeRequestedAlarmId(_ id: UUID?) {
         if let id {
-            defaults.set(id.uuidString, forKey: BlinkBreakConstants.skipRequestedAlarmIdKey)
+            defaults.set(id.uuidString, forKey: BlinkBreakConstants.acknowledgeRequestedAlarmIdKey)
         } else {
-            defaults.removeObject(forKey: BlinkBreakConstants.skipRequestedAlarmIdKey)
+            defaults.removeObject(forKey: BlinkBreakConstants.acknowledgeRequestedAlarmIdKey)
         }
     }
 }
@@ -141,7 +146,7 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
     private var record: SessionRecord
     private var schedule: WeeklySchedule?
     private var alarmSoundMuted: Bool = false
-    private var skipRequestedAlarmId: UUID?
+    private var acknowledgeRequestedAlarmId: UUID?
 
     public init(initial: SessionRecord = .idle) {
         self.record = initial
@@ -189,15 +194,15 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
         alarmSoundMuted = muted
     }
 
-    public func loadSkipRequestedAlarmId() -> UUID? {
+    public func loadAcknowledgeRequestedAlarmId() -> UUID? {
         lock.lock()
         defer { lock.unlock() }
-        return skipRequestedAlarmId
+        return acknowledgeRequestedAlarmId
     }
 
-    public func saveSkipRequestedAlarmId(_ id: UUID?) {
+    public func saveAcknowledgeRequestedAlarmId(_ id: UUID?) {
         lock.lock()
         defer { lock.unlock() }
-        skipRequestedAlarmId = id
+        acknowledgeRequestedAlarmId = id
     }
 }

@@ -213,12 +213,15 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
             sound = BlinkBreakConstants.breakSoundFileName.map { .named($0) } ?? .default
         }
         // System Stop and the custom secondary button do different things:
-        //   - Stop (system, label fixed by AlarmKit since iOS 26.1) → skips this
-        //     reminder. `SkipBreakIntent` writes a marker keyed to `id` so that
-        //     `SessionController.handleDismissed` can schedule the next breakDue
-        //     directly (no look-away in between) when the cancellation reaches it.
+        //   - Stop (system, label fixed by AlarmKit since iOS 26.1) → skips
+        //     this reminder. `SkipBreakIntent` just cancels the alarm; the
+        //     dismissed event reaches `SessionController.handleDismissed`
+        //     with no acknowledge marker, which routes through the default
+        //     skip branch (no look-away, next breakDue in `breakInterval`).
         //   - Secondary "Start break" / "End break" → acknowledges this alarm
-        //     and rolls the cycle forward. Wired via `DismissAlarmIntent`.
+        //     and rolls the cycle forward. Wired via `DismissAlarmIntent`,
+        //     which writes the acknowledge marker before cancelling so
+        //     `handleDismissed` takes the schedule-look-away branch.
         let configuration = AlarmManager.AlarmConfiguration<BlinkBreakAlarmMetadata>.alarm(
             schedule: .fixed(Date().addingTimeInterval(duration)),
             attributes: attributes,

@@ -231,6 +231,10 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// Synthesizes a dismissed event for the current break alarm.
     public func acknowledgeCurrentBreak() {
         guard let alarmId = persistence.load().currentAlarmId else { return }
+        // Mirror what `DismissAlarmIntent` does on the alarm UI: write the
+        // acknowledge marker so `handleDismissed` takes the schedule-look-away
+        // branch instead of defaulting to skip.
+        persistence.saveAcknowledgeRequestedAlarmId(alarmId)
         Task { [weak self] in
             guard let self else { return }
             await self.alarmScheduler.cancel(alarmId: alarmId)
@@ -405,12 +409,19 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     }
 
     private func handleDismissed(alarmId: UUID, kind: AlarmKind) {
-        // Consume any "skip this break" marker the system Stop button left
-        // behind via `SkipBreakIntent`. Always clear, even on mismatch, so a
-        // stale marker from a previous alarm can't survive to the next one.
-        let skippedAlarmId = persistence.loadSkipRequestedAlarmId()
-        persistence.saveSkipRequestedAlarmId(nil)
-        let isSkipRequested = skippedAlarmId == alarmId
+        // Consume the "acknowledge this break" marker only when it matches the
+        // dismissed alarm. Clearing on every dismissal (even mismatches) opens
+        // a race: a stale-dismiss event for a previously-reaped alarm fires
+        // before the alarm the marker was written for is dismissed, wiping
+        // the marker and pushing the upcoming dismissal into the default-skip
+        // branch instead of the acknowledge branch. Markers are scoped to a
+        // single alarm UUID and are overwritten by each new intent run, so
+        // limiting the clear to the match case can't accumulate stale markers.
+        let ackAlarmId = persistence.loadAcknowledgeRequestedAlarmId()
+        let isAcknowledgeRequested = ackAlarmId == alarmId
+        if isAcknowledgeRequested {
+            persistence.saveAcknowledgeRequestedAlarmId(nil)
+        }
 
         let record = persistence.load()
         // Defensive: if persistence already shows idle (e.g. an in-flight
@@ -443,20 +454,10 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         }
 
         switch kind {
-        case .breakDue where isSkipRequested:
-            // User tapped system Stop → skip the look-away. Roll straight to
-            // the next cycle, subject to the same "next breakDue would fire
-            // outside the schedule window" guard the lookAwayDone path uses.
-            if scheduleWantsAutoStopForNextBreakFire(for: record) {
-                logBuffer.log(.info, "dismissed breakDue (skip): next break-due would fire outside schedule, stopping")
-                stop()
-                return
-            }
-            logBuffer.log(.info, "dismissed breakDue (skip): rolling to next cycle")
-            rollToNextCycle(carryingOver: record, kindLabel: "breakDue(skip)")
-        case .breakDue:
-            // User tapped the secondary "Start break". Schedule the look-away countdown.
-            logBuffer.log(.info, "dismissed breakDue: scheduling look-away")
+        case .breakDue where isAcknowledgeRequested:
+            // User tapped the secondary "Start break" (or `acknowledgeCurrentBreak`
+            // ran from the in-app UI). Schedule the look-away countdown.
+            logBuffer.log(.info, "dismissed breakDue (ack): scheduling look-away")
             Task { [weak self] in
                 guard let self else { return }
                 let breakActiveStartedAt = self.clock()
@@ -487,6 +488,22 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 self.persistence.save(latest)
                 self.state = .breakActive(startedAt: breakActiveStartedAt)
             }
+        case .breakDue:
+            // Default path: no acknowledge marker. Covers the system Stop
+            // button (which only cancels the alarm), the system auto-dismiss
+            // at the alert time limit, and the AlarmKit race where the
+            // dismissed event arrives before the secondary intent's marker
+            // write is visible. Skip the look-away and roll straight to the
+            // next breakDue cycle, gated by the same schedule-end guard the
+            // lookAwayDone path uses so a skip near the window end stops
+            // cleanly instead of queueing an alarm past the schedule.
+            if scheduleWantsAutoStopForNextBreakFire(for: record) {
+                logBuffer.log(.info, "dismissed breakDue (skip): next break-due would fire outside schedule, stopping")
+                stop()
+                return
+            }
+            logBuffer.log(.info, "dismissed breakDue (skip): rolling to next cycle")
+            rollToNextCycle(carryingOver: record, kindLabel: "breakDue(skip)")
         case .lookAwayDone:
             // Look-away period over. Roll to a new cycle — but only if the next
             // break alarm would fire within the schedule. Without this, a session
@@ -503,9 +520,9 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     }
 
     /// Schedule a fresh breakDue alarm and persist a new running cycle. Shared
-    /// between the lookAwayDone-dismissed path and the breakDue-skip path —
-    /// both produce the same "back to running, next break in `breakInterval`"
-    /// outcome.
+    /// between the lookAwayDone-dismissed path and the default breakDue-skip
+    /// path — both produce the same "back to running, next break in
+    /// `breakInterval`" outcome.
     private func rollToNextCycle(carryingOver record: SessionRecord, kindLabel: String) {
         Task { [weak self] in
             guard let self else { return }

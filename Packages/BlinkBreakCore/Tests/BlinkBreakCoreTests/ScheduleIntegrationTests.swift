@@ -134,6 +134,8 @@ struct ScheduleIntegrationTests {
         let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
+        // Ack the breakDue so the controller schedules the look-away.
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
         let lookAwayAlarmId = f.alarmScheduler.scheduled.last!.alarmId
@@ -196,6 +198,7 @@ struct ScheduleIntegrationTests {
         let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
         let lookAwayId = f.alarmScheduler.scheduled.last!.alarmId
@@ -224,6 +227,7 @@ struct ScheduleIntegrationTests {
         let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
@@ -244,6 +248,7 @@ struct ScheduleIntegrationTests {
         let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
         let lookAwayId = f.alarmScheduler.scheduled.last!.alarmId
@@ -268,6 +273,7 @@ struct ScheduleIntegrationTests {
         let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
@@ -298,6 +304,7 @@ struct ScheduleIntegrationTests {
         let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
+        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
         let lookAwayId = f.alarmScheduler.scheduled.last!.alarmId
@@ -311,10 +318,12 @@ struct ScheduleIntegrationTests {
         #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
     }
 
-    // Skip-via-stop path mirrors the cycle-roll guard: if a skip near the
-    // schedule end would queue the next breakDue past the window, stop the
-    // session instead of scheduling.
-    @Test("auto-started session: skip near schedule end stops if next breakDue would fire outside window")
+    // Default-skip path mirrors the lookAwayDone cycle-roll guard: if the
+    // default dismissal near the schedule end would queue the next breakDue
+    // past the window, stop the session instead of scheduling. With no ack
+    // marker, the dismiss falls into the default skip branch, which runs
+    // the same `scheduleWantsAutoStopForNextBreakFire` check.
+    @Test("auto-started session: default-skip near schedule end stops if next breakDue would fire outside window")
     func skipNearWindowEndStops() async {
         let (f, evaluator) = makeFixture()
         f.controller.updateSchedule(.default)
@@ -332,7 +341,7 @@ struct ScheduleIntegrationTests {
         f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
-        f.persistence.saveSkipRequestedAlarmId(breakAlarmId)
+        // No ack marker → default skip path → schedule-end guard fires.
         let scheduledBefore = f.alarmScheduler.scheduled.count
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
