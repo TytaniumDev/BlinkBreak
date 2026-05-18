@@ -24,10 +24,27 @@
 //  2. Cancel the alerting alarm so AlarmKit's `alarmUpdates` emits a
 //     dismissed event the controller can consume.
 //
+//  Both the marker write and the intent-execution log entry are persisted
+//  *before* the cancel call so they're visible to `handleDismissed` by the
+//  time the dismissed event propagates — including across the intent-host
+//  process boundary, where `LogBuffer.shared` would otherwise leave the main
+//  app blind to whether this intent ever ran.
+//
 
 import AppIntents
 import AlarmKit
 import BlinkBreakCore
+import Foundation
+import os
+
+/// Cross-process logger reachable via `log show --predicate 'subsystem == "com.tytaniumdev.BlinkBreak"'`.
+/// `LogBuffer.shared` would only capture this when the intent runs in the
+/// main app process, but bug-report breadcrumbs need to survive the
+/// intent-host case too — see `appendIntentExecutionLog` below.
+private let intentLogger = Logger(
+    subsystem: "com.tytaniumdev.BlinkBreak",
+    category: "DismissAlarmIntent"
+)
 
 struct DismissAlarmIntent: LiveActivityIntent {
 
@@ -44,12 +61,31 @@ struct DismissAlarmIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
+        let persistence = UserDefaultsPersistence()
         if let id = UUID(uuidString: alarmID) {
-            // Order matters: write the marker *before* cancelling so it's
-            // visible to `handleDismissed` by the time the dismissed event
-            // propagates.
-            UserDefaultsPersistence().saveAcknowledgeRequestedAlarmId(id)
+            let shortId = id.uuidString.prefix(8)
+            // Order matters: write the marker and the log entry *before*
+            // cancelling so both are visible to `handleDismissed` by the
+            // time the dismissed event propagates.
+            persistence.saveAcknowledgeRequestedAlarmId(id)
+            persistence.appendIntentExecutionLog(
+                IntentExecutionLogEntry(
+                    timestamp: Date(),
+                    intent: "DismissAlarmIntent",
+                    message: "ack alarm=\(shortId) (secondary button)"
+                )
+            )
+            intentLogger.info("ack requested for alarm \(id.uuidString, privacy: .public)")
             try? AlarmManager.shared.cancel(id: id)
+        } else {
+            intentLogger.error("perform: alarmID parameter not a valid UUID")
+            persistence.appendIntentExecutionLog(
+                IntentExecutionLogEntry(
+                    timestamp: Date(),
+                    intent: "DismissAlarmIntent",
+                    message: "invalid alarmID parameter, no cancel issued"
+                )
+            )
         }
         return .result()
     }

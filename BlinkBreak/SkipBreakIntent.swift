@@ -23,11 +23,16 @@
 
 import AppIntents
 import AlarmKit
+import BlinkBreakCore
+import Foundation
 import os
 
 /// `LogBuffer.shared` is per-process and silently drops messages when the intent
 /// runs outside the main app, so use `os.Logger` for unified logging that's
-/// reachable from any process (Console.app, `log show`).
+/// reachable from any process (Console.app, `log show`). The intent also
+/// appends a structured entry via `appendIntentExecutionLog` so the main app
+/// can drain it and mirror it into `LogBuffer` (and therefore Sentry
+/// breadcrumbs) the next time `handleDismissed` runs.
 private let intentLogger = Logger(
     subsystem: "com.tytaniumdev.BlinkBreak",
     category: "SkipBreakIntent"
@@ -50,11 +55,27 @@ struct SkipBreakIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
+        let persistence = UserDefaultsPersistence()
         if let id = UUID(uuidString: alarmID) {
-            try? AlarmManager.shared.cancel(id: id)
+            let shortId = id.uuidString.prefix(8)
             intentLogger.info("skip requested for alarm \(id.uuidString, privacy: .public)")
+            persistence.appendIntentExecutionLog(
+                IntentExecutionLogEntry(
+                    timestamp: Date(),
+                    intent: "SkipBreakIntent",
+                    message: "cancel alarm=\(shortId) (system Stop)"
+                )
+            )
+            try? AlarmManager.shared.cancel(id: id)
         } else {
             intentLogger.error("perform: alarmID parameter not a valid UUID")
+            persistence.appendIntentExecutionLog(
+                IntentExecutionLogEntry(
+                    timestamp: Date(),
+                    intent: "SkipBreakIntent",
+                    message: "invalid alarmID parameter, no cancel issued"
+                )
+            )
         }
         return .result()
     }

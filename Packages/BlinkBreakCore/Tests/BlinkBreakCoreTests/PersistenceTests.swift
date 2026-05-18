@@ -159,4 +159,58 @@ struct PersistenceTests {
         p.saveAlarmSoundMuted(false)
         #expect(p.loadAlarmSoundMuted() == false)
     }
+
+    // MARK: - Intent-execution log
+
+    @Test("drainIntentExecutionLog returns empty when nothing was appended")
+    func intentLogEmptyByDefault() {
+        let p = InMemoryPersistence()
+        #expect(p.drainIntentExecutionLog().isEmpty)
+    }
+
+    @Test("appendIntentExecutionLog preserves insertion order and drain clears")
+    func intentLogAppendAndDrain() {
+        let p = InMemoryPersistence()
+        let entry1 = IntentExecutionLogEntry(timestamp: Date(timeIntervalSince1970: 1), intent: "A", message: "first")
+        let entry2 = IntentExecutionLogEntry(timestamp: Date(timeIntervalSince1970: 2), intent: "B", message: "second")
+        p.appendIntentExecutionLog(entry1)
+        p.appendIntentExecutionLog(entry2)
+
+        let drained = p.drainIntentExecutionLog()
+        #expect(drained.count == 2)
+        #expect(drained[0].message == "first")
+        #expect(drained[1].message == "second")
+        // Drain clears so subsequent calls yield empty.
+        #expect(p.drainIntentExecutionLog().isEmpty)
+    }
+
+    @Test("appendIntentExecutionLog caps at intentExecutionLogCapacity, drops oldest")
+    func intentLogBounded() {
+        let p = InMemoryPersistence()
+        let cap = BlinkBreakConstants.intentExecutionLogCapacity
+        for i in 0..<(cap + 5) {
+            p.appendIntentExecutionLog(
+                IntentExecutionLogEntry(timestamp: Date(timeIntervalSince1970: TimeInterval(i)), intent: "I", message: "msg-\(i)")
+            )
+        }
+        let drained = p.drainIntentExecutionLog()
+        #expect(drained.count == cap)
+        // Oldest entries (msg-0 through msg-4) should have been dropped.
+        #expect(drained.first?.message == "msg-5")
+        #expect(drained.last?.message == "msg-\(cap + 4)")
+    }
+
+    @Test("IntentExecutionLogEntry is Codable round-trippable")
+    func intentLogEntryCodable() throws {
+        let entry = IntentExecutionLogEntry(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            intent: "SkipBreakIntent",
+            message: "cancel alarm=12345678 (system Stop)"
+        )
+        let data = try JSONEncoder().encode(entry)
+        let decoded = try JSONDecoder().decode(IntentExecutionLogEntry.self, from: data)
+        #expect(decoded.timestamp == entry.timestamp)
+        #expect(decoded.intent == entry.intent)
+        #expect(decoded.message == entry.message)
+    }
 }
