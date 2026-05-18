@@ -81,6 +81,23 @@ public enum BlinkBreakConstants {
     /// scheduling a surprise 20-second look-away (BLINKBREAK-6).
     public static let acknowledgeRequestedAlarmIdKey = "BlinkBreak.AcknowledgeRequestedAlarmId"
 
+    /// UserDefaults key for a bounded queue of intent-execution log entries.
+    /// `SkipBreakIntent` and `DismissAlarmIntent` can run in a separate
+    /// intent-host process while the app is suspended; `LogBuffer.shared` is
+    /// per-process so any log entry written from there is invisible to the
+    /// main app's breadcrumb stream and to Sentry bug reports. The intents
+    /// append a JSON-encoded `IntentExecutionLogEntry` here instead, and
+    /// `SessionController.handleDismissed` drains the queue at the top of
+    /// its dispatch — emitting each entry into `LogBuffer` so it lands in
+    /// the next bug report's breadcrumbs alongside the dispatch decision.
+    public static let intentExecutionLogKey = "BlinkBreak.IntentExecutionLog"
+
+    /// Maximum number of entries the intent-execution log keeps before
+    /// dropping the oldest. Picked to cover several break cycles' worth of
+    /// intents (each cycle produces at most two — one breakDue + one
+    /// lookAwayDone) without bloating UserDefaults.
+    public static let intentExecutionLogCapacity = 20
+
     // MARK: - Schedule task identifier
 
     /// BGTaskScheduler task identifier for schedule checks.

@@ -230,10 +230,14 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// "Start break" on the foregrounded `BreakPendingView` instead of on the alarm UI).
     /// Synthesizes a dismissed event for the current break alarm.
     public func acknowledgeCurrentBreak() {
-        guard let alarmId = persistence.load().currentAlarmId else { return }
+        guard let alarmId = persistence.load().currentAlarmId else {
+            logBuffer.log(.debug, "acknowledgeCurrentBreak: no current alarm, no-op")
+            return
+        }
         // Mirror what `DismissAlarmIntent` does on the alarm UI: write the
         // acknowledge marker so `handleDismissed` takes the schedule-look-away
         // branch instead of defaulting to skip.
+        logBuffer.log(.info, "acknowledgeCurrentBreak: writing ack marker for alarm=\(alarmId.uuidString.prefix(8))")
         persistence.saveAcknowledgeRequestedAlarmId(alarmId)
         Task { [weak self] in
             guard let self else { return }
@@ -382,15 +386,15 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     private func handleAlarmEvent(_ event: AlarmEvent) {
         switch event {
-        case let .fired(_, kind):
-            handleFired(kind: kind)
+        case let .fired(alarmId, kind):
+            handleFired(alarmId: alarmId, kind: kind)
         case let .dismissed(alarmId, kind):
             handleDismissed(alarmId: alarmId, kind: kind)
         }
     }
 
-    private func handleFired(kind: AlarmKind) {
-        logBuffer.log(.info, "fired: kind=\(kind.rawValue)")
+    private func handleFired(alarmId: UUID, kind: AlarmKind) {
+        logBuffer.log(.info, "fired: alarm=\(alarmId.uuidString.prefix(8)) kind=\(kind.rawValue)")
         let record = persistence.load()
         guard record.sessionActive,
               let cycleStartedAt = record.cycleStartedAt else { return }
@@ -409,6 +413,16 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     }
 
     private func handleDismissed(alarmId: UUID, kind: AlarmKind) {
+        // Drain intent-execution log entries written by `SkipBreakIntent` /
+        // `DismissAlarmIntent` — possibly from a different process — so they
+        // land in this app's `LogBuffer` (and therefore in Sentry breadcrumbs)
+        // alongside the dispatch decision below. Without this, a user bug
+        // report would show the dismissal but no record of whether an intent
+        // ran first, which alarm UUID it targeted, or what it wrote.
+        for entry in persistence.drainIntentExecutionLog() {
+            logBuffer.log(.info, "\(entry.intent): \(entry.message)")
+        }
+
         // Consume the "acknowledge this break" marker only when it matches the
         // dismissed alarm. Clearing on every dismissal (even mismatches) opens
         // a race: a stale-dismiss event for a previously-reaped alarm fires
@@ -422,6 +436,20 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         if isAcknowledgeRequested {
             persistence.saveAcknowledgeRequestedAlarmId(nil)
         }
+        // Single-line summary of the dispatch input. Reading the marker state
+        // explicitly (not just the eventual branch) makes it possible to tell
+        // a real user-initiated skip from a race where the dismissed event
+        // raced ahead of the ack-marker write — the two now produce the same
+        // outcome by design, but the breadcrumb still distinguishes them.
+        let markerState: String
+        if let ackAlarmId {
+            markerState = isAcknowledgeRequested
+                ? "ack=match"
+                : "ack=stale(\(ackAlarmId.uuidString.prefix(8)))"
+        } else {
+            markerState = "ack=none"
+        }
+        logBuffer.log(.info, "dismissed: alarm=\(alarmId.uuidString.prefix(8)) kind=\(kind.rawValue) \(markerState)")
 
         let record = persistence.load()
         // Defensive: if persistence already shows idle (e.g. an in-flight
@@ -487,6 +515,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 latest.currentAlarmId = lookAwayAlarmId
                 self.persistence.save(latest)
                 self.state = .breakActive(startedAt: breakActiveStartedAt)
+                self.logBuffer.log(.info, "dismissed breakDue (ack): look-away scheduled alarm=\(lookAwayAlarmId.uuidString.prefix(8)) duration=\(Int(BlinkBreakConstants.lookAwayDuration))s")
             }
         case .breakDue:
             // Default path: no acknowledge marker. Covers the system Stop
@@ -558,6 +587,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 wasAutoStarted: latest.wasAutoStarted,
                 currentAlarmId: nextAlarmId
             )
+            self.logBuffer.log(.info, "dismissed \(kindLabel): next breakDue scheduled alarm=\(nextAlarmId.uuidString.prefix(8)) duration=\(Int(BlinkBreakConstants.breakInterval))s")
             self.persistence.save(newRecord)
             self.state = .running(cycleStartedAt: nextCycleStartedAt)
         }

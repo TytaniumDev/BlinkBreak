@@ -58,6 +58,40 @@ public protocol PersistenceProtocol: Sendable {
     /// `SessionController.handleDismissed` always clear after reading so the
     /// marker is consumed exactly once.
     func saveAcknowledgeRequestedAlarmId(_ id: UUID?)
+
+    /// Append an intent-execution log entry. AlarmKit's `LiveActivityIntent`s
+    /// can run in a separate intent-host process where `LogBuffer.shared` is
+    /// its own per-process singleton (invisible to the main app's breadcrumb
+    /// stream and to Sentry bug reports). The intents append here instead so
+    /// the main app can drain the queue and emit each entry into its own
+    /// `LogBuffer` as soon as it next runs `handleDismissed`. Implementations
+    /// must bound the queue at `BlinkBreakConstants.intentExecutionLogCapacity`
+    /// to keep UserDefaults small.
+    func appendIntentExecutionLog(_ entry: IntentExecutionLogEntry)
+
+    /// Atomically read and clear all intent-execution log entries. Returns
+    /// entries in insertion order (oldest first). Callers (typically
+    /// `SessionController.handleDismissed`) re-emit each into `LogBuffer`.
+    func drainIntentExecutionLog() -> [IntentExecutionLogEntry]
+}
+
+/// A single intent-execution event captured by `SkipBreakIntent` or
+/// `DismissAlarmIntent`, persisted to UserDefaults so it survives the
+/// intent-host process boundary and shows up in the main app's Sentry
+/// breadcrumbs when `SessionController.handleDismissed` drains the queue.
+public struct IntentExecutionLogEntry: Codable, Sendable {
+    public let timestamp: Date
+    /// Short, stable identifier of the intent type (e.g. "SkipBreakIntent").
+    public let intent: String
+    /// Free-text description of what the intent did. Kept short — this lands
+    /// in Sentry breadcrumbs which have a tight per-line budget.
+    public let message: String
+
+    public init(timestamp: Date, intent: String, message: String) {
+        self.timestamp = timestamp
+        self.intent = intent
+        self.message = message
+    }
 }
 
 // MARK: - Real implementation
@@ -133,6 +167,35 @@ public final class UserDefaultsPersistence: PersistenceProtocol, @unchecked Send
             defaults.removeObject(forKey: BlinkBreakConstants.acknowledgeRequestedAlarmIdKey)
         }
     }
+
+    // The intent-execution log isn't cross-process atomic — UserDefaults
+    // doesn't expose a compare-and-swap primitive. In practice the intents
+    // only run in response to a single user tap on the alarm UI, so we'd
+    // need two intents to fire concurrently for a clash to be possible.
+    // Even if it happened, losing a single diagnostic entry is acceptable;
+    // the entries are advisory, not load-bearing for any state machine.
+    public func appendIntentExecutionLog(_ entry: IntentExecutionLogEntry) {
+        var existing = decodedIntentExecutionLog()
+        existing.append(entry)
+        if existing.count > BlinkBreakConstants.intentExecutionLogCapacity {
+            existing.removeFirst(existing.count - BlinkBreakConstants.intentExecutionLogCapacity)
+        }
+        guard let data = try? encoder.encode(existing) else { return }
+        defaults.set(data, forKey: BlinkBreakConstants.intentExecutionLogKey)
+    }
+
+    public func drainIntentExecutionLog() -> [IntentExecutionLogEntry] {
+        let entries = decodedIntentExecutionLog()
+        if !entries.isEmpty {
+            defaults.removeObject(forKey: BlinkBreakConstants.intentExecutionLogKey)
+        }
+        return entries
+    }
+
+    private func decodedIntentExecutionLog() -> [IntentExecutionLogEntry] {
+        guard let data = defaults.data(forKey: BlinkBreakConstants.intentExecutionLogKey) else { return [] }
+        return (try? decoder.decode([IntentExecutionLogEntry].self, from: data)) ?? []
+    }
 }
 
 // MARK: - In-memory implementation (for tests)
@@ -147,6 +210,7 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
     private var schedule: WeeklySchedule?
     private var alarmSoundMuted: Bool = false
     private var acknowledgeRequestedAlarmId: UUID?
+    private var intentExecutionLog: [IntentExecutionLogEntry] = []
 
     public init(initial: SessionRecord = .idle) {
         self.record = initial
@@ -204,5 +268,22 @@ public final class InMemoryPersistence: PersistenceProtocol, @unchecked Sendable
         lock.lock()
         defer { lock.unlock() }
         acknowledgeRequestedAlarmId = id
+    }
+
+    public func appendIntentExecutionLog(_ entry: IntentExecutionLogEntry) {
+        lock.lock()
+        defer { lock.unlock() }
+        intentExecutionLog.append(entry)
+        if intentExecutionLog.count > BlinkBreakConstants.intentExecutionLogCapacity {
+            intentExecutionLog.removeFirst(intentExecutionLog.count - BlinkBreakConstants.intentExecutionLogCapacity)
+        }
+    }
+
+    public func drainIntentExecutionLog() -> [IntentExecutionLogEntry] {
+        lock.lock()
+        defer { lock.unlock() }
+        let entries = intentExecutionLog
+        intentExecutionLog.removeAll()
+        return entries
     }
 }
