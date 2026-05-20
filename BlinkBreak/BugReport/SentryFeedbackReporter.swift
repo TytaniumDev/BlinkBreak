@@ -21,6 +21,9 @@ import Sentry
 final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
 
     func submit(report: DiagnosticReport, userDescription: String) async throws {
+        // Bound user input to prevent memory exhaustion and payload denial-of-service
+        let boundedDescription = String(userDescription.prefix(2000))
+
         // Capture a companion event with the session-specific tags scoped to
         // *this* event via the block overload — the scope changes apply only
         // inside the block. Using `SentrySDK.configureScope` here would mutate
@@ -40,7 +43,7 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
         }
 
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: boundedDescription.isEmpty ? "(no description)" : boundedDescription,
             name: nil,
             email: nil,
             source: .custom,
