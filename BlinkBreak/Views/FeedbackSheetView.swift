@@ -220,14 +220,11 @@ struct FeedbackSheetView: View {
 
                 // Prefix the description with the selected category for easy filtering in Sentry UI
                 let prefix = "[\(selectedCategory.rawValue.uppercased())]"
-                var finalDescription = "\(prefix) \(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines))"
-                
-                // Securely sanitize any triple backticks within user text to prevent Markdown breakage/injection
-                // in external rendering scopes.
-                finalDescription = finalDescription.replacingOccurrences(of: "```", with: "\\`\\`\\`")
+                let finalDescription = "\(prefix) \(feedbackText.trimmingCharacters(in: .whitespacesAndNewlines))"
 
-                // Inject companion user info if email is provided
-                let email = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Inject companion user info if email is provided. Bound to 254 chars to prevent payload DoS.
+                let rawEmail = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+                let email = String(rawEmail.prefix(254))
 
                 // Instantiate Sentry reporter and submit
                 let reporter = SentryFeedbackReporter()
