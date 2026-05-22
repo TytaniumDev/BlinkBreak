@@ -21,6 +21,12 @@ import Sentry
 final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
 
     func submit(report: DiagnosticReport, userDescription: String) async throws {
+        // Securely bound user input to prevent memory exhaustion / payload DoS,
+        // and sanitize triple backticks to prevent Markdown breakage/injection
+        // in external rendering scopes.
+        let boundedDescription = String(userDescription.prefix(2000))
+        let sanitizedDescription = boundedDescription.replacingOccurrences(of: "```", with: "\\`\\`\\`")
+
         // Capture a companion event with the session-specific tags scoped to
         // *this* event via the block overload — the scope changes apply only
         // inside the block. Using `SentrySDK.configureScope` here would mutate
@@ -40,7 +46,7 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
         }
 
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: sanitizedDescription.isEmpty ? "(no description)" : sanitizedDescription,
             name: nil,
             email: nil,
             source: .custom,
