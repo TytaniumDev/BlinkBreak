@@ -22,6 +22,7 @@ struct RootView<Controller: SessionControllerProtocol>: View {
     /// previews can substitute a PreviewSessionController.
     @ObservedObject var controller: Controller
     let scheduleEvaluator: ScheduleEvaluatorProtocol
+    let persistence: PersistenceProtocol
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -44,7 +45,8 @@ struct RootView<Controller: SessionControllerProtocol>: View {
                     case .idle:
                         IdleView(
                             controller: controller,
-                            scheduleStatusText: scheduleEvaluator.statusText(at: Date(), calendar: .current)
+                            scheduleStatusText: scheduleEvaluator.statusText(at: Date(), calendar: .current),
+                            persistence: persistence
                         )
                     case .running(let cycleStartedAt):
                         RunningView(controller: controller, cycleStartedAt: cycleStartedAt)
@@ -67,21 +69,21 @@ struct RootView<Controller: SessionControllerProtocol>: View {
 }
 
 #Preview("Idle") {
-    RootView(controller: PreviewSessionController.idle, scheduleEvaluator: NoopScheduleEvaluator())
+    RootView(controller: PreviewSessionController.idle, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
 }
 
 #Preview("Running") {
-    RootView(controller: PreviewSessionController.running, scheduleEvaluator: NoopScheduleEvaluator())
+    RootView(controller: PreviewSessionController.running, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
 }
 
 #Preview("Break Pending") {
-    RootView(controller: PreviewSessionController.breakPending, scheduleEvaluator: NoopScheduleEvaluator())
+    RootView(controller: PreviewSessionController.breakPending, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
 }
 
 #Preview("Break Active") {
-    RootView(controller: PreviewSessionController.breakActive, scheduleEvaluator: NoopScheduleEvaluator())
+    RootView(controller: PreviewSessionController.breakActive, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
 }
 
 #Preview("Permission Denied") {
-    RootView(controller: PreviewSessionController.permissionDenied, scheduleEvaluator: NoopScheduleEvaluator())
+    RootView(controller: PreviewSessionController.permissionDenied, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
 }

@@ -29,6 +29,10 @@ struct ScheduleIntegrationTests {
         await settle()
         #expect(f.controller.state != .idle)
         #expect(f.persistence.load().sessionActive == true)
+
+        // Explicitly assert that exactly one alarm is scheduled when auto-started by schedule
+        #expect(f.alarmScheduler.scheduled.count == 1)
+        #expect(f.alarmScheduler.scheduled[0].kind == .breakDue)
     }
 
     @Test("reconcile auto-stops a schedule-started session when evaluator says inactive")

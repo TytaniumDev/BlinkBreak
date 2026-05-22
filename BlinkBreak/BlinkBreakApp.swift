@@ -63,7 +63,11 @@ struct BlinkBreakApp: App {
     var body: some Scene {
         WindowGroup {
             ShakeDetectorView(
-                content: RootView(controller: controller, scheduleEvaluator: Self.sharedEvaluator),
+                content: RootView(
+                    controller: controller,
+                    scheduleEvaluator: Self.sharedEvaluator,
+                    persistence: Self.sharedPersistence
+                ),
                 persistence: Self.sharedPersistence,
                 sessionState: controller.state
             )
