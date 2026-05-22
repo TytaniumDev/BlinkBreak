@@ -181,6 +181,12 @@ public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendabl
     // MARK: - AlarmSchedulerProtocol
 
     public func requestAuthorizationIfNeeded() async throws -> Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["BB_BREAK_INTERVAL"] != nil {
+            return true
+        }
+        #endif
+
         switch AlarmManager.shared.authorizationState {
         case .authorized:
             return true
