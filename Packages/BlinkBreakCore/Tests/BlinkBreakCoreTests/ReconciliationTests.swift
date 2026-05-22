@@ -167,4 +167,35 @@ struct ReconciliationTests {
         #expect(f.controller.state == .idle)
         #expect(f.persistence.load() == .idle)
     }
+
+    @Test("reconcile called while start is in flight does not overwrite state")
+    func reconcileDuringStartInFlight() async {
+        let f = Fixture()
+        f.persistence.save(.idle)
+
+        // When scheduleCountdown is called, trigger a concurrent reconcile.
+        f.alarmScheduler.onScheduleCountdown = { @Sendable in
+            await f.controller.reconcile()
+        }
+
+        f.controller.start()
+
+        // Settle to let the start Task complete.
+        await settle()
+
+        // Verify that the state was not overwritten to .idle and is correctly .running.
+        guard case .running(let startedAt) = f.controller.state else {
+            Issue.record("expected running, got \(f.controller.state)")
+            return
+        }
+        #expect(startedAt == f.nowBox.value)
+
+        // Verify persistence got saved correctly as well.
+        let record = f.persistence.load()
+        #expect(record.sessionActive == true)
+        #expect(record.currentAlarmId != nil)
+
+        // Explicitly assert that only one alarm was scheduled (no double-scheduling)
+        #expect(f.alarmScheduler.scheduled.count == 1)
+    }
 }

@@ -50,6 +50,11 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     private var eventTask: Task<Void, Never>?
 
+    /// Guards `startSession` against re-entry. Set `true` synchronously before
+    /// the scheduling Task and cleared in the Task's `defer`. Prevents duplicate
+    /// alarm scheduling when two `reconcile()` calls race on launch.
+    private var startInFlight = false
+
     // MARK: - Init
 
     /// - Parameters:
@@ -99,13 +104,29 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     /// Core start logic. Used by both `start()` (manual) and `evaluateSchedule()` (auto).
     private func startSession(wasAutoStarted: Bool = false) {
+        // Guard against re-entry: both `onAppear` and `scenePhase == .active`
+        // can fire `reconcile()` near-simultaneously on launch. Each reconcile
+        // runs `evaluateSchedule()`, which checks `state == .idle`. If we set
+        // state inside the Task (async), the second evaluateSchedule sees idle
+        // and calls startSession again. The two Tasks then race to schedule
+        // alarms — one becomes orphaned in AlarmKit and fires as a duplicate.
+        // Setting state synchronously here closes the window.
+        guard !startInFlight else {
+            logBuffer.log(.debug, "start: already in flight, skipping duplicate")
+            return
+        }
+        startInFlight = true
         logBuffer.log(.info, "start: beginning session (auto=\(wasAutoStarted))")
+
+        let cycleStartedAt = clock()
+        state = .running(cycleStartedAt: cycleStartedAt)
+
         Task { [weak self] in
             guard let self else { return }
+            defer { self.startInFlight = false }
             await self.alarmScheduler.cancelAll()
 
             let cycleId = UUID()
-            let cycleStartedAt = self.clock()
 
             let alarmId: UUID
             do {
@@ -117,9 +138,11 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             } catch AlarmSchedulerError.authorizationDenied {
                 self.logBuffer.log(.warning, "start: permission denied")
                 self.authorizationDenied = true
+                self.state = .idle
                 return
             } catch {
                 self.logBuffer.log(.error, "start: scheduling failed: \(error)")
+                self.state = .idle
                 return
             }
 
@@ -133,7 +156,6 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 currentAlarmId: alarmId
             )
             self.persistence.save(record)
-            self.state = .running(cycleStartedAt: cycleStartedAt)
             self.authorizationDenied = false
             self.logBuffer.log(.info, "start: running, alarm=\(alarmId.uuidString.prefix(8))")
         }
@@ -252,8 +274,20 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
     /// current set of scheduled alarms + the current clock. Never trusts in-memory state.
     /// Called on launch, on foreground, and on periodic ticks.
     public func reconcile() async {
+        guard !startInFlight else {
+            logBuffer.log(.info, "reconcile: start is in flight, skipping reconcile")
+            return
+        }
         await refreshPermission()
+        guard !startInFlight else {
+            logBuffer.log(.info, "reconcile: start became in flight during refreshPermission, skipping reconcile")
+            return
+        }
         await reconcileState()
+        guard !startInFlight else {
+            logBuffer.log(.info, "reconcile: start became in flight during reconcileState, skipping reconcile")
+            return
+        }
         evaluateSchedule()
         logBuffer.log(.info, "reconcile: state=\(state.description), permissionDenied=\(authorizationDenied)")
     }
