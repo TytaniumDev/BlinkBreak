@@ -41,4 +41,25 @@ final class LaunchAndIdleTests: XCTestCase {
         _ = app.waitForButton(A11y.Idle.startButton)
         XCTAssertFalse(app.buttons[A11y.BreakPending.startBreakButton].exists)
     }
+
+    func test_feedbackButton_opensAndDismissesFeedbackSheet() {
+        let app = XCUIApplication()
+        app.launchForIntegrationTest()
+
+        // Wait for the feedback button and tap it
+        let feedbackButton = app.waitForButton(A11y.Idle.feedbackButton)
+        feedbackButton.tap()
+
+        // Verify that the feedback sheet is presented
+        let navTitle = app.navigationBars["Feedback"]
+        XCTAssertTrue(navTitle.waitForExistence(timeout: 2))
+
+        // Find and tap the Cancel button to dismiss it
+        let cancelButton = app.buttons["Cancel"]
+        XCTAssertTrue(cancelButton.exists)
+        cancelButton.tap()
+
+        // Verify we are back to the idle screen
+        _ = app.waitForButton(A11y.Idle.startButton)
+    }
 }

@@ -156,6 +156,7 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 currentAlarmId: alarmId
             )
             self.persistence.save(record)
+            self.state = .running(cycleStartedAt: cycleStartedAt)
             self.authorizationDenied = false
             self.logBuffer.log(.info, "start: running, alarm=\(alarmId.uuidString.prefix(8))")
         }

@@ -70,6 +70,7 @@ extension XCUIApplication {
 enum A11y {
     enum Idle {
         static let startButton = "button.idle.start"
+        static let feedbackButton = "button.idle.feedback"
     }
     enum Running {
         static let stopButton = "button.running.stop"
