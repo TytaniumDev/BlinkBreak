@@ -9,3 +9,6 @@
 ## 2026-04-21 - Collection .lazy modifier
 **Learning:** Chained collection operations like `.filter { ... }.map { ... }` allocate intermediate arrays. When the final result is immediately consumed by a `Set` or `Dictionary` initializer, this allocation is pure memory overhead.
 **Action:** Use `.lazy` (e.g., `array.lazy.filter { ... }.map { ... }`) when feeding data into new collections to avoid intermediate array allocations and reduce memory churn.
+## 2024-05-30 - Tightening TimelineView Scope
+**Learning:** Scoping TimelineView closures around entire view hierarchies causes unnecessary re-evaluation of all static components on every tick. It is much more efficient to scope the TimelineView tightly around only the components that change.
+**Action:** Always wrap TimelineView tightly around the specific animated or ticking sub-components rather than the surrounding layout.
