@@ -22,3 +22,7 @@
 **Vulnerability:** The bug reporting tool accepted unescaped markdown characters (like ```) in the user description, and did not wrap the description in a fenced code block, opening vectors for Markdown injection such as `@mentions` (notification spam) or Server-Side Request Forgery via image loading.
 **Learning:** When passing untrusted user input into Markdown-rendering APIs (like GitHub Issues), standard HTML sanitization (`<` and `>`) is insufficient. Markdown-specific constructs can be abused to trigger unwanted actions on the hosting platform.
 **Prevention:** Wrap raw user inputs in fenced code blocks (e.g., ` ```text `) when rendering them in Markdown templates, and sanitize backticks (```) within the input to prevent code block breakout attacks.
+## 2024-06-05 - Sentry PII Leak on Thrown Errors
+**Vulnerability:** In BlinkBreak/Views/FeedbackSheetView.swift, temporary sensitive user data (email) was injected into SentrySDK.setUser() but the cleanup was bypassed if the intermediate submit threw an error. This leaked PII into the global SDK scope.
+**Learning:** Because Swift error handling jumps out of the normal control flow, cleanup code placed at the end of a throwing block is unsafe for global state management.
+**Prevention:** Always use a defer block in the same scope immediately after setting global SDK state with sensitive user data to guarantee cleanup.
