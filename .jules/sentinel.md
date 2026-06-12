@@ -22,3 +22,7 @@
 **Vulnerability:** The bug reporting tool accepted unescaped markdown characters (like ```) in the user description, and did not wrap the description in a fenced code block, opening vectors for Markdown injection such as `@mentions` (notification spam) or Server-Side Request Forgery via image loading.
 **Learning:** When passing untrusted user input into Markdown-rendering APIs (like GitHub Issues), standard HTML sanitization (`<` and `>`) is insufficient. Markdown-specific constructs can be abused to trigger unwanted actions on the hosting platform.
 **Prevention:** Wrap raw user inputs in fenced code blocks (e.g., ` ```text `) when rendering them in Markdown templates, and sanitize backticks (```) within the input to prevent code block breakout attacks.
+## 2024-06-12 - PII Leak in Global Sentry Scope on Error
+**Vulnerability:** User email address was injected into the global SentrySDK scope but was not cleared if the feedback submission threw an error. This would result in PII leaking into subsequent, unrelated error reports.
+**Learning:** Manual cleanup after asynchronous operations that can throw (try await) is dangerous because the cleanup code is skipped when an error occurs, leaving global state polluted.
+**Prevention:** Always use defer blocks to clean up temporarily injected sensitive user data in global SDK scopes (like SentrySDK.setUser()), ensuring execution regardless of success or failure.
