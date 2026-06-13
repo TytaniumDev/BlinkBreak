@@ -39,8 +39,10 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             scope.setFingerprint(["user-bug-report", UUID().uuidString])
         }
 
+        // 🛡️ Sentinel: Bound user input length to prevent memory exhaustion and payload DoS
+        let boundedDescription = String(userDescription.prefix(1000))
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: boundedDescription.isEmpty ? "(no description)" : boundedDescription,
             name: nil,
             email: nil,
             source: .custom,
