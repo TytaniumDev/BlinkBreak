@@ -39,8 +39,11 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             scope.setFingerprint(["user-bug-report", UUID().uuidString])
         }
 
+        // 🛡️ Security: Bound raw user inputs before passing them to external SDKs to prevent
+        // memory exhaustion and DoS via large payloads.
+        let safeDescription = String(userDescription.prefix(1000))
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: safeDescription.isEmpty ? "(no description)" : safeDescription,
             name: nil,
             email: nil,
             source: .custom,
