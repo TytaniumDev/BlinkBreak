@@ -39,8 +39,9 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             scope.setFingerprint(["user-bug-report", UUID().uuidString])
         }
 
+        let boundedDescription = String(userDescription.prefix(2000))
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: boundedDescription.isEmpty ? "(no description)" : boundedDescription,
             name: nil,
             email: nil,
             source: .custom,
