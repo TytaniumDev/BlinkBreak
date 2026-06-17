@@ -39,8 +39,10 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             scope.setFingerprint(["user-bug-report", UUID().uuidString])
         }
 
+        // Truncate to 2000 characters to prevent excessive payloads (Denial of Service mitigation)
+        let truncatedDescription = String(userDescription.prefix(2000))
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: truncatedDescription.isEmpty ? "(no description)" : truncatedDescription,
             name: nil,
             email: nil,
             source: .custom,
