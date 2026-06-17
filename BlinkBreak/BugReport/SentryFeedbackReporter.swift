@@ -39,8 +39,17 @@ final class SentryFeedbackReporter: BugReporterProtocol, @unchecked Sendable {
             scope.setFingerprint(["user-bug-report", UUID().uuidString])
         }
 
+        // Truncate to bound input length (DoS mitigation) and sanitize basic markdown/HTML
+        // structures to prevent formatting injection attacks in the Sentry UI.
+        let sanitized = String(userDescription.prefix(1000))
+            .replacingOccurrences(of: "```", with: "'''")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+
+        let finalMessage = sanitized.isEmpty ? "(no description)" : sanitized
+
         let feedback = SentryFeedback(
-            message: userDescription.isEmpty ? "(no description)" : userDescription,
+            message: finalMessage,
             name: nil,
             email: nil,
             source: .custom,
