@@ -22,3 +22,7 @@
 **Vulnerability:** The bug reporting tool accepted unescaped markdown characters (like ```) in the user description, and did not wrap the description in a fenced code block, opening vectors for Markdown injection such as `@mentions` (notification spam) or Server-Side Request Forgery via image loading.
 **Learning:** When passing untrusted user input into Markdown-rendering APIs (like GitHub Issues), standard HTML sanitization (`<` and `>`) is insufficient. Markdown-specific constructs can be abused to trigger unwanted actions on the hosting platform.
 **Prevention:** Wrap raw user inputs in fenced code blocks (e.g., ` ```text `) when rendering them in Markdown templates, and sanitize backticks (```) within the input to prevent code block breakout attacks.
+## 2026-05-17 - [Bound User Input Passed to Third-Party SDKs]
+**Vulnerability:** Unbounded user descriptions were being passed directly into the `SentrySDK.capture(feedback:)` method in `SentryFeedbackReporter.swift`.
+**Learning:** Third-party SDKs (like Sentry) may not automatically constrain the size of raw inputs before attempting to serialize and upload them, which can lead to memory exhaustion and payload denial-of-service on the client device.
+**Prevention:** Always explicitly bound raw user inputs (e.g., using `String(input.prefix(2000))`) before passing them into third-party SDKs or logging frameworks.
