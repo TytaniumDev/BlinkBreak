@@ -9,3 +9,6 @@
 ## 2026-04-21 - Collection .lazy modifier
 **Learning:** Chained collection operations like `.filter { ... }.map { ... }` allocate intermediate arrays. When the final result is immediately consumed by a `Set` or `Dictionary` initializer, this allocation is pure memory overhead.
 **Action:** Use `.lazy` (e.g., `array.lazy.filter { ... }.map { ... }`) when feeding data into new collections to avoid intermediate array allocations and reduce memory churn.
+## 2025-06-27 - Scoping TimelineView for Performance
+**Learning:** Wrapping an entire view with static components inside a SwiftUI `TimelineView` forces all elements to needlessly re-evaluate on every timer tick. In this architecture, this can cause significant overhead when complex static views or buttons are evaluated every second.
+**Action:** Always scope `TimelineView` closures as tightly as possible around only the specific UI components (like a countdown ring) that require periodic animation or updates based on the current time.
