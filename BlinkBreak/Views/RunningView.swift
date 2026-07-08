@@ -5,6 +5,9 @@
 //  The running-state view. Shows the countdown ring to the next break and a Stop
 //  button. Uses TimelineView to tick the display every second.
 //
+//  ⚡ Bolt Optimization: Scope the TimelineView tightly around the CountdownRing
+//  so the static UI elements (buttons, labels) don't re-render on every tick.
+//
 //  No business logic here — every value shown is derived from `cycleStartedAt`
 //  and the current wall-clock time. Controller methods called: `stop()`,
 //  `triggerBreakNow()`, and `updateAlarmSound(muted:)` (via SoundToggleRow).
@@ -31,53 +34,53 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
-            let total = Int(remainingSeconds.rounded(.up))
-            let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
-            let progress = (BlinkBreakConstants.breakInterval - remainingSeconds) / BlinkBreakConstants.breakInterval
+        VStack(spacing: 20) {
+            EyebrowLabel(text: "Next break in")
 
-            VStack(spacing: 20) {
-                EyebrowLabel(text: "Next break in")
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
+                let total = Int(remainingSeconds.rounded(.up))
+                let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
+                let progress = (BlinkBreakConstants.breakInterval - remainingSeconds) / BlinkBreakConstants.breakInterval
 
                 CountdownRing(progress: progress, label: countdownLabel)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Time remaining")
                     .accessibilityValue(a11yDurationFormatter.string(from: remainingSeconds) ?? countdownLabel)
                     .accessibilityIdentifier("label.running.countdown")
-
-                Text("Fires at \(breakFireTimeFormatted)")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.6))
-
-                SoundToggleRow(
-                    isMuted: controller.muteAlarmSound,
-                    onToggle: { controller.updateAlarmSound(muted: $0) }
-                )
-                .padding(.top, 4)
-
-                Spacer()
-
-                Button("Take break now") {
-                    controller.triggerBreakNow()
-                }
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.7))
-                .accessibilityIdentifier("button.running.takeBreakNow")
-
-                Button(role: .destructive) {
-                    controller.stop()
-                } label: {
-                    Text("Stop")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .tint(.white)
-                .accessibilityIdentifier("button.running.stop")
             }
-            .padding(24)
+
+            Text("Fires at \(breakFireTimeFormatted)")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.6))
+
+            SoundToggleRow(
+                isMuted: controller.muteAlarmSound,
+                onToggle: { controller.updateAlarmSound(muted: $0) }
+            )
+            .padding(.top, 4)
+
+            Spacer()
+
+            Button("Take break now") {
+                controller.triggerBreakNow()
+            }
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.7))
+            .accessibilityIdentifier("button.running.takeBreakNow")
+
+            Button(role: .destructive) {
+                controller.stop()
+            } label: {
+                Text("Stop")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(.white)
+            .accessibilityIdentifier("button.running.stop")
         }
+        .padding(24)
     }
 
     /// Absolute fire time shown to the user as reassurance ("will interrupt me at 2:47 PM").
