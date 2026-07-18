@@ -239,15 +239,18 @@ struct FeedbackSheetView: View {
                     SentrySDK.setUser(user)
                 }
 
+                // SECURITY: Use `defer` to guarantee PII cleanup even if `reporter.submit` throws.
+                // Otherwise, the catch block executes and leaves the user's email in the global scope.
+                defer {
+                    if !email.isEmpty {
+                        SentrySDK.setUser(nil)
+                    }
+                }
+
                 try await reporter.submit(
                     report: report,
                     userDescription: finalDescription
                 )
-
-                // Clear temporary email from Sentry global scope so it doesn't leak into subsequent events
-                if !email.isEmpty {
-                    SentrySDK.setUser(nil)
-                }
 
                 // Successful submission, close the sheet
                 dismiss()
