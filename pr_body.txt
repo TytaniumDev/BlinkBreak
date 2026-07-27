@@ -1,0 +1,5 @@
+🚨 Severity: CRITICAL
+💡 Vulnerability: The user email was left in Sentry global scope if feedback submission threw an error.
+🎯 Impact: PII (email address) could be leaked into all subsequent unrelated events and crash reports.
+🔧 Fix: Wrapped the Sentry user cleanup in a `defer` block to guarantee it runs even if submission throws.
+✅ Verification: Ensured code compiles and tests pass.
