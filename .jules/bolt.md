@@ -9,3 +9,6 @@
 ## 2026-04-21 - Collection .lazy modifier
 **Learning:** Chained collection operations like `.filter { ... }.map { ... }` allocate intermediate arrays. When the final result is immediately consumed by a `Set` or `Dictionary` initializer, this allocation is pure memory overhead.
 **Action:** Use `.lazy` (e.g., `array.lazy.filter { ... }.map { ... }`) when feeding data into new collections to avoid intermediate array allocations and reduce memory churn.
+## 2026-08-07 - TimelineView Scope Optimization
+**Learning:** Wrapping an entire VStack in a `TimelineView` causes all child views (including static Text and Button components) to be unnecessarily re-evaluated on every tick. This generates wasteful layout recalculations and memory churn.
+**Action:** Tighten the scope of `TimelineView` closures to strictly wrap only the specific UI components (e.g., countdown rings) that actually depend on the context date and need periodic updates.
