@@ -239,15 +239,18 @@ struct FeedbackSheetView: View {
                     SentrySDK.setUser(user)
                 }
 
+                // Clear temporary email from Sentry global scope so it doesn't leak into subsequent events.
+                // 🛡️ Sentinel: Used defer to ensure cleanup runs even if submit() throws an error.
+                defer {
+                    if !email.isEmpty {
+                        SentrySDK.setUser(nil)
+                    }
+                }
+
                 try await reporter.submit(
                     report: report,
                     userDescription: finalDescription
                 )
-
-                // Clear temporary email from Sentry global scope so it doesn't leak into subsequent events
-                if !email.isEmpty {
-                    SentrySDK.setUser(nil)
-                }
 
                 // Successful submission, close the sheet
                 dismiss()
