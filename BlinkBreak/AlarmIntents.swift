@@ -25,7 +25,9 @@ import Foundation
 
 struct BreakButtonIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Start or end a break"
-    static let description = IntentDescription("Starts the 20-second break, or ends it and continues the 20-20-20 cycle.")
+    static let description: IntentDescription? = IntentDescription(
+        "Starts the 20-second break, or ends it and continues the 20-20-20 cycle."
+    )
     /// Only meaningful from an alarm's button, so keep it out of Shortcuts and Spotlight.
     static let isDiscoverable = false
 
@@ -46,7 +48,9 @@ struct BreakButtonIntent: LiveActivityIntent {
 
 struct StopButtonIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Skip this break"
-    static let description = IntentDescription("Skips this BlinkBreak reminder. Reminders continue on their normal cadence.")
+    static let description: IntentDescription? = IntentDescription(
+        "Skips this BlinkBreak reminder. Reminders continue on their normal cadence."
+    )
     static let isDiscoverable = false
 
     @Parameter(title: "Alarm ID")

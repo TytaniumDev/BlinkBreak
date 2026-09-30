@@ -16,6 +16,7 @@
 //  presentation avoids that surface entirely.
 //
 
+import ActivityKit  // AlertConfiguration (alarm sounds)
 import AlarmKit
 import AppIntents
 import BlinkBreakCore
