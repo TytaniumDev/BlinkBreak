@@ -37,11 +37,21 @@ public protocol SessionControllerProtocol: AnyObject, Observable {
     /// Idle-screen schedule status at `date`, e.g. "Starts at 9:00 AM".
     func scheduleStatus(at date: Date) -> String?
 
-    /// idle → running. Schedules the first break alarm.
+    /// idle / paused → running. Schedules the first break alarm. Doubles as
+    /// "Resume" from the paused state.
     func start() async
 
     /// Any state → idle. Cancels all alarms.
     func stop() async
+
+    /// True when `pause()` would do something: a session is running and a
+    /// weekly-schedule window is open right now. Reads the clock, so views that
+    /// re-render every second (RunningView's timeline) pick up window changes.
+    var canPause: Bool { get }
+
+    /// running / breakPending / breakActive → paused, for the rest of the current
+    /// schedule window. Cancels all alarms. No-op when `canPause` is false.
+    func pause() async
 
     /// breakPending → breakActive. The in-app equivalent of the alarm's "Start break" button.
     func startBreak() async

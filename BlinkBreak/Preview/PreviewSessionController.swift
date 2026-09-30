@@ -22,15 +22,18 @@ final class PreviewSessionController: SessionControllerProtocol {
     var weeklySchedule: WeeklySchedule
     var muteAlarmSound = false
     var authorizationDenied: Bool
+    var canPause: Bool
 
     init(
         state: SessionState = .idle,
         weeklySchedule: WeeklySchedule = .default,
-        authorizationDenied: Bool = false
+        authorizationDenied: Bool = false,
+        canPause: Bool = false
     ) {
         self.state = state
         self.weeklySchedule = weeklySchedule
         self.authorizationDenied = authorizationDenied
+        self.canPause = canPause
     }
 
     // MARK: - SessionControllerProtocol
@@ -45,6 +48,10 @@ final class PreviewSessionController: SessionControllerProtocol {
 
     func stop() async {
         state = .idle
+    }
+
+    func pause() async {
+        state = .paused(until: Date().addingTimeInterval(3 * 60 * 60))
     }
 
     func startBreak() async {
@@ -78,6 +85,19 @@ final class PreviewSessionController: SessionControllerProtocol {
     /// About six minutes left in the cycle.
     static var running: PreviewSessionController {
         PreviewSessionController(state: .running(breakAt: Date().addingTimeInterval(6 * 60)))
+    }
+
+    /// Running inside a schedule window, so the Pause button shows.
+    static var runningInSchedule: PreviewSessionController {
+        PreviewSessionController(
+            state: .running(breakAt: Date().addingTimeInterval(6 * 60)),
+            canPause: true
+        )
+    }
+
+    /// Paused; today's window ends in about three hours.
+    static var paused: PreviewSessionController {
+        PreviewSessionController(state: .paused(until: Date().addingTimeInterval(3 * 60 * 60)))
     }
 
     static var breakPending: PreviewSessionController {

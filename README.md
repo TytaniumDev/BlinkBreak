@@ -163,6 +163,8 @@ To seed signing assets the first time, run `fastlane seed_certs` locally (see `f
   └──────┘
 ```
 
+Inside a weekly-schedule window, a running session can also be **paused** (e.g. for a nap): no alarms ring until you tap Resume, and when the window ends the pause lapses and the schedule starts the next window as usual. Manually started sessions (and Resume) stop at the end of the current or next schedule window when the schedule is on.
+
 `SessionState` is what the UI shows. It is derived from the persisted `SessionRecord` (phase, owned alarm ID, fire time) and the clock — never stored on its own.
 
 ## Alarming system

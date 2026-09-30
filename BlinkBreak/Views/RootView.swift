@@ -46,6 +46,8 @@ struct RootView<Controller: SessionControllerProtocol>: View {
                         BreakPendingView(controller: controller)
                     case .breakActive:
                         BreakActiveView(controller: controller)
+                    case .paused(let until):
+                        PausedView(controller: controller, until: until)
                     }
                 }
             }
@@ -77,6 +79,10 @@ struct RootView<Controller: SessionControllerProtocol>: View {
 
 #Preview("Break Active") {
     RootView(controller: PreviewSessionController.breakActive)
+}
+
+#Preview("Paused") {
+    RootView(controller: PreviewSessionController.paused)
 }
 
 #Preview("Permission Denied") {

@@ -16,7 +16,7 @@ Tyler is a Flutter expert new to iOS/Swift — code comments frame SwiftUI conce
 ```bash
 ./scripts/test.sh
 ```
-Runs the BlinkBreakCore unit suite via `swift test`. Sub-second runtime (~95 tests). All business logic lives in `BlinkBreakCore` and is covered by these unit tests with injected mocks. Works on macOS (Xcode or Command Line Tools) and on Linux with a Swift 6 toolchain.
+Runs the BlinkBreakCore unit suite via `swift test`. Sub-second runtime (~125 tests). All business logic lives in `BlinkBreakCore` and is covered by these unit tests with injected mocks. Works on macOS (Xcode or Command Line Tools) and on Linux with a Swift 6 toolchain.
 
 ### Test — integration (slow — final verification only)
 ```bash
@@ -57,7 +57,7 @@ xcodegen generate
 
 All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. The package imports nothing platform-specific — no `SwiftUI`, `UIKit`, `WatchKit`, `AlarmKit`, `AppIntents`, or third-party SDKs. This is enforced by `scripts/lint.sh` and is the fundamental architectural rule.
 
-- **Views** depend on `SessionControllerProtocol`, not on the concrete `SessionController` class. Views read `state` and call protocol methods (`start()`, `stop()`, `startBreak()`, `takeBreakNow()`, `reconcile()`, `updateSchedule(_:)`, `updateAlarmSound(muted:)`). Views contain no conditional business logic beyond a `switch` on `SessionState`.
+- **Views** depend on `SessionControllerProtocol`, not on the concrete `SessionController` class. Views read `state` / `canPause` and call protocol methods (`start()`, `stop()`, `pause()`, `startBreak()`, `takeBreakNow()`, `reconcile()`, `updateSchedule(_:)`, `updateAlarmSound(muted:)`). Views contain no conditional business logic beyond a `switch` on `SessionState`.
 - **A visual-iteration PR should only touch files under `BlinkBreak/Views/`.** Colors and layout constants live in `Views/Theme.swift`. If such a PR touches `BlinkBreakCore`, something is wrong and the PR should be split.
 - **SwiftUI previews use `PreviewSessionController`**, a mock that conforms to `SessionControllerProtocol`. Every view has a `#Preview` for each applicable state.
 - **Every screen uses `AdaptiveScreen`** (`Views/Components/`), which caps content at a readable width, scrolls when the window is short, and pins the action buttons at the bottom. New screens must use it so they work at every iPhone/iPad/Mac window size.
@@ -69,10 +69,17 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 ### State machine
 
-`SessionRecord.Phase` is persisted: `idle`, `scheduled` (weekly schedule pre-booked the next window's first break), `running`, `lookingAway`. `SessionState` is derived from the record plus the clock: `idle`, `running(breakAt:)`, `breakPending`, `breakActive(endsAt:)`.
+`SessionRecord.Phase` is persisted: `idle`, `scheduled` (weekly schedule pre-booked the next window's first break), `running`, `lookingAway`. `SessionState` is derived from the record plus the clock: `idle`, `running(breakAt:)`, `breakPending`, `breakActive(endsAt:)`, `paused(until:)`.
 
 - The break alarm fires → `breakPending`. "Start break" (alarm button or in-app) → look-away alarm booked → `breakActive`. Stop on the break alarm skips straight to the next cycle.
 - The look-away alarm fires → next cycle → `running`.
+
+### Weekly schedule, pause, and manual sessions
+
+- **Schedule-started sessions** (`SessionRecord.wasAutoStarted`) follow the live schedule and stop when `WeeklySchedule.isActive` turns false.
+- **Manually started sessions** (including Resume) capture `SessionRecord.scheduledStopAt` = the end of the schedule window open at start, or the next one to open (`WeeklySchedule.currentOrNextWindowEnd`). They stop there; if a new window is already open by then, the schedule takes over. With the schedule off they have no stop time.
+- **Pause** (`SessionController.pause()`, gated by `canPause`: session active + a schedule window open now) cancels the session's alarms and stops with `pausedUntil` = window end and `manualStopDate` = now; the next window is pre-booked as usual. The UI shows `.paused(until:)` until `pausedUntil`, then the pause lapses to `.idle`. `start()` doubles as Resume.
+- A manual stop or pause is carried on the pre-booked record, so editing the schedule can't restart the session in the same window.
 
 ### How the cycle advances (important)
 
@@ -104,7 +111,7 @@ Two layers. **Run unit tests during iteration; run integration tests only as fin
 - **Do NOT run during iteration.**
 - **Run integration tests when:** (a) your change touches view ↔ controller wiring or persistence, (b) you changed reconciliation or any state-transition logic, (c) you're about to commit or create a PR as a final sanity check.
 - **Launch hooks (DEBUG builds only):** `BB_UI_TESTING=1` skips the AlarmKit permission check and uses the silent sound (`UITestSupport.swift`); `BB_BREAK_INTERVAL` / `BB_LOOKAWAY_DURATION` shorten the cycle (`BlinkBreakConstants`); `-BB_RESET_DEFAULTS` wipes all stored data at launch. `launchForIntegrationTest` sets all of these.
-- **Accessibility identifiers:** every state-bearing UI element carries an `accessibilityIdentifier` like `button.idle.start`, `button.running.stop`, `button.running.takeBreakNow`, `button.breakPending.startBreak`, `button.breakPending.stop`, `button.breakActive.stop`, `label.running.countdown`. Tests query for these via the `A11y` enum in `BlinkBreakUITestsBase.swift`. Adding a new view state? Add its identifier to `A11y` and to the view.
+- **Accessibility identifiers:** every state-bearing UI element carries an `accessibilityIdentifier` like `button.idle.start`, `button.running.stop`, `button.running.takeBreakNow`, `button.breakPending.startBreak`, `button.breakPending.stop`, `button.breakActive.stop`, `button.running.pause`, `button.paused.resume`, `label.running.countdown`. Tests query for these via the `A11y` enum in `BlinkBreakUITestsBase.swift`. Adding a new view state? Add its identifier to `A11y` and to the view.
 
 ### What neither layer covers (manual verification only)
 

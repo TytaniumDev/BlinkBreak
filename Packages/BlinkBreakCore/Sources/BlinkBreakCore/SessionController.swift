@@ -17,6 +17,8 @@
 //  - `reconcile()` (on launch / foreground) catches up on anything missed.
 //  - The weekly schedule pre-books the first break alarm of the next window, so
 //    automatic starts need no background execution either.
+//  - Manual sessions (and Resume after a Pause) hand control back to the
+//    schedule at the end of the window open when they started, or the next one.
 //
 //  Every transition runs on one serial queue, so transitions never interleave
 //  across `await`s.
@@ -114,6 +116,23 @@ public final class SessionController: SessionControllerProtocol {
 
     public func stop() async {
         await queue.run { await self.stopSession(reason: .user) }
+    }
+
+    public var canPause: Bool {
+        state.isActive && weeklySchedule.isActive(at: clock(), calendar: calendar)
+    }
+
+    public func pause() async {
+        await queue.run {
+            guard self.canPause,
+                  let windowEnd = self.weeklySchedule.currentOrNextWindowEnd(from: self.clock(), calendar: self.calendar)
+            else {
+                self.log.log(.debug, "pause: not available in state \(self.state), ignoring")
+                return
+            }
+            self.log.log(.info, "pause: until \(windowEnd)")
+            await self.stopSession(reason: .user, pausedUntil: windowEnd)
+        }
     }
 
     public func startBreak() async {
@@ -216,10 +235,14 @@ public final class SessionController: SessionControllerProtocol {
     // MARK: - Transitions (always run on `queue`)
 
     private enum StopReason {
-        /// The user tapped Stop.
+        /// The user tapped Stop (or Pause).
         case user
-        /// A schedule-started session reached the end of its window.
-        case scheduleEnded
+        /// The session's window is still open, but its next break would land
+        /// after the window ends. Stays off for the rest of this window.
+        case windowEnding
+        /// The session's window has already closed. If another window is open
+        /// by now (e.g. the app wasn't opened overnight), the schedule starts it.
+        case windowClosed
         /// Something went wrong (scheduling failed, alarm vanished).
         case error
     }
@@ -234,25 +257,44 @@ public final class SessionController: SessionControllerProtocol {
         let start = cycleStart ?? clock()
         let firesAt = start.addingTimeInterval(BlinkBreakConstants.breakInterval)
         guard let alarmId = await scheduleAlarm(.breakDue, at: firesAt) else {
-            save(SessionRecord(manualStopDate: previous.manualStopDate))
+            save(SessionRecord(manualStopDate: previous.manualStopDate, pausedUntil: previous.pausedUntil))
             return
         }
+        if let cycleStart {
+            // Pre-booked for a later window. Keep today's manual stop / pause so
+            // a schedule edit before then can't restart the session early.
+            save(SessionRecord(
+                phase: .scheduled,
+                alarmId: alarmId,
+                alarmFiresAt: firesAt,
+                wasAutoStarted: true,
+                manualStopDate: previous.manualStopDate,
+                pausedUntil: previous.pausedUntil
+            ))
+            log.log(.info, "start: pre-booked for \(cycleStart), alarm=\(alarmId.short)")
+            return
+        }
+        // Schedule-started sessions follow the live schedule. Manual ones stop at
+        // the end of the window open now, or the next one to open.
+        let stopAt = autoStarted ? nil : weeklySchedule.currentOrNextWindowEnd(from: start, calendar: calendar)
         save(SessionRecord(
-            phase: cycleStart == nil ? .running : .scheduled,
+            phase: .running,
             alarmId: alarmId,
             alarmFiresAt: firesAt,
-            wasAutoStarted: autoStarted
+            wasAutoStarted: autoStarted,
+            scheduledStopAt: stopAt
         ))
-        log.log(.info, "start: \(cycleStart == nil ? "running" : "pre-booked"), auto=\(autoStarted), alarm=\(alarmId.short)")
+        log.log(.info, "start: running, auto=\(autoStarted), alarm=\(alarmId.short)")
     }
 
-    private func stopSession(reason: StopReason) async {
+    /// - Parameter pausedUntil: Set by `pause()`: show `.paused` until then.
+    private func stopSession(reason: StopReason, pausedUntil: Date? = nil) async {
         let now = clock()
         // A user Stop cancels the ringing alarm too. Automatic stops leave an
         // alerting alarm alone so its sound isn't cut off mid-ring.
         await cancelAlarms(keepingAlerting: reason != .user)
-        var idle = SessionRecord()
-        if reason != .error, weeklySchedule.isActive(at: now, calendar: calendar) {
+        var idle = SessionRecord(pausedUntil: pausedUntil)
+        if reason == .user || reason == .windowEnding, weeklySchedule.isActive(at: now, calendar: calendar) {
             // Don't let the schedule restart the session in this same window.
             idle.manualStopDate = now
         }
@@ -266,9 +308,9 @@ public final class SessionController: SessionControllerProtocol {
         let record = persistence.loadSession()
         guard record.phase == .running || record.phase == .scheduled else { return }
         if let alarmId, alarmId != record.alarmId { return }
-        if record.wasAutoStarted, !weeklySchedule.isActive(at: clock(), calendar: calendar) {
-            // The user answered a schedule-started break after the window ended.
-            await stopSession(reason: .scheduleEnded)
+        if sessionWindowHasEnded(record, at: clock()) {
+            // The user answered the break after the session's window ended.
+            await stopSession(reason: .windowClosed)
             return
         }
         if let current = record.alarmId {
@@ -283,13 +325,14 @@ public final class SessionController: SessionControllerProtocol {
             phase: .lookingAway,
             alarmId: lookAwayId,
             alarmFiresAt: endsAt,
-            wasAutoStarted: record.wasAutoStarted
+            wasAutoStarted: record.wasAutoStarted,
+            scheduledStopAt: record.scheduledStopAt
         ))
         log.log(.info, "break: look-away until \(endsAt), alarm=\(lookAwayId.short)")
     }
 
     /// Finish the current cycle (break skipped, or look-away over) and book the
-    /// next break — or stop, if a schedule-started session would run past its window.
+    /// next break — or stop, if the next break would land past the session's window.
     /// - Parameter cancelCurrent: False when the look-away alarm is ringing and
     ///   should keep ringing until the user dismisses it.
     private func completeCycle(expecting alarmId: UUID?, cancelCurrent: Bool = true) async {
@@ -299,9 +342,10 @@ public final class SessionController: SessionControllerProtocol {
         if cancelCurrent, let current = record.alarmId {
             await alarms.cancel(alarmId: current)
         }
-        let nextFire = clock().addingTimeInterval(BlinkBreakConstants.breakInterval)
-        if record.wasAutoStarted, !weeklySchedule.isActive(at: nextFire, calendar: calendar) {
-            await stopSession(reason: .scheduleEnded)
+        let now = clock()
+        let nextFire = now.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        if sessionWindowHasEnded(record, at: nextFire) {
+            await stopSession(reason: sessionWindowHasEnded(record, at: now) ? .windowClosed : .windowEnding)
             return
         }
         guard let nextId = await scheduleAlarm(.breakDue, at: nextFire) else {
@@ -312,7 +356,8 @@ public final class SessionController: SessionControllerProtocol {
             phase: .running,
             alarmId: nextId,
             alarmFiresAt: nextFire,
-            wasAutoStarted: record.wasAutoStarted
+            wasAutoStarted: record.wasAutoStarted,
+            scheduledStopAt: record.scheduledStopAt
         ))
         log.log(.info, "cycle: next break at \(nextFire), alarm=\(nextId.short)")
     }
@@ -322,6 +367,13 @@ public final class SessionController: SessionControllerProtocol {
         defer { refreshState() }
         var record = persistence.loadSession()
         let now = clock()
+        if let pausedUntil = record.pausedUntil, now >= pausedUntil || !weeklySchedule.isEnabled {
+            // The paused window ended (or the schedule was turned off): the
+            // pause lapses and the schedule takes over again.
+            log.log(.info, "pause lapsed")
+            record.pausedUntil = nil
+            save(record)
+        }
         guard let firesAt = record.alarmFiresAt else { return }
         switch record.phase {
         case .scheduled where now >= firesAt.addingTimeInterval(-BlinkBreakConstants.breakInterval):
@@ -354,12 +406,11 @@ public final class SessionController: SessionControllerProtocol {
             await applySchedule()
             return
         }
-        // A schedule-started session still going after its window closed (for
-        // example a break alarm nobody answered) ends here. A pre-booked start
-        // (still `.scheduled` after the promotion above) is in the future, so it's exempt.
-        if record.wasAutoStarted, record.phase != .scheduled,
-           !weeklySchedule.isActive(at: now, calendar: calendar) {
-            await stopSession(reason: .scheduleEnded)
+        // A session still going after its window closed (for example a break
+        // alarm nobody answered) ends here. A pre-booked start (still `.scheduled`
+        // after the promotion above) is in the future, so it's exempt.
+        if record.phase != .scheduled, sessionWindowHasEnded(record, at: now) {
+            await stopSession(reason: .windowClosed)
             return
         }
         if let id = record.alarmId, !systemAlarms.contains(where: { $0.alarmId == id }) {
@@ -386,9 +437,10 @@ public final class SessionController: SessionControllerProtocol {
         case .idle:
             await applySchedule()
         case .scheduled:
-            // Re-book (or drop) the pre-booked start for the new schedule.
+            // Re-book (or drop) the pre-booked start for the new schedule, keeping
+            // any manual stop / pause for the current window.
             await cancelAlarms(keepingAlerting: false)
-            save(SessionRecord())
+            save(SessionRecord(manualStopDate: record.manualStopDate, pausedUntil: record.pausedUntil))
             await applySchedule()
         case .running, .lookingAway:
             // A running session picks up the new schedule at its next cycle.
@@ -396,7 +448,79 @@ public final class SessionController: SessionControllerProtocol {
         }
     }
 
-    // MARK: - Helpers
+    /// Persist, then refresh the derived UI state and the next timed wake-up.
+    private func save(_ record: SessionRecord) {
+        persistence.saveSession(record)
+        refreshState()
+    }
+
+    private func refreshState() {
+        let record = persistence.loadSession()
+        let now = clock()
+        let newState = SessionState.derive(from: record, now: now)
+        if newState != state {
+            state = newState
+        }
+        scheduleWake(for: record, now: now)
+    }
+
+    /// While the app is alive, wake up when the UI state would change on its own
+    /// (a pre-booked window opens, a break comes due, a look-away ends).
+    private func scheduleWake(for record: SessionRecord, now: Date) {
+        let alarmTarget: Date? = {
+            guard let firesAt = record.alarmFiresAt else { return nil }
+            switch record.phase {
+            case .idle:
+                return nil
+            case .scheduled:
+                let cycleStart = firesAt.addingTimeInterval(-BlinkBreakConstants.breakInterval)
+                return now < cycleStart ? cycleStart : firesAt
+            case .running:
+                return firesAt
+            case .lookingAway:
+                return firesAt.addingTimeInterval(BlinkBreakConstants.lookAwayCompletionMargin)
+            }
+        }()
+        // The earliest upcoming change: the pause lapsing, or an alarm-driven one.
+        let target = [record.pausedUntil, alarmTarget].compactMap { $0 }.filter { $0 > now }.min()
+        guard let target, target > now else {
+            wakeTask?.cancel()
+            wakeTask = nil
+            wakeDate = nil
+            return
+        }
+        guard target != wakeDate else { return }
+        wakeTask?.cancel()
+        wakeDate = target
+        wakeTask = Task { [weak self, sleep, clock] in
+            // Loop in case the sleep returns before the wall clock reaches the target.
+            while !Task.isCancelled {
+                let remaining = target.timeIntervalSince(clock())
+                guard remaining > 0 else { break }
+                await sleep(.milliseconds(Int64((remaining * 1000).rounded(.up))))
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.queue.enqueue { await self.evaluateTimedTransitions() }
+        }
+    }
+}
+
+// MARK: - Helpers
+
+extension SessionController {
+
+    /// Whether `date` is past the schedule window this session belongs to.
+    /// Schedule-started sessions follow the live schedule; manual ones stop at the
+    /// `scheduledStopAt` captured when they started. Nothing ends while the
+    /// schedule is off.
+    private func sessionWindowHasEnded(_ record: SessionRecord, at date: Date) -> Bool {
+        guard weeklySchedule.isEnabled else { return false }
+        if record.wasAutoStarted {
+            return !weeklySchedule.isActive(at: date, calendar: calendar)
+        }
+        guard let stopAt = record.scheduledStopAt else { return false }
+        return date >= stopAt
+    }
 
     private func refreshAuthorization() async {
         let status = await alarms.authorizationStatus()
@@ -437,60 +561,6 @@ public final class SessionController: SessionControllerProtocol {
     private func cancelAlarms(keepingAlerting: Bool) async {
         for alarm in await alarms.currentAlarms() where !(keepingAlerting && alarm.isAlerting) {
             await alarms.cancel(alarmId: alarm.alarmId)
-        }
-    }
-
-    /// Persist, then refresh the derived UI state and the next timed wake-up.
-    private func save(_ record: SessionRecord) {
-        persistence.saveSession(record)
-        refreshState()
-    }
-
-    private func refreshState() {
-        let record = persistence.loadSession()
-        let now = clock()
-        let newState = SessionState.derive(from: record, now: now)
-        if newState != state {
-            state = newState
-        }
-        scheduleWake(for: record, now: now)
-    }
-
-    /// While the app is alive, wake up when the UI state would change on its own
-    /// (a pre-booked window opens, a break comes due, a look-away ends).
-    private func scheduleWake(for record: SessionRecord, now: Date) {
-        let target: Date? = {
-            guard let firesAt = record.alarmFiresAt else { return nil }
-            switch record.phase {
-            case .idle:
-                return nil
-            case .scheduled:
-                let cycleStart = firesAt.addingTimeInterval(-BlinkBreakConstants.breakInterval)
-                return now < cycleStart ? cycleStart : firesAt
-            case .running:
-                return firesAt
-            case .lookingAway:
-                return firesAt.addingTimeInterval(BlinkBreakConstants.lookAwayCompletionMargin)
-            }
-        }()
-        guard let target, target > now else {
-            wakeTask?.cancel()
-            wakeTask = nil
-            wakeDate = nil
-            return
-        }
-        guard target != wakeDate else { return }
-        wakeTask?.cancel()
-        wakeDate = target
-        wakeTask = Task { [weak self, sleep, clock] in
-            // Loop in case the sleep returns before the wall clock reaches the target.
-            while !Task.isCancelled {
-                let remaining = target.timeIntervalSince(clock())
-                guard remaining > 0 else { break }
-                await sleep(.milliseconds(Int64((remaining * 1000).rounded(.up))))
-            }
-            guard !Task.isCancelled, let self else { return }
-            self.queue.enqueue { await self.evaluateTimedTransitions() }
         }
     }
 }

@@ -41,22 +41,38 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// stop automatically at the end of a schedule window.
     public var wasAutoStarted: Bool
 
-    /// When the user last stopped a session inside a schedule window. Keeps the
-    /// schedule from restarting the session for the rest of that window.
+    /// When the user last stopped (or paused) a session inside a schedule window.
+    /// Keeps the schedule from restarting the session for the rest of that window.
+    /// Carried on idle and pre-booked records.
     public var manualStopDate: Date?
+
+    /// Set while the user has paused inside a schedule window: the end of that
+    /// window. The UI shows `.paused` until then; afterwards the pause lapses and
+    /// the schedule takes over again. Carried on idle and pre-booked records.
+    public var pausedUntil: Date?
+
+    /// For manually started sessions (including Resume) while the weekly schedule
+    /// is on: when to hand control back to the schedule — the end of the window
+    /// open at start, or of the next one to open. Nil for schedule-started
+    /// sessions (they follow the live schedule) and when the schedule is off.
+    public var scheduledStopAt: Date?
 
     public init(
         phase: Phase = .idle,
         alarmId: UUID? = nil,
         alarmFiresAt: Date? = nil,
         wasAutoStarted: Bool = false,
-        manualStopDate: Date? = nil
+        manualStopDate: Date? = nil,
+        pausedUntil: Date? = nil,
+        scheduledStopAt: Date? = nil
     ) {
         self.phase = phase
         self.alarmId = alarmId
         self.alarmFiresAt = alarmFiresAt
         self.wasAutoStarted = wasAutoStarted
         self.manualStopDate = manualStopDate
+        self.pausedUntil = pausedUntil
+        self.scheduledStopAt = scheduledStopAt
     }
 
     /// The kind of `alarmId`, implied by the phase.

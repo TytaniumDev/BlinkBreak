@@ -96,6 +96,43 @@ struct ScheduleEvaluationTests {
         #expect(WeeklySchedule(isEnabled: true, days: [:]).nextWindowStart(after: at(2, 7), calendar: calendar) == nil)
     }
 
+    // MARK: - currentOrNextWindowEnd
+
+    @Test("inside or before today's window → today's end")
+    func windowEndToday() {
+        #expect(schedule.currentOrNextWindowEnd(from: at(2, 10), calendar: calendar) == at(2, 17))
+        #expect(schedule.currentOrNextWindowEnd(from: at(2, 7), calendar: calendar) == at(2, 17))
+    }
+
+    @Test("after today's window, or exactly at its end → tomorrow's end")
+    func windowEndTomorrow() {
+        #expect(schedule.currentOrNextWindowEnd(from: at(2, 18), calendar: calendar) == at(3, 17))
+        #expect(schedule.currentOrNextWindowEnd(from: at(2, 17), calendar: calendar) == at(3, 17))
+    }
+
+    @Test("skips disabled days (Saturday → Monday's end)")
+    func windowEndSkipsWeekend() {
+        let mondayEnd = at(2, 17).addingTimeInterval(7 * 86_400)
+        #expect(schedule.currentOrNextWindowEnd(from: at(7, 10), calendar: calendar) == mondayEnd)
+    }
+
+    @Test("skips a malformed window whose end is before its start")
+    func windowEndSkipsMalformed() {
+        var broken = schedule
+        broken.days[2] = DaySchedule(
+            isEnabled: true,
+            startTime: DateComponents(hour: 17, minute: 0),
+            endTime: DateComponents(hour: 9, minute: 0)
+        )
+        #expect(broken.currentOrNextWindowEnd(from: at(2, 10), calendar: calendar) == at(3, 17))
+    }
+
+    @Test("nil when the schedule is off or has no enabled days")
+    func windowEndNone() {
+        #expect(WeeklySchedule.default.currentOrNextWindowEnd(from: at(2, 10), calendar: calendar) == nil)
+        #expect(WeeklySchedule(isEnabled: true, days: [:]).currentOrNextWindowEnd(from: at(2, 10), calendar: calendar) == nil)
+    }
+
     // MARK: - statusText
 
     @Test("status text for before, during, and after the window")

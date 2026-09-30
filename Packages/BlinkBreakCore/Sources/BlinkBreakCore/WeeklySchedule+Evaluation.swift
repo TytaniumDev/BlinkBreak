@@ -5,7 +5,8 @@
 //  Pure date math over a WeeklySchedule. Answers:
 //  1. "Should a session be running at this moment?" (isActive)
 //  2. "When does the next window open?" (nextWindowStart)
-//  3. "What should the idle screen say?" (statusText)
+//  3. "When does the current (or next) window close?" (currentOrNextWindowEnd)
+//  4. "What should the idle screen say?" (statusText)
 //
 //  Everything takes an explicit Calendar so tests can pin the time zone.
 //
@@ -63,6 +64,22 @@ extension WeeklySchedule {
                 continue
             }
             return window.start
+        }
+        return nil
+    }
+
+    /// The end of the window containing `date`, or — between windows — the end of
+    /// the next one. Nil when the schedule is off or has no enabled days. Bounds
+    /// manually started and paused sessions.
+    public func currentOrNextWindowEnd(from date: Date, calendar: Calendar) -> Date? {
+        guard isEnabled else { return nil }
+        for offset in 0...7 {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: date),
+                  let window = window(onDayOf: day, calendar: calendar),
+                  date < window.end else {
+                continue
+            }
+            return window.end
         }
         return nil
     }

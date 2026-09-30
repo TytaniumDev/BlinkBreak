@@ -230,7 +230,7 @@ struct ScheduleIntegrationTests {
         #expect(f.record.alarmFiresAt == at(3, 9).addingTimeInterval(interval))
     }
 
-    @Test("manually started sessions ignore the schedule's end")
+    @Test("a manual session started with the schedule off ignores the schedule turned on later")
     func manualIgnoresSchedule() async {
         let f = Fixture(now: at(2, 16, 50))
         let alarm = await f.startRunning()

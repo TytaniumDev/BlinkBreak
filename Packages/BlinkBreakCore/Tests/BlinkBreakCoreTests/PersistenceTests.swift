@@ -36,7 +36,9 @@ struct PersistenceTests {
             alarmId: UUID(),
             alarmFiresAt: Date(timeIntervalSince1970: 1_800_000_000),
             wasAutoStarted: true,
-            manualStopDate: Date(timeIntervalSince1970: 1_700_000_000)
+            manualStopDate: Date(timeIntervalSince1970: 1_700_000_000),
+            pausedUntil: Date(timeIntervalSince1970: 1_700_003_600),
+            scheduledStopAt: Date(timeIntervalSince1970: 1_700_007_200)
         )
         store.saveSession(record)
         store.saveSchedule(.workweekOn)
@@ -112,6 +114,17 @@ struct SessionStateDerivationTests {
         #expect(SessionState.derive(from: record(.scheduled, firesIn: interval + 60), now: now) == .idle)
         #expect(SessionState.derive(from: record(.scheduled, firesIn: interval), now: now)
                 == .running(breakAt: now.addingTimeInterval(interval)))
+    }
+
+    @Test("a pause shows paused until it lapses, on idle and pre-booked records")
+    func paused() {
+        let until = now.addingTimeInterval(600)
+        #expect(SessionState.derive(from: SessionRecord(pausedUntil: until), now: now) == .paused(until: until))
+        var preBooked = record(.scheduled, firesIn: 86_400)
+        preBooked.pausedUntil = until
+        #expect(SessionState.derive(from: preBooked, now: now) == .paused(until: until))
+        #expect(SessionState.derive(from: SessionRecord(pausedUntil: now), now: now) == .idle)
+        #expect(SessionState.paused(until: until).isActive == false)
     }
 
     @Test("looking away is breakActive")
