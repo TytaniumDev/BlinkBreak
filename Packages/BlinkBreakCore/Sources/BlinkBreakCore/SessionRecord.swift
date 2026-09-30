@@ -50,6 +50,19 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// the system is still tracking. Optional for backwards compatibility.
     public var currentAlarmId: UUID?
 
+    /// Non-nil while the session is paused (see `SessionState.paused`). Holds the end
+    /// of the schedule window the pause belongs to; once the clock passes it the pause
+    /// lapses and reconciliation clears it back to plain idle. Optional so legacy
+    /// records decode without migration.
+    public var pausedUntil: Date?
+
+    /// For manually started sessions: when the weekly schedule should stop the session
+    /// (the end of the schedule window that was open, or next opened, at start time).
+    /// Nil for schedule-started sessions (they follow the live schedule via
+    /// `wasAutoStarted`) and when no schedule is enabled. Optional so legacy records
+    /// decode without migration.
+    public var scheduledStopAt: Date?
+
     public init(
         sessionActive: Bool = false,
         currentCycleId: UUID? = nil,
@@ -58,7 +71,9 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         lastUpdatedAt: Date? = nil,
         manualStopDate: Date? = nil,
         wasAutoStarted: Bool? = nil,
-        currentAlarmId: UUID? = nil
+        currentAlarmId: UUID? = nil,
+        pausedUntil: Date? = nil,
+        scheduledStopAt: Date? = nil
     ) {
         self.sessionActive = sessionActive
         self.currentCycleId = currentCycleId
@@ -68,6 +83,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.manualStopDate = manualStopDate
         self.wasAutoStarted = wasAutoStarted
         self.currentAlarmId = currentAlarmId
+        self.pausedUntil = pausedUntil
+        self.scheduledStopAt = scheduledStopAt
     }
 
     /// The canonical "idle" record. Use this when stopping or clearing session state.
@@ -95,6 +112,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         case manualStopDate
         case wasAutoStarted
         case currentAlarmId
+        case pausedUntil
+        case scheduledStopAt
         case lookAwayStartedAt // legacy
     }
 
@@ -109,6 +128,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         self.manualStopDate = try c.decodeIfPresent(Date.self, forKey: .manualStopDate)
         self.wasAutoStarted = try c.decodeIfPresent(Bool.self, forKey: .wasAutoStarted)
         self.currentAlarmId = try c.decodeIfPresent(UUID.self, forKey: .currentAlarmId)
+        self.pausedUntil = try c.decodeIfPresent(Date.self, forKey: .pausedUntil)
+        self.scheduledStopAt = try c.decodeIfPresent(Date.self, forKey: .scheduledStopAt)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -121,5 +142,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         try c.encodeIfPresent(manualStopDate, forKey: .manualStopDate)
         try c.encodeIfPresent(wasAutoStarted, forKey: .wasAutoStarted)
         try c.encodeIfPresent(currentAlarmId, forKey: .currentAlarmId)
+        try c.encodeIfPresent(pausedUntil, forKey: .pausedUntil)
+        try c.encodeIfPresent(scheduledStopAt, forKey: .scheduledStopAt)
     }
 }

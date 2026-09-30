@@ -16,6 +16,9 @@ final class MockScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Sendabl
     var stubbedShouldBeActiveBlock: (@Sendable (Date) -> Bool)?
     var stubbedNextTransitionDate: Date?
     var stubbedStatusText: String?
+    /// Returned by `currentOrNextWindowEnd`. Nil by default, so manually started
+    /// sessions in tests have no schedule-driven stop unless a test opts in.
+    var stubbedWindowEnd: Date?
     var shouldBeActiveCalls: [(date: Date, manualStopDate: Date?)] = []
 
     func shouldBeActive(at date: Date, manualStopDate: Date?, calendar: Calendar) -> Bool {
@@ -28,6 +31,10 @@ final class MockScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Sendabl
 
     func nextTransitionDate(from date: Date, calendar: Calendar) -> Date? {
         stubbedNextTransitionDate
+    }
+
+    func currentOrNextWindowEnd(from date: Date, calendar: Calendar) -> Date? {
+        stubbedWindowEnd
     }
 
     func statusText(at date: Date, calendar: Calendar) -> String? {

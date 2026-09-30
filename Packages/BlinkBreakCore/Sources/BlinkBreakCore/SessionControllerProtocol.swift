@@ -25,11 +25,21 @@ public protocol SessionControllerProtocol: ObservableObject {
     /// The current session state. Views `switch` on this to render their body.
     var state: SessionState { get }
 
-    /// Start a new session. Transitions idle → running. Schedules the first break alarm.
+    /// Start a new session. Transitions idle / paused → running. Schedules the first
+    /// break alarm. Also used as "Resume" from `PausedView`.
     func start()
 
     /// Stop the current session. Transitions any-state → idle. Cancels all pending alarms.
     func stop()
+
+    /// True when a session is running and a weekly-schedule window is open, i.e.
+    /// `pause()` is available. Views show the Pause button only when this is true.
+    var canPause: Bool { get }
+
+    /// Pause the session for the rest of the current schedule window. Transitions
+    /// running / breakPending / breakActive → paused and cancels all alarms. The
+    /// schedule still auto-starts the next window. No-op when `canPause` is false.
+    func pause()
 
     /// Acknowledge the currently-active break from inside the app. Used by
     /// `BreakPendingView` when the user taps the in-app "Start break" button.

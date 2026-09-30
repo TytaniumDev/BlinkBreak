@@ -2,7 +2,7 @@
 //  RootView.swift
 //  BlinkBreak
 //
-//  The single top-level view that switches between the four state-specific views.
+//  The single top-level view that switches between the five state-specific views.
 //  Observes the SessionController via the protocol and dispatches to the right
 //  child view for the current state.
 //
@@ -54,6 +54,8 @@ struct RootView<Controller: SessionControllerProtocol>: View {
                         BreakPendingView(controller: controller)
                     case .breakActive:
                         BreakActiveView(controller: controller)
+                    case .paused(let until):
+                        PausedView(controller: controller, until: until)
                     }
                 }
             }
@@ -82,6 +84,10 @@ struct RootView<Controller: SessionControllerProtocol>: View {
 
 #Preview("Break Active") {
     RootView(controller: PreviewSessionController.breakActive, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
+}
+
+#Preview("Paused") {
+    RootView(controller: PreviewSessionController.paused, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
 }
 
 #Preview("Permission Denied") {

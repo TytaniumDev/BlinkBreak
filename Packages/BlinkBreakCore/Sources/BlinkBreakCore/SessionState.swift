@@ -2,16 +2,16 @@
 //  SessionState.swift
 //  BlinkBreakCore
 //
-//  The four-case state enum that drives all UI and the state machine. Views `switch`
+//  The five-case state enum that drives all UI and the state machine. Views `switch`
 //  on this enum to render their body; they never contain business logic beyond that.
 //
-//  Flutter analogue: this is the equivalent of a sealed class with four subtypes,
+//  Flutter analogue: this is the equivalent of a sealed class with five subtypes,
 //  consumed by a Selector<SessionState, SessionState> and rendered with a switch.
 //
 
 import Foundation
 
-/// The four possible states of a BlinkBreak session. Published by `SessionController`
+/// The five possible states of a BlinkBreak session. Published by `SessionController`
 /// and observed by all views.
 ///
 /// ```
@@ -22,6 +22,9 @@ import Foundation
 ///   (Stop, from any state)   (Stop)                                      ▼
 ///      │                      │                                    breakActive
 ///      └──────────────────────┴──────(look-away alarm, 20 s later)───────┘
+///
+///    running / breakPending / breakActive ──(Pause, inside a schedule window)──► paused
+///    paused ──(Resume)──► running        paused ──(schedule window ends)──► idle
 /// ```
 public enum SessionState: Equatable, Sendable {
 
@@ -42,16 +45,24 @@ public enum SessionState: Equatable, Sendable {
     /// - Parameter startedAt: When the break began. The look-away alarm fires at
     ///   `startedAt + BlinkBreakConstants.lookAwayDuration`.
     case breakActive(startedAt: Date)
+
+    /// The user paused a session during a weekly-schedule window (e.g. for a nap).
+    /// No alarms are scheduled and the schedule won't auto-restart the session
+    /// until the user resumes. When the window ends the pause lapses into `.idle`,
+    /// so the schedule auto-starts again at the next scheduled window as usual.
+    /// - Parameter until: The end of the schedule window the pause belongs to.
+    case paused(until: Date)
 }
 
 // MARK: - Convenience queries
 
 extension SessionState {
 
-    /// `true` if the session is active in any form (not `.idle`).
+    /// `true` if a session is running in any form — i.e. alarms are scheduled.
+    /// `.idle` and `.paused` are both inactive.
     public var isActive: Bool {
         switch self {
-        case .idle:
+        case .idle, .paused:
             return false
         case .running, .breakPending, .breakActive:
             return true
@@ -67,6 +78,7 @@ extension SessionState: CustomStringConvertible {
         case .running: return "running"
         case .breakPending: return "breakPending"
         case .breakActive: return "breakActive"
+        case .paused: return "paused"
         }
     }
 }
