@@ -2,310 +2,145 @@
 //  AlarmKitScheduler.swift
 //  BlinkBreak
 //
-//  Concrete `AlarmSchedulerProtocol` implementation backed by AlarmKit's
-//  `AlarmManager.shared`. iOS 26+ only.
+//  Concrete `AlarmSchedulerProtocol` backed by AlarmKit's `AlarmManager.shared`.
+//  This and AlarmIntents.swift are the only files that import AlarmKit; the
+//  `BlinkBreakCore` package stays platform-agnostic.
 //
-//  This is the only file in the codebase that imports AlarmKit. The
-//  `BlinkBreakCore` package is platform-agnostic by design.
+//  The system is the source of truth: `currentAlarms()` reads
+//  `AlarmManager.shared.alarms` directly, and `events` is a diff of the
+//  `alarmUpdates` stream. Nothing is cached in UserDefaults.
 //
 //  Why `.alarm(schedule:)` and not `.timer(duration:)`: a timer-backed alarm
 //  implies a countdown Live Activity that the system surfaces as a running
-//  countdown before the alarm fires. Using a fixed-date schedule with an
-//  alert-only presentation avoids the Live Activity surface entirely.
+//  countdown before the alarm fires. A fixed-date schedule with an alert-only
+//  presentation avoids that surface entirely.
 //
 
-import Foundation
+import ActivityKit  // AlertConfiguration (alarm sounds)
 import AlarmKit
-import ActivityKit
 import AppIntents
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
-/// Marker metadata for our alarms. AlarmKit requires a Metadata generic on the
-/// configuration value even when we don't carry any extra data.
-public struct BlinkBreakAlarmMetadata: AlarmMetadata {
-    public init() {}
-}
+/// AlarmKit requires a metadata type even when we don't carry any extra data.
+struct BlinkBreakAlarmMetadata: AlarmMetadata {}
 
-public final class AlarmKitScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
+final class AlarmKitScheduler: AlarmSchedulerProtocol {
 
-    /// UserDefaults key for the persisted alarm-id → kind mapping. Survives app kill
-    /// so reconciliation on launch can correlate the still-scheduled system alarm with
-    /// its semantic kind.
-    private static let mappingDefaultsKey = "blinkbreak.alarmkit.idToKind.v1"
+    let events: AsyncStream<AlarmEvent>
+    private let observer: Task<Void, Never>
 
-    private let lock = NSLock()
-    /// Maps the alarm UUIDs we've scheduled to their semantic kind so we can
-    /// translate AlarmKit `[Alarm]` snapshots back into our `AlarmEvent` vocabulary.
-    /// Persisted to UserDefaults on every change.
-    private var idToKind: [UUID: AlarmKind]
-    /// Tracks which alarm IDs are currently alerting per the most recent
-    /// `alarmUpdates` snapshot. Used by `currentAlarms()` for reconciliation.
-    private var alertingIds: Set<UUID> = []
-
-    public let events: AsyncStream<AlarmEvent>
-    private let eventContinuation: AsyncStream<AlarmEvent>.Continuation
-    private var observerTask: Task<Void, Never>?
-
-    public init() {
-        // Restore the mapping from prior sessions so reconciliation finds alarms
-        // scheduled before the app was killed.
-        self.idToKind = Self.loadMapping()
-
-        var cont: AsyncStream<AlarmEvent>.Continuation!
-        self.events = AsyncStream { c in cont = c }
-        self.eventContinuation = cont
-
-        // Subscribe to AlarmKit's update stream and translate each delta into our
-        // `.fired` / `.dismissed` event vocabulary.
-        observerTask = Task { [weak self] in
-            var lastAlerting: Set<UUID> = []
-            var lastKnown: Set<UUID> = []
+    init() {
+        let (events, continuation) = AsyncStream.makeStream(of: AlarmEvent.self)
+        self.events = events
+        observer = Task {
+            // The first snapshot is a baseline: alarms that vanished while the app
+            // wasn't running are caught up by `SessionController.reconcile()`.
+            var previous: [UUID: Bool]?
             for await alarms in AlarmManager.shared.alarmUpdates {
-                guard let self else { return }
-                let nowAlerting = Set(alarms.lazy.filter { $0.state == .alerting }.map { $0.id })
-                let nowKnown = Set(alarms.lazy.map(\.id))
-                let known = self.snapshotMapping()
-
-                // Update the alerting set so currentAlarms() reflects live state.
-                self.setAlerting(ids: nowAlerting)
-
-                // Reap any persisted mappings whose alarms no longer exist in the
-                // system (e.g. they fired and were dismissed before the observer
-                // started in the new app session).
-                let stale = Set(known.keys).subtracting(nowKnown)
-                for id in stale where !lastKnown.contains(id) {
-                    // Was already gone before our observer saw them — emit dismissed
-                    // so SessionController can clean up its persisted state.
-                    if let kind = known[id] {
-                        self.eventContinuation.yield(.dismissed(alarmId: id, kind: kind))
-                        self.forgetMapping(id: id)
+                let current = Dictionary(alarms.map { ($0.id, $0.state == .alerting) }) { first, _ in first }
+                for (id, isAlerting) in current where isAlerting && previous?[id] != true {
+                    continuation.yield(.alerting(alarmId: id))
+                }
+                if let previous {
+                    for id in previous.keys where current[id] == nil {
+                        continuation.yield(.removed(alarmId: id))
                     }
                 }
-
-                // Newly alerting → `.fired`
-                for id in nowAlerting.subtracting(lastAlerting) {
-                    if let kind = known[id] {
-                        self.eventContinuation.yield(.fired(alarmId: id, kind: kind))
-                    }
-                }
-
-                // Disappeared from the system entirely → `.dismissed`. Either the user
-                // tapped Stop or we cancelled it programmatically.
-                for id in lastKnown.subtracting(nowKnown) {
-                    if let kind = known[id] {
-                        self.eventContinuation.yield(.dismissed(alarmId: id, kind: kind))
-                        self.forgetMapping(id: id)
-                    }
-                }
-
-                lastAlerting = nowAlerting
-                lastKnown = nowKnown
+                previous = current
             }
+            continuation.finish()
         }
     }
 
     deinit {
-        observerTask?.cancel()
-        eventContinuation.finish()
-    }
-
-    private func snapshotMapping() -> [UUID: AlarmKind] {
-        lock.lock(); defer { lock.unlock() }
-        return idToKind
-    }
-
-    private func snapshotAlerting() -> Set<UUID> {
-        lock.lock(); defer { lock.unlock() }
-        return alertingIds
-    }
-
-    private func setAlerting(ids: Set<UUID>) {
-        lock.lock(); defer { lock.unlock() }
-        alertingIds = ids
-    }
-
-    // Both remember/forget read-modify-write the persisted mapping rather than
-    // overwriting with the in-memory snapshot. `TurnOffBlinkBreakIntent` clears
-    // UserDefaults directly; a snapshot write here would revive whatever entries
-    // the in-memory `idToKind` still holds before the observer reaps them.
-    private func rememberMapping(id: UUID, kind: AlarmKind) {
-        lock.lock()
-        idToKind[id] = kind
-        lock.unlock()
-        var current = Self.loadMapping()
-        current[id] = kind
-        Self.saveMapping(current)
-    }
-
-    private func forgetMapping(id: UUID) {
-        lock.lock()
-        idToKind.removeValue(forKey: id)
-        alertingIds.remove(id)
-        lock.unlock()
-        var current = Self.loadMapping()
-        current.removeValue(forKey: id)
-        Self.saveMapping(current)
-    }
-
-    private func clearAllMappings() {
-        lock.lock()
-        idToKind.removeAll()
-        alertingIds.removeAll()
-        lock.unlock()
-        Self.saveMapping([:])
-    }
-
-    // MARK: - Mapping persistence
-
-    /// Wire format: dictionary of `UUID.uuidString → AlarmKind.rawValue`.
-    private static func loadMapping() -> [UUID: AlarmKind] {
-        guard let raw = UserDefaults.standard.dictionary(forKey: mappingDefaultsKey) as? [String: String] else {
-            return [:]
-        }
-        var result: [UUID: AlarmKind] = [:]
-        for (idString, kindString) in raw {
-            if let id = UUID(uuidString: idString),
-               let kind = AlarmKind(rawValue: kindString) {
-                result[id] = kind
-            }
-        }
-        return result
-    }
-
-    private static func saveMapping(_ mapping: [UUID: AlarmKind]) {
-        let raw = Dictionary(uniqueKeysWithValues: mapping.lazy.map { ($0.key.uuidString, $0.value.rawValue) })
-        UserDefaults.standard.set(raw, forKey: mappingDefaultsKey)
+        observer.cancel()
     }
 
     // MARK: - AlarmSchedulerProtocol
 
-    public func requestAuthorizationIfNeeded() async throws -> Bool {
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["BB_BREAK_INTERVAL"] != nil {
-            return true
-        }
-        #endif
-
+    func authorizationStatus() async -> AlarmAuthorizationStatus {
+        if UITestSupport.isActive { return .authorized }
         switch AlarmManager.shared.authorizationState {
-        case .authorized:
-            return true
-        case .denied:
-            return false
-        case .notDetermined:
-            let state = try await AlarmManager.shared.requestAuthorization()
-            return state == .authorized
-        @unknown default:
-            return false
+        case .authorized: return .authorized
+        case .denied: return .denied
+        case .notDetermined: return .notDetermined
+        @unknown default: return .notDetermined
         }
     }
 
-    public func scheduleCountdown(duration: TimeInterval, kind: AlarmKind, muteSound: Bool) async throws -> UUID {
-        let authorized = (try? await requestAuthorizationIfNeeded()) ?? false
-        guard authorized else {
-            throw AlarmSchedulerError.authorizationDenied
-        }
+    func schedule(_ kind: AlarmKind, at fireDate: Date, muteSound: Bool) async throws -> UUID {
+        try await requestAuthorizationIfNeeded()
 
         let id = UUID()
-        let (alert, secondaryIntent) = Self.presentation(for: kind, alarmID: id)
         let attributes = AlarmAttributes<BlinkBreakAlarmMetadata>(
-            presentation: AlarmPresentation(alert: alert),
-            tintColor: Color("AccentColor")
+            presentation: AlarmPresentation(alert: Self.alert(for: kind)),
+            tintColor: .accentColor
         )
-        let sound: AlertConfiguration.AlertSound
-        if muteSound {
-            sound = .named("break-alarm-silent.caf")
-        } else {
-            sound = BlinkBreakConstants.breakSoundFileName.map { .named($0) } ?? .default
-        }
-        // System Stop and the custom secondary button do different things:
-        //   - Stop (system, label fixed by AlarmKit since iOS 26.1) → skips
-        //     this reminder. `SkipBreakIntent` just cancels the alarm; the
-        //     dismissed event reaches `SessionController.handleDismissed`
-        //     with no acknowledge marker, which routes through the default
-        //     skip branch (no look-away, next breakDue in `breakInterval`).
-        //   - Secondary "Start break" / "End break" → acknowledges this alarm
-        //     and rolls the cycle forward. Wired via `DismissAlarmIntent`,
-        //     which writes the acknowledge marker before cancelling so
-        //     `handleDismissed` takes the schedule-look-away branch.
+        // The system Stop button runs `StopButtonIntent` (skip / end the break);
+        // the custom secondary button runs `BreakButtonIntent` (start / end the break).
         let configuration = AlarmManager.AlarmConfiguration<BlinkBreakAlarmMetadata>.alarm(
-            schedule: .fixed(Date().addingTimeInterval(duration)),
+            schedule: .fixed(fireDate),
             attributes: attributes,
-            stopIntent: SkipBreakIntent(alarmID: id.uuidString),
-            secondaryIntent: secondaryIntent,
-            sound: sound
+            stopIntent: StopButtonIntent(alarmID: id.uuidString),
+            secondaryIntent: BreakButtonIntent(alarmID: id.uuidString),
+            sound: Self.sound(muted: muteSound)
         )
-
         do {
             _ = try await AlarmManager.shared.schedule(id: id, configuration: configuration)
         } catch {
             throw AlarmSchedulerError.schedulingFailed(reason: String(describing: error))
         }
-
-        rememberMapping(id: id, kind: kind)
         return id
     }
 
-    /// Builds the alert presentation + secondary intent for a given alarm kind.
-    /// The system provides the stop control automatically; the break-due alarm
-    /// additionally surfaces a tappable "Start break" secondary button so users
-    /// have a tap-friendly path alongside the system slide-to-stop. Both controls
-    /// converge on the same dismissed event, which SessionController turns into
-    /// "schedule look-away".
-    private static func presentation(
-        for kind: AlarmKind,
-        alarmID: UUID
-    ) -> (AlarmPresentation.Alert, (any LiveActivityIntent)?) {
+    func cancel(alarmId: UUID) async {
+        // Throws for an alarm that's already gone, which is fine.
+        try? AlarmManager.shared.cancel(id: alarmId)
+    }
+
+    func currentAlarms() async -> [ScheduledAlarm] {
+        let alarms = (try? AlarmManager.shared.alarms) ?? []
+        return alarms.map { ScheduledAlarm(alarmId: $0.id, isAlerting: $0.state == .alerting) }
+    }
+
+    // MARK: - Helpers
+
+    private func requestAuthorizationIfNeeded() async throws {
+        switch await authorizationStatus() {
+        case .authorized:
+            return
+        case .denied:
+            throw AlarmSchedulerError.authorizationDenied
+        case .notDetermined:
+            let state = try? await AlarmManager.shared.requestAuthorization()
+            guard state == .authorized else { throw AlarmSchedulerError.authorizationDenied }
+        }
+    }
+
+    private static func alert(for kind: AlarmKind) -> AlarmPresentation.Alert {
         switch kind {
         case .breakDue:
-            let button = AlarmButton(text: "Start break", textColor: .white, systemImageName: "eye")
-            let alert = AlarmPresentation.Alert(
-                title: "Time to look away",
-                secondaryButton: button,
-                secondaryButtonBehavior: .custom
-            )
-            return (alert, DismissAlarmIntent(alarmID: alarmID.uuidString))
+            return alert(title: "Time to look away", button: "Start break", systemImage: "eye")
         case .lookAwayDone:
-            let button = AlarmButton(text: "End break", textColor: .white, systemImageName: "checkmark")
-            let alert = AlarmPresentation.Alert(
-                title: "Look-away complete",
-                secondaryButton: button,
-                secondaryButtonBehavior: .custom
-            )
-            return (alert, DismissAlarmIntent(alarmID: alarmID.uuidString))
+            return alert(title: "Look-away complete", button: "End break", systemImage: "checkmark")
         }
     }
 
-    public func cancel(alarmId: UUID) async {
-        do {
-            try AlarmManager.shared.cancel(id: alarmId)
-        } catch {
-            // Cancelling a non-existent alarm is fine — the user may have already dismissed it.
-        }
-        forgetMapping(id: alarmId)
+    private static func alert(
+        title: LocalizedStringResource,
+        button: LocalizedStringResource,
+        systemImage: String
+    ) -> AlarmPresentation.Alert {
+        AlarmPresentation.Alert(
+            title: title,
+            secondaryButton: AlarmButton(text: button, textColor: .white, systemImageName: systemImage),
+            secondaryButtonBehavior: .custom
+        )
     }
 
-    public func cancelAll() async {
-        let mapping = snapshotMapping()
-        for id in mapping.keys {
-            do {
-                try AlarmManager.shared.cancel(id: id)
-            } catch {
-                // Best-effort; clean up the mapping below regardless.
-            }
-        }
-        clearAllMappings()
-    }
-
-    public func currentAlarms() async -> [ScheduledAlarmInfo] {
-        let mapping = snapshotMapping()
-        let alerting = snapshotAlerting()
-        return mapping.map {
-            ScheduledAlarmInfo(
-                alarmId: $0.key,
-                kind: $0.value,
-                isAlerting: alerting.contains($0.key)
-            )
-        }
+    private static func sound(muted: Bool) -> AlertConfiguration.AlertSound {
+        // UI tests use the silent file so simulator runs stay quiet.
+        muted || UITestSupport.isActive ? .named("break-alarm-silent.caf") : .named("break-alarm.caf")
     }
 }

@@ -8,8 +8,10 @@
 //  step, not during iteration. Use ./scripts/test.sh for the fast unit-test loop
 //  and ./scripts/test-integration.sh for this suite.
 //
-//  Timer overrides: the scheme sets BB_BREAK_INTERVAL=3 and BB_LOOKAWAY_DURATION=1
-//  so tests exercise a full 20-20-20 cycle in ~4 seconds of wall-clock time.
+//  Timer overrides: `launchForIntegrationTest` sets BB_BREAK_INTERVAL and
+//  BB_LOOKAWAY_DURATION (3 s each by default) so tests exercise a full 20-20-20
+//  cycle in a few seconds, plus BB_UI_TESTING=1 (skip the AlarmKit permission
+//  check, silent sound). All three are honored only in DEBUG builds.
 //
 
 import XCTest
@@ -23,17 +25,17 @@ extension XCUIApplication {
     ///
     /// Defaults: 3-second break interval, 3-second breakActive duration. The breakActive
     /// needs to be wide enough for XCUITest to observe the transient breakActive state
-    /// through SwiftUI's 250ms state-change animation and the 1-second reconcile
-    /// tick; 1 second was too tight.
+    /// through SwiftUI's 250ms state-change animation; 1 second was too tight.
     func launchForIntegrationTest(
         breakIntervalSeconds: TimeInterval = 3,
         lookAwayDurationSeconds: TimeInterval = 3,
         resetDefaults: Bool = true
     ) {
+        launchEnvironment["BB_UI_TESTING"] = "1"
         launchEnvironment["BB_BREAK_INTERVAL"] = String(breakIntervalSeconds)
         launchEnvironment["BB_LOOKAWAY_DURATION"] = String(lookAwayDurationSeconds)
         if resetDefaults {
-            // Ask the app to wipe the UserDefaults session record before first use.
+            // Ask the app to wipe everything it stores before first use.
             launchArguments.append("-BB_RESET_DEFAULTS")
         }
         launch()
@@ -90,6 +92,9 @@ enum A11y {
     enum BreakActive {
         static let stopButton = "button.breakActive.stop"
         static let message = "label.breakActive.message"
+    }
+    enum PermissionDenied {
+        static let openSettingsButton = "button.permissionDenied.openSettings"
     }
     enum Schedule {
         static let section = "section.schedule"

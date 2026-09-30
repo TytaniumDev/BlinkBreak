@@ -11,88 +11,19 @@
 //
 
 import SwiftUI
-import BlinkBreakCore
 
 @main
 struct BlinkBreakApp: App {
 
-    // @UIApplicationDelegateAdaptor is how SwiftUI apps hook a classic UIKit-style
-    // AppDelegate into the modern SwiftUI lifecycle. We use it to register the
-    // BGTaskScheduler handler before the app finishes launching.
-    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-
     init() {
-        // XCUITest hook: when launched with `-BB_RESET_DEFAULTS`, wipe the persisted
-        // session record so each integration test starts from a clean idle state.
-        // Production launches never pass this flag.
-        if CommandLine.arguments.contains("-BB_RESET_DEFAULTS") {
-            UserDefaults.standard.removeObject(forKey: BlinkBreakConstants.sessionRecordKey)
-            UserDefaults.standard.removeObject(forKey: BlinkBreakConstants.alarmSoundMutedKey)
-        }
-
         // Release-only crash / error reporting. No-op in DEBUG.
         SentryBootstrap.start()
     }
 
-    // Shared instances used by both the SessionController and the ScheduleTaskManager
-    // so we don't create duplicate persistence / evaluator objects. Exposed at
-    // internal access so AppDelegate can pass the same evaluator into the background
-    // task handler registration.
-    static let sharedPersistence = UserDefaultsPersistence()
-    static let sharedEvaluator = ScheduleEvaluator(schedule: {
-        sharedPersistence.loadSchedule() ?? .empty
-    })
-
-    @MainActor
-    static let sharedAlarmScheduler = AlarmKitScheduler()
-
-    // @StateObject owns an observable object for the entire lifetime of the app.
-    // Flutter analogue: a top-level ChangeNotifierProvider that lives for as long
-    // as the app runs. Views deeper in the tree observe this via @ObservedObject /
-    // @EnvironmentObject.
-    @StateObject private var controller: SessionController = {
-        SessionController(
-            alarmScheduler: sharedAlarmScheduler,
-            persistence: sharedPersistence,
-            scheduleEvaluator: sharedEvaluator
-        )
-    }()
-
-    @State private var scheduleTaskManager: ScheduleTaskManager?
-
     var body: some Scene {
         WindowGroup {
-            ShakeDetectorView(
-                content: RootView(
-                    controller: controller,
-                    scheduleEvaluator: Self.sharedEvaluator,
-                    persistence: Self.sharedPersistence
-                ),
-                persistence: Self.sharedPersistence,
-                sessionState: controller.state
-            )
-                .onAppear {
-                    appDelegate.controller = controller
-
-                    // `reconcile()` kicks off with `refreshPermission()` internally,
-                    // which handles first-launch authorization prompting and publishes
-                    // `authorizationDenied` for the `PermissionDeniedView` routing in
-                    // `RootView`. No need for a separate auth call here.
-                    Task { await controller.reconcile() }
-
-                    // Set up the ScheduleTaskManager for foreground schedule checks.
-                    // BGTask registration happens in AppDelegate.didFinishLaunching.
-                    let manager = ScheduleTaskManager(
-                        persistence: Self.sharedPersistence,
-                        evaluator: Self.sharedEvaluator,
-                        controllerProvider: { [weak controller] in controller }
-                    )
-                    manager.reschedule()
-                    scheduleTaskManager = manager
-                }
-                .onChange(of: controller.weeklySchedule) { _, _ in
-                    scheduleTaskManager?.reschedule()
-                }
+            RootView(controller: AppEnvironment.controller)
+                .environment(\.feedbackReporter, AppEnvironment.feedbackReporter)
         }
     }
 }

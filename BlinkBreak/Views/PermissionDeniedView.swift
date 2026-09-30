@@ -8,29 +8,35 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct PermissionDeniedView: View {
 
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            EyebrowLabel(text: "BlinkBreak")
+        AdaptiveScreen {
+            VStack(alignment: .leading, spacing: 12) {
+                EyebrowLabel(text: "BlinkBreak")
 
-            Text("Alarms are off")
-                .font(.title2.weight(.semibold))
+                Text("Alarms are off")
+                    .font(.title2.weight(.semibold))
 
-            Text(
-                "BlinkBreak needs permission to schedule alarms for break reminders. "
-                + "Open Settings and enable alarms for BlinkBreak to continue."
-            )
-            .font(.subheadline)
-            .foregroundStyle(.white.opacity(0.7))
-            .padding(.top, 4)
+                Text(
+                    "BlinkBreak needs permission to schedule alarms for break reminders. "
+                    + "Open Settings and enable alarms for BlinkBreak to continue."
+                )
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.7))
+                .padding(.top, 4)
 
-            Spacer()
-
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } actions: {
             Button {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
+                    openURL(url)
                 }
             } label: {
                 Text("Open Settings")
@@ -38,9 +44,9 @@ struct PermissionDeniedView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
             .accessibilityIdentifier("button.permissionDenied.openSettings")
         }
-        .padding(24)
     }
 }
 
@@ -50,4 +56,5 @@ struct PermissionDeniedView: View {
         PermissionDeniedView()
             .foregroundStyle(.white)
     }
+    .preferredColorScheme(.dark)
 }

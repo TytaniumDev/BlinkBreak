@@ -5,78 +5,67 @@
 //  The view-facing protocol for the session controller. Views depend on this protocol,
 //  not on the concrete SessionController class. This gives us:
 //
-//  - PreviewSessionController (in the app target) for SwiftUI previews without real timers.
-//  - MockSessionController (in tests) for any view-level testing we ever add.
-//  - A hard boundary: a view cannot accidentally call scheduler or persistence methods
+//  - PreviewSessionController (in the app target) for SwiftUI previews without real alarms.
+//  - A hard boundary: a view cannot accidentally reach the scheduler or persistence
 //    because the protocol doesn't expose them.
 //
-//  Flutter analogue: think of this as an abstract class that a ChangeNotifier implements,
-//  consumed by widgets via a Provider of the abstract type.
+//  Conformers are `@Observable`, so SwiftUI re-renders a view whenever a property
+//  it read changes — no @Published / @ObservedObject wrappers needed.
+//
+//  Flutter analogue: an abstract class that a ChangeNotifier implements, consumed
+//  by widgets via a Provider of the abstract type.
 //
 
 import Foundation
-import Combine
+import Observation
 
-/// The view-facing interface for the session controller. All SwiftUI views depend on this
-/// protocol via `@ObservedObject` or `@StateObject`, never on the concrete class.
 @MainActor
-public protocol SessionControllerProtocol: ObservableObject {
+public protocol SessionControllerProtocol: AnyObject, Observable {
 
-    /// The current session state. Views `switch` on this to render their body.
+    /// What the UI should show. Views `switch` on this.
     var state: SessionState { get }
 
-    /// Start a new session. Transitions idle / paused → running. Schedules the first
-    /// break alarm. Also used as "Resume" from `PausedView`.
-    func start()
-
-    /// Stop the current session. Transitions any-state → idle. Cancels all pending alarms.
-    func stop()
-
-    /// True when a session is running and a weekly-schedule window is open, i.e.
-    /// `pause()` is available. Views show the Pause button only when this is true.
-    var canPause: Bool { get }
-
-    /// Pause the session for the rest of the current schedule window. Transitions
-    /// running / breakPending / breakActive → paused and cancels all alarms. The
-    /// schedule still auto-starts the next window. No-op when `canPause` is false.
-    func pause()
-
-    /// Acknowledge the currently-active break from inside the app. Used by
-    /// `BreakPendingView` when the user taps the in-app "Start break" button.
-    /// Cancels the alerting break alarm and synthesizes a dismissed event so the
-    /// controller schedules the look-away phase.
-    func acknowledgeCurrentBreak()
-
-    /// Rebuilds in-memory state from persistence + the alarm scheduler + the clock.
-    /// Called on app launch, foregrounding, and periodic ticks. Never trusts in-memory state.
-    func reconcile() async
-
-    /// The current weekly schedule. Views observe this to display schedule settings.
+    /// The weekly auto-start schedule.
     var weeklySchedule: WeeklySchedule { get }
 
-    /// Replace the weekly schedule and persist it.
-    func updateSchedule(_ schedule: WeeklySchedule)
-
-    /// Whether the alarm sound is muted. When true, AlarmKit alarms fire silently
-    /// (full-screen UI still appears). Persisted across launches.
+    /// Whether alarms play silently (the full-screen UI still appears).
     var muteAlarmSound: Bool { get }
 
-    /// Update and persist the alarm-sound mute preference. If the session is in the
-    /// `.running` state, the scheduled alarm is cancelled and rescheduled immediately with the
-    /// new sound setting (within a few seconds).
-    func updateAlarmSound(muted: Bool)
-
-    /// Immediately cancel the current break alarm and reschedule it to fire in
-    /// 1 second. Wired to the "Take break now" button in `RunningView`. No-op
-    /// outside the `.running` state.
-    func triggerBreakNow()
-
-    /// True when the AlarmKit authorization prompt has been denied. Views route
-    /// to `PermissionDeniedView` while this is true and the state is `.idle`.
+    /// True when the user has denied alarm permission.
     var authorizationDenied: Bool { get }
 
-    /// Query the current authorization state and update `authorizationDenied`.
-    /// Called on launch and on foregrounding so the view reflects "settings toggled
-    /// while the app was backgrounded".
-    func refreshPermission() async
+    /// Idle-screen schedule status at `date`, e.g. "Starts at 9:00 AM".
+    func scheduleStatus(at date: Date) -> String?
+
+    /// idle / paused → running. Schedules the first break alarm. Doubles as
+    /// "Resume" from the paused state.
+    func start() async
+
+    /// Any state → idle. Cancels all alarms.
+    func stop() async
+
+    /// True when `pause()` would do something: a session is running and a
+    /// weekly-schedule window is open right now. Reads the clock, so views that
+    /// re-render every second (RunningView's timeline) pick up window changes.
+    var canPause: Bool { get }
+
+    /// running / breakPending / breakActive → paused, for the rest of the current
+    /// schedule window. Cancels all alarms. No-op when `canPause` is false.
+    func pause() async
+
+    /// breakPending → breakActive. The in-app equivalent of the alarm's "Start break" button.
+    func startBreak() async
+
+    /// running → breakPending in about a second, by moving the break alarm up.
+    func takeBreakNow() async
+
+    /// Re-sync with the system: permission, alarms that fired or vanished while
+    /// the app wasn't running, and the weekly schedule. Call when the app becomes active.
+    func reconcile() async
+
+    /// Save a new schedule. Updates `weeklySchedule` immediately.
+    func updateSchedule(_ schedule: WeeklySchedule)
+
+    /// Save the mute preference. Updates `muteAlarmSound` immediately.
+    func updateAlarmSound(muted: Bool)
 }

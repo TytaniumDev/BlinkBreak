@@ -2,21 +2,19 @@
 //  RunningView.swift
 //  BlinkBreak
 //
-//  The running-state view. Shows the countdown ring to the next break, a Stop
-//  button, and — inside a schedule window — a Pause button. Uses TimelineView to
-//  tick the display every second.
+//  The running-state view. Shows the countdown ring to the next break, the
+//  sound toggle, "Take break now", Stop, and — inside a schedule window —
+//  Pause. TimelineView ticks the display every second.
 //
-//  No business logic here — every value shown is derived from `cycleStartedAt`
-//  and the current wall-clock time. Controller methods called: `stop()`, `pause()`,
-//  `triggerBreakNow()`, and `updateAlarmSound(muted:)` (via SoundToggleRow).
-//  `canPause` is re-read on every tick, so the Pause button appears / disappears
-//  as schedule windows open and close.
+//  No business logic here — every value shown is derived from `breakAt` and
+//  the current wall-clock time. `canPause` is read inside a timeline, so the
+//  Pause button appears / disappears as schedule windows open and close.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
-// Cache the a11y duration formatter to avoid allocations in the TimelineView render loop
+// Cached so the once-a-second render doesn't allocate a formatter each tick.
 private let a11yDurationFormatter: DateComponentsFormatter = {
     let formatter = DateComponentsFormatter()
     formatter.unitsStyle = .full
@@ -26,30 +24,22 @@ private let a11yDurationFormatter: DateComponentsFormatter = {
 
 struct RunningView<Controller: SessionControllerProtocol>: View {
 
-    @ObservedObject var controller: Controller
-    let cycleStartedAt: Date
-
-    private var breakFireTime: Date {
-        cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
-    }
+    let controller: Controller
+    /// When the break alarm fires.
+    let breakAt: Date
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let remainingSeconds = max(0, breakFireTime.timeIntervalSince(context.date))
-            let total = Int(remainingSeconds.rounded(.up))
-            let countdownLabel = String(format: "%02d:%02d", total / 60, total % 60)
-            let progress = (BlinkBreakConstants.breakInterval - remainingSeconds) / BlinkBreakConstants.breakInterval
-
+        AdaptiveScreen {
             VStack(spacing: 20) {
+                Spacer(minLength: 0)
+
                 EyebrowLabel(text: "Next break in")
 
-                CountdownRing(progress: progress, label: countdownLabel)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Time remaining")
-                    .accessibilityValue(a11yDurationFormatter.string(from: remainingSeconds) ?? countdownLabel)
-                    .accessibilityIdentifier("label.running.countdown")
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    countdown(at: context.date)
+                }
 
-                Text("Fires at \(breakFireTimeFormatted)")
+                Text("Fires at \(breakAt.formatted(date: .omitted, time: .shortened))")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.6))
 
@@ -59,48 +49,51 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                 )
                 .padding(.top, 4)
 
-                Spacer()
-
+                Spacer(minLength: 0)
+            }
+        } actions: {
+            VStack(spacing: 12) {
                 Button("Take break now") {
-                    controller.triggerBreakNow()
+                    Task { await controller.takeBreakNow() }
                 }
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.7))
                 .accessibilityIdentifier("button.running.takeBreakNow")
 
-                HStack(spacing: 12) {
-                    if controller.canPause {
-                        Button {
-                            controller.pause()
-                        } label: {
-                            Text("Pause")
-                                .frame(maxWidth: .infinity)
+                TimelineView(.everyMinute) { _ in
+                    HStack(spacing: 12) {
+                        if controller.canPause {
+                            Button {
+                                Task { await controller.pause() }
+                            } label: {
+                                Text("Pause")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .tint(.white)
+                            .accessibilityIdentifier("button.running.pause")
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        .tint(.white)
-                        .accessibilityIdentifier("button.running.pause")
-                    }
 
-                    Button(role: .destructive) {
-                        controller.stop()
-                    } label: {
-                        Text("Stop")
-                            .frame(maxWidth: .infinity)
+                        StopButton(identifier: "button.running.stop") {
+                            await controller.stop()
+                        }
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .tint(.white)
-                    .accessibilityIdentifier("button.running.stop")
                 }
             }
-            .padding(24)
         }
     }
 
-    /// Absolute fire time shown to the user as reassurance ("will interrupt me at 2:47 PM").
-    private var breakFireTimeFormatted: String {
-        return breakFireTime.formatted(date: .omitted, time: .shortened)
+    private func countdown(at date: Date) -> some View {
+        let interval = BlinkBreakConstants.breakInterval
+        let remaining = max(0, breakAt.timeIntervalSince(date))
+        let total = Int(remaining.rounded(.up))
+        let label = String(format: "%02d:%02d", total / 60, total % 60)
+        return CountdownRing(progress: (interval - remaining) / interval, label: label)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Time remaining")
+            .accessibilityValue(a11yDurationFormatter.string(from: remaining) ?? label)
+            .accessibilityIdentifier("label.running.countdown")
     }
 }
 
@@ -109,10 +102,11 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
         CalmBackground()
         RunningView(
             controller: PreviewSessionController.running,
-            cycleStartedAt: Date().addingTimeInterval(-14 * 60)
+            breakAt: Date().addingTimeInterval(6 * 60)
         )
         .foregroundStyle(.white)
     }
+    .preferredColorScheme(.dark)
 }
 
 #Preview("In schedule (pausable)") {
@@ -120,8 +114,9 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
         CalmBackground()
         RunningView(
             controller: PreviewSessionController.runningInSchedule,
-            cycleStartedAt: Date().addingTimeInterval(-14 * 60)
+            breakAt: Date().addingTimeInterval(6 * 60)
         )
         .foregroundStyle(.white)
     }
+    .preferredColorScheme(.dark)
 }

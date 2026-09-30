@@ -2,54 +2,46 @@
 //  RootView.swift
 //  BlinkBreak
 //
-//  The single top-level view that switches between the five state-specific views.
-//  Observes the SessionController via the protocol and dispatches to the right
-//  child view for the current state.
-//
+//  The single top-level view that switches between the state-specific views.
 //  This is the only view that "knows" the state machine — every other view is
 //  unaware of the global state and just does its one job.
 //
-//  Flutter analogue: think of this as a Consumer<SessionController> with a
-//  switch expression that returns the appropriate child widget.
+//  It also re-syncs the controller whenever the app becomes active, which
+//  covers first launch too (`initial: true`).
+//
+//  Flutter analogue: a Consumer<SessionController> with a switch expression
+//  that returns the appropriate child widget.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 struct RootView<Controller: SessionControllerProtocol>: View {
 
-    /// The session controller driving the app. Injected from BlinkBreakApp so that
-    /// previews can substitute a PreviewSessionController.
-    @ObservedObject var controller: Controller
-    let scheduleEvaluator: ScheduleEvaluatorProtocol
-    let persistence: PersistenceProtocol
+    /// Injected from BlinkBreakApp so previews can substitute a PreviewSessionController.
+    /// `@Observable` means SwiftUI re-renders when any property read here changes.
+    let controller: Controller
 
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
             // Swap the background based on state so the red alert is unmistakable.
-            switch controller.state {
-            case .breakPending:
+            if controller.state == .breakPending {
                 AlertBackground()
-            default:
+            } else {
                 CalmBackground()
             }
 
-            // Swap the foreground content based on state.
             Group {
-                if controller.authorizationDenied, case .idle = controller.state {
+                if controller.authorizationDenied, controller.state == .idle {
                     PermissionDeniedView()
                 } else {
                     switch controller.state {
                     case .idle:
-                        IdleView(
-                            controller: controller,
-                            scheduleStatusText: scheduleEvaluator.statusText(at: Date(), calendar: .current),
-                            persistence: persistence
-                        )
-                    case .running(let cycleStartedAt):
-                        RunningView(controller: controller, cycleStartedAt: cycleStartedAt)
+                        IdleView(controller: controller)
+                    case .running(let breakAt):
+                        RunningView(controller: controller, breakAt: breakAt)
                     case .breakPending:
                         BreakPendingView(controller: controller)
                     case .breakActive:
@@ -62,8 +54,11 @@ struct RootView<Controller: SessionControllerProtocol>: View {
             .animation(.easeInOut(duration: 0.25), value: controller.state)
         }
         .foregroundStyle(.white)
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
+        // The app is always dark; this keeps system controls (toggles, pickers,
+        // sheets) legible on the dark backgrounds.
+        .preferredColorScheme(.dark)
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            if phase == .active {
                 Task { await controller.reconcile() }
             }
         }
@@ -71,25 +66,29 @@ struct RootView<Controller: SessionControllerProtocol>: View {
 }
 
 #Preview("Idle") {
-    RootView(controller: PreviewSessionController.idle, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
+    RootView(controller: PreviewSessionController.idleWithSchedule)
 }
 
 #Preview("Running") {
-    RootView(controller: PreviewSessionController.running, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
+    RootView(controller: PreviewSessionController.running)
 }
 
 #Preview("Break Pending") {
-    RootView(controller: PreviewSessionController.breakPending, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
+    RootView(controller: PreviewSessionController.breakPending)
 }
 
 #Preview("Break Active") {
-    RootView(controller: PreviewSessionController.breakActive, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
+    RootView(controller: PreviewSessionController.breakActive)
 }
 
 #Preview("Paused") {
-    RootView(controller: PreviewSessionController.paused, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
+    RootView(controller: PreviewSessionController.paused)
 }
 
 #Preview("Permission Denied") {
-    RootView(controller: PreviewSessionController.permissionDenied, scheduleEvaluator: NoopScheduleEvaluator(), persistence: InMemoryPersistence())
+    RootView(controller: PreviewSessionController.permissionDenied)
+}
+
+#Preview("Landscape", traits: .landscapeLeft) {
+    RootView(controller: PreviewSessionController.running)
 }

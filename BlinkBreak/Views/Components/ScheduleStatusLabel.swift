@@ -2,8 +2,8 @@
 //  ScheduleStatusLabel.swift
 //  BlinkBreak
 //
-//  Shows schedule context above the Start button. The status text is
-//  computed by ScheduleEvaluator in BlinkBreakCore.
+//  Shows schedule context above the Start button. The status text comes from
+//  `SessionControllerProtocol.scheduleStatus(at:)`.
 //
 
 import SwiftUI
@@ -23,7 +23,7 @@ struct ScheduleStatusLabel: View {
 
 #Preview("Before window") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
+        CalmBackground()
         ScheduleStatusLabel(text: "Starts at 9:00 AM")
     }
 }

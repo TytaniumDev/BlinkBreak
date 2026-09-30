@@ -2,13 +2,12 @@
 //  ReconciliationTests.swift
 //  BlinkBreakCoreTests
 //
-//  Targeted tests for `SessionController.reconcile()` — the method that rebuilds UI
-//  state from persisted record + the alarm scheduler's currently-scheduled alarms +
-//  the current clock.
+//  `reconcile()` after the app was killed or backgrounded: the persisted record
+//  plus the system's alarm list must rebuild the right state and catch up on
+//  anything that happened while the app wasn't running.
 //
 
 import Testing
-import Foundation
 @testable import BlinkBreakCore
 
 @MainActor
@@ -16,186 +15,156 @@ import Foundation
 struct ReconciliationTests {
 
     typealias Fixture = SessionControllerFixture
+    let interval = BlinkBreakConstants.breakInterval
+    let lookAway = BlinkBreakConstants.lookAwayDuration
 
-    @Test("reconcile with no persisted session → idle")
+    /// A fixture whose persisted record says `phase`, owning an alarm that
+    /// fires `firesIn` seconds from "now". The alarm is in the system list
+    /// unless `alarmInSystem` is false.
+    func fixture(
+        phase: SessionRecord.Phase,
+        firesIn: TimeInterval,
+        alarmInSystem: Bool = true,
+        alerting: Bool = false
+    ) -> (Fixture, UUID) {
+        let now = TestCalendar.date(weekday: 2, hour: 10)
+        let alarmId = UUID()
+        let f = Fixture(now: now, session: SessionRecord(
+            phase: phase,
+            alarmId: alarmId,
+            alarmFiresAt: now.addingTimeInterval(firesIn)
+        ))
+        if alarmInSystem {
+            f.alarms.addSystemAlarm(alarmId, isAlerting: alerting)
+        }
+        return (f, alarmId)
+    }
+
+    @Test("no session → idle")
     func noSession() async {
         let f = Fixture()
-        f.persistence.save(.idle)
-
         await f.controller.reconcile()
-
         #expect(f.controller.state == .idle)
     }
 
-    @Test("reconcile within running window with active break-due alarm → running")
-    func withinRunning() async {
-        let f = Fixture()
-        let cycleId = UUID()
-        let alarmId = UUID()
-        f.persistence.save(SessionRecord(
-            sessionActive: true,
-            currentCycleId: cycleId,
-            cycleStartedAt: f.nowBox.value,
-            breakActiveStartedAt: nil,
-            currentAlarmId: alarmId
-        ))
-        f.alarmScheduler.setCurrentAlarms([
-            ScheduledAlarmInfo(alarmId: alarmId, kind: .breakDue)
-        ])
-
-        await f.controller.reconcile()
-
-        guard case .running(let startedAt) = f.controller.state else {
-            Issue.record("expected running, got \(f.controller.state)")
-            return
-        }
-        #expect(startedAt == f.nowBox.value)
+    @Test("state is derived from the persisted record at init, before any reconcile")
+    func initialState() async {
+        let (f, _) = fixture(phase: .running, firesIn: 600)
+        #expect(f.controller.state == .running(breakAt: f.now.value.addingTimeInterval(600)))
     }
 
-    @Test("reconcile past break time with no scheduled alarm → breakPending")
-    func pastBreakNoAlarm() async {
-        let f = Fixture()
-        let cycleId = UUID()
-        let started = f.nowBox.value
-        f.persistence.save(SessionRecord(
-            sessionActive: true,
-            currentCycleId: cycleId,
-            cycleStartedAt: started,
-            breakActiveStartedAt: nil,
-            currentAlarmId: UUID()
-        ))
-        f.alarmScheduler.setCurrentAlarms([])
-        f.advance(by: BlinkBreakConstants.breakInterval + 60)
+    @Test("running with its alarm still scheduled → running")
+    func runningIntact() async {
+        let (f, alarmId) = fixture(phase: .running, firesIn: 600)
 
         await f.controller.reconcile()
 
-        guard case .breakPending(let startedAt) = f.controller.state else {
-            Issue.record("expected breakPending, got \(f.controller.state)")
-            return
-        }
-        #expect(startedAt == started)
+        #expect(f.controller.state == .running(breakAt: f.now.value.addingTimeInterval(600)))
+        #expect(f.record.alarmId == alarmId)
     }
 
-    @Test("reconcile within breakActive window with active look-away alarm → breakActive")
-    func withinBreakActiveWindow() async {
-        let f = Fixture()
-        let breakActiveStart = f.nowBox.value
-        let alarmId = UUID()
-        f.persistence.save(SessionRecord(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: breakActiveStart,
-            breakActiveStartedAt: breakActiveStart,
-            currentAlarmId: alarmId
-        ))
-        f.alarmScheduler.setCurrentAlarms([
-            ScheduledAlarmInfo(alarmId: alarmId, kind: .lookAwayDone)
-        ])
-        f.advance(by: BlinkBreakConstants.lookAwayDuration / 2)
-
+    @Test("break alarm ringing → breakPending")
+    func breakRinging() async {
+        let (f, _) = fixture(phase: .running, firesIn: -30, alerting: true)
         await f.controller.reconcile()
-
-        guard case .breakActive(let startedAt) = f.controller.state else {
-            Issue.record("expected breakActive, got \(f.controller.state)")
-            return
-        }
-        #expect(startedAt == breakActiveStart)
+        #expect(f.controller.state == .breakPending)
     }
 
-    @Test("reconcile in breakActive window with no alarm scheduled → breakActive (alarm fired while killed)")
-    func breakActiveNoAlarm() async {
-        let f = Fixture()
-        let breakActiveStart = f.nowBox.value
-        f.persistence.save(SessionRecord(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: breakActiveStart,
-            breakActiveStartedAt: breakActiveStart,
-            currentAlarmId: UUID()
-        ))
-        f.alarmScheduler.setCurrentAlarms([])
-        f.advance(by: BlinkBreakConstants.lookAwayDuration / 2)
-
+    @Test("look-away in progress with its alarm scheduled → breakActive")
+    func lookingAwayIntact() async {
+        let (f, _) = fixture(phase: .lookingAway, firesIn: 10)
         await f.controller.reconcile()
-
-        guard case .breakActive(let startedAt) = f.controller.state else {
-            Issue.record("expected breakActive, got \(f.controller.state)")
-            return
-        }
-        #expect(startedAt == breakActiveStart)
+        #expect(f.controller.state == .breakActive(endsAt: f.now.value.addingTimeInterval(10)))
     }
 
-    @Test("reconcile with break-due alarm currently alerting → breakPending")
-    func reconcileWithAlertingBreakAlarm() async {
-        let f = Fixture()
-        let cycleId = UUID()
-        let alarmId = UUID()
-        let started = f.nowBox.value
-        f.persistence.save(SessionRecord(
-            sessionActive: true,
-            currentCycleId: cycleId,
-            cycleStartedAt: started,
-            breakActiveStartedAt: nil,
-            currentAlarmId: alarmId
-        ))
-        f.alarmScheduler.setCurrentAlarms([
-            ScheduledAlarmInfo(alarmId: alarmId, kind: .breakDue, isAlerting: true)
-        ])
-        f.advance(by: BlinkBreakConstants.breakInterval + 1)
+    @Test("look-away that ended while the app was dead rolls straight to the next cycle")
+    func lookAwayEndedWhileDead() async {
+        let (f, _) = fixture(phase: .lookingAway, firesIn: -60, alarmInSystem: false)
 
         await f.controller.reconcile()
 
-        guard case .breakPending(let startedAt) = f.controller.state else {
-            Issue.record("expected breakPending, got \(f.controller.state)")
-            return
-        }
-        #expect(startedAt == started)
+        #expect(f.controller.state == .running(breakAt: f.now.value.addingTimeInterval(interval)))
     }
 
-    @Test("reconcile with corrupt record (active but missing fields) → idle")
-    func corruptRecord() async {
-        let f = Fixture()
-        f.persistence.save(SessionRecord(
-            sessionActive: true,
-            currentCycleId: nil,
-            cycleStartedAt: nil,
-            breakActiveStartedAt: nil
-        ))
+    @Test("break alarm dismissed while the app was dead → skipped after the grace period, not a stale breakPending")
+    func breakDismissedWhileDead() async {
+        let (f, alarmId) = fixture(phase: .running, firesIn: -300, alarmInSystem: false)
 
         await f.controller.reconcile()
+        #expect(f.record.alarmId == alarmId, "waits for a possible intent first")
+
+        await f.releaseSleepsAndSettle()
+        #expect(f.controller.state == .running(breakAt: f.now.value.addingTimeInterval(interval)))
+    }
+
+    @Test("an intent launching the app at the same time as reconcile still wins")
+    func intentAtLaunch() async {
+        let (f, alarmId) = fixture(phase: .running, firesIn: -5, alarmInSystem: false)
+
+        await f.controller.reconcile()
+        await f.controller.respond(to: .confirm, alarmId: alarmId)
+        await f.releaseSleepsAndSettle()
+
+        #expect(f.record.phase == .lookingAway)
+    }
+
+    @Test("break alarm missing before its fire time → session stops")
+    func alarmLostEarly() async {
+        let (f, _) = fixture(phase: .running, firesIn: 600, alarmInSystem: false)
+
+        await f.controller.reconcile()
+        await f.releaseSleepsAndSettle()
 
         #expect(f.controller.state == .idle)
-        #expect(f.persistence.load() == .idle)
+        #expect(f.record.phase == .idle)
     }
 
-    @Test("reconcile called while start is in flight does not overwrite state")
-    func reconcileDuringStartInFlight() async {
+    @Test("alarms the session doesn't own are cancelled; a ringing one is left alone")
+    func orphans() async {
+        let (f, alarmId) = fixture(phase: .running, firesIn: 600)
+        let orphan = UUID()
+        let ringingOrphan = UUID()
+        f.alarms.addSystemAlarm(orphan)
+        f.alarms.addSystemAlarm(ringingOrphan, isAlerting: true)
+
+        await f.controller.reconcile()
+
+        #expect(f.alarms.cancelled == [orphan])
+        #expect(Set(f.alarms.systemAlarmIds) == [alarmId, ringingOrphan])
+    }
+
+    @Test("idle with leftover alarms from an old build → they're cancelled")
+    func idleOrphans() async {
         let f = Fixture()
-        f.persistence.save(.idle)
+        let leftover = UUID()
+        f.alarms.addSystemAlarm(leftover)
 
-        // When scheduleCountdown is called, trigger a concurrent reconcile.
-        f.alarmScheduler.onScheduleCountdown = { @Sendable in
-            await f.controller.reconcile()
-        }
+        await f.controller.reconcile()
 
-        f.controller.start()
+        #expect(f.alarms.systemAlarmIds.isEmpty)
+    }
 
-        // Settle to let the start Task complete.
-        await settle()
+    @Test("reconcile publishes authorizationDenied from the scheduler without prompting")
+    func permission() async {
+        let f = Fixture()
+        f.alarms.stubAuthorization(.denied)
+        await f.controller.reconcile()
+        #expect(f.controller.authorizationDenied)
 
-        // Verify that the state was not overwritten to .idle and is correctly .running.
-        guard case .running(let startedAt) = f.controller.state else {
-            Issue.record("expected running, got \(f.controller.state)")
-            return
-        }
-        #expect(startedAt == f.nowBox.value)
+        f.alarms.stubAuthorization(.notDetermined)
+        await f.controller.reconcile()
+        #expect(f.controller.authorizationDenied == false)
+    }
 
-        // Verify persistence got saved correctly as well.
-        let record = f.persistence.load()
-        #expect(record.sessionActive == true)
-        #expect(record.currentAlarmId != nil)
+    @Test("overlapping reconciles on launch book exactly one alarm")
+    func overlappingReconciles() async {
+        let f = Fixture(schedule: .workweekOn)
 
-        // Explicitly assert that only one alarm was scheduled (no double-scheduling)
-        #expect(f.alarmScheduler.scheduled.count == 1)
+        async let first: Void = f.controller.reconcile()
+        async let second: Void = f.controller.reconcile()
+        _ = await (first, second)
+
+        #expect(f.alarms.scheduled.count == 1)
+        #expect(f.alarms.systemAlarmIds.count == 1)
     }
 }

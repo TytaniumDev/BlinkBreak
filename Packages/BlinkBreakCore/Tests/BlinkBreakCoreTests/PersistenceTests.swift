@@ -2,238 +2,142 @@
 //  PersistenceTests.swift
 //  BlinkBreakCoreTests
 //
-//  Sanity tests for InMemoryPersistence and SessionRecord Codable round-tripping.
+//  UserDefaultsPersistence round-trips against an isolated UserDefaults suite,
+//  plus SessionRecord / SessionState derivation.
 //
 
 import Testing
 @testable import BlinkBreakCore
 
-@Suite("Persistence + SessionRecord")
+@Suite("Persistence")
 struct PersistenceTests {
 
-    @Test("InMemoryPersistence default is idle")
-    func defaultIsIdle() {
-        let store = InMemoryPersistence()
-        #expect(store.load() == .idle)
+    /// A fresh, empty UserDefaults suite per test.
+    func makeDefaults() -> UserDefaults {
+        let name = "BlinkBreakTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
     }
 
-    @Test("InMemoryPersistence save/load round-trip")
+    @Test("defaults when nothing is stored")
+    func emptyDefaults() {
+        let store = UserDefaultsPersistence(defaults: makeDefaults())
+        #expect(store.loadSession() == SessionRecord())
+        #expect(store.loadSchedule() == .default)
+        #expect(store.loadAlarmSoundMuted() == false)
+    }
+
+    @Test("session, schedule and sound round-trip")
     func roundTrip() {
-        let store = InMemoryPersistence()
+        let store = UserDefaultsPersistence(defaults: makeDefaults())
         let record = SessionRecord(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: Date(timeIntervalSince1970: 123_456),
-            breakActiveStartedAt: Date(timeIntervalSince1970: 123_477)
+            phase: .lookingAway,
+            alarmId: UUID(),
+            alarmFiresAt: Date(timeIntervalSince1970: 1_800_000_000),
+            wasAutoStarted: true,
+            manualStopDate: Date(timeIntervalSince1970: 1_700_000_000),
+            pausedUntil: Date(timeIntervalSince1970: 1_700_003_600),
+            scheduledStopAt: Date(timeIntervalSince1970: 1_700_007_200)
         )
+        store.saveSession(record)
+        store.saveSchedule(.workweekOn)
+        store.saveAlarmSoundMuted(true)
 
-        store.save(record)
-
-        #expect(store.load() == record)
+        #expect(store.loadSession() == record)
+        #expect(store.loadSchedule() == .workweekOn)
+        #expect(store.loadAlarmSoundMuted())
     }
 
-    @Test("InMemoryPersistence clear returns to idle")
-    func clearReturnsToIdle() {
-        let store = InMemoryPersistence(initial: SessionRecord(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: Date(),
-            breakActiveStartedAt: nil
-        ))
-
-        store.clear()
-
-        #expect(store.load() == .idle)
+    @Test("unreadable session data falls back to idle instead of crashing")
+    func garbage() {
+        let defaults = makeDefaults()
+        defaults.set(Data("not json".utf8), forKey: "BlinkBreak.Session.v2")
+        #expect(UserDefaultsPersistence(defaults: defaults).loadSession() == SessionRecord())
     }
 
-    @Test("SessionRecord is Codable round-trippable")
-    func codableRoundTrip() throws {
-        let original = SessionRecord(
-            sessionActive: true,
-            currentCycleId: UUID(uuidString: "11111111-2222-3333-4444-555555555555"),
-            cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            breakActiveStartedAt: Date(timeIntervalSince1970: 1_700_000_100)
-        )
+    @Test("removeLegacyData deletes old keys and keeps current ones")
+    func legacyCleanup() {
+        let defaults = makeDefaults()
+        let store = UserDefaultsPersistence(defaults: defaults)
+        defaults.set(Data(), forKey: "BlinkBreak.SessionRecord")
+        defaults.set("x", forKey: "BlinkBreak.AcknowledgeRequestedAlarmId")
+        store.saveAlarmSoundMuted(true)
 
-        let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(SessionRecord.self, from: data)
+        store.removeLegacyData()
 
-        #expect(decoded == original)
+        #expect(defaults.object(forKey: "BlinkBreak.SessionRecord") == nil)
+        #expect(defaults.object(forKey: "BlinkBreak.AcknowledgeRequestedAlarmId") == nil)
+        #expect(store.loadAlarmSoundMuted())
     }
 
-    @Test("SessionRecord round-trips lastUpdatedAt through JSON")
-    func lastUpdatedAtRoundTrip() throws {
-        let when = Date(timeIntervalSince1970: 1_700_001_234)
-        let record = SessionRecord(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            breakActiveStartedAt: nil,
-            lastUpdatedAt: when
-        )
-        let data = try JSONEncoder().encode(record)
-        let decoded = try JSONDecoder().decode(SessionRecord.self, from: data)
-        #expect(decoded.lastUpdatedAt == when)
+    @Test("removeAll resets everything")
+    func removeAll() {
+        let store = UserDefaultsPersistence(defaults: makeDefaults())
+        store.saveSession(SessionRecord(phase: .running, alarmId: UUID(), alarmFiresAt: Date()))
+        store.saveSchedule(.workweekOn)
+        store.saveAlarmSoundMuted(true)
+
+        store.removeAll()
+
+        #expect(store.loadSession() == SessionRecord())
+        #expect(store.loadSchedule() == .default)
+        #expect(store.loadAlarmSoundMuted() == false)
+    }
+}
+
+@Suite("SessionState — derivation")
+struct SessionStateDerivationTests {
+
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let interval = BlinkBreakConstants.breakInterval
+
+    func record(_ phase: SessionRecord.Phase, firesIn seconds: TimeInterval) -> SessionRecord {
+        SessionRecord(phase: phase, alarmId: UUID(), alarmFiresAt: now.addingTimeInterval(seconds))
     }
 
-    @Test("SessionRecord decodes legacy JSON without lastUpdatedAt")
-    func legacyRecordDecodes() throws {
-        let legacyJSON = Data("""
-        {
-            "sessionActive": true,
-            "currentCycleId": "11111111-2222-3333-4444-555555555555",
-            "cycleStartedAt": 1700000000
-        }
-        """.utf8)
-        let decoded = try JSONDecoder().decode(SessionRecord.self, from: legacyJSON)
-        #expect(decoded.sessionActive == true)
-        #expect(decoded.lastUpdatedAt == nil)
+    @Test("idle and incomplete records are idle")
+    func idle() {
+        #expect(SessionState.derive(from: SessionRecord(), now: now) == .idle)
+        #expect(SessionState.derive(from: SessionRecord(phase: .running), now: now) == .idle)
     }
 
-    @Test("SessionRecord without manualStopDate decodes cleanly (backward compat)")
-    func sessionRecordManualStopBackwardCompat() throws {
-        let legacyJSON = """
-        {"sessionActive":true,"currentCycleId":"550E8400-E29B-41D4-A716-446655440000","cycleStartedAt":1700000000}
-        """
-        let data = Data(legacyJSON.utf8)
-        let record = try JSONDecoder().decode(SessionRecord.self, from: data)
-        #expect(record.sessionActive == true)
-        #expect(record.manualStopDate == nil)
+    @Test("running before and after the break time")
+    func running() {
+        #expect(SessionState.derive(from: record(.running, firesIn: 60), now: now)
+                == .running(breakAt: now.addingTimeInterval(60)))
+        #expect(SessionState.derive(from: record(.running, firesIn: 0), now: now) == .breakPending)
     }
 
-    @Test("SessionRecord with manualStopDate round-trips through JSON")
-    func sessionRecordManualStopDateRoundTrip() throws {
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        var record = SessionRecord(
-            sessionActive: true,
-            currentCycleId: UUID(),
-            cycleStartedAt: now
-        )
-        record.manualStopDate = now.addingTimeInterval(3600)
-        let data = try JSONEncoder().encode(record)
-        let decoded = try JSONDecoder().decode(SessionRecord.self, from: data)
-        #expect(decoded.manualStopDate == record.manualStopDate)
+    @Test("a pre-booked start is idle until its window opens")
+    func scheduled() {
+        #expect(SessionState.derive(from: record(.scheduled, firesIn: interval + 60), now: now) == .idle)
+        #expect(SessionState.derive(from: record(.scheduled, firesIn: interval), now: now)
+                == .running(breakAt: now.addingTimeInterval(interval)))
     }
 
-    @Test("SessionRecord with pausedUntil and scheduledStopAt round-trips through JSON")
-    func sessionRecordPauseFieldsRoundTrip() throws {
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let record = SessionRecord(
-            sessionActive: false,
-            pausedUntil: now.addingTimeInterval(3600),
-            scheduledStopAt: now.addingTimeInterval(7200)
-        )
-        let data = try JSONEncoder().encode(record)
-        let decoded = try JSONDecoder().decode(SessionRecord.self, from: data)
-        #expect(decoded == record)
+    @Test("a pause shows paused until it lapses, on idle and pre-booked records")
+    func paused() {
+        let until = now.addingTimeInterval(600)
+        #expect(SessionState.derive(from: SessionRecord(pausedUntil: until), now: now) == .paused(until: until))
+        var preBooked = record(.scheduled, firesIn: 86_400)
+        preBooked.pausedUntil = until
+        #expect(SessionState.derive(from: preBooked, now: now) == .paused(until: until))
+        #expect(SessionState.derive(from: SessionRecord(pausedUntil: now), now: now) == .idle)
+        #expect(SessionState.paused(until: until).isActive == false)
     }
 
-    @Test("SessionRecord without pausedUntil / scheduledStopAt decodes cleanly (backward compat)")
-    func sessionRecordPauseFieldsBackwardCompat() throws {
-        let legacyJSON = """
-        {"sessionActive":true,"currentCycleId":"550E8400-E29B-41D4-A716-446655440000","cycleStartedAt":1700000000}
-        """
-        let record = try JSONDecoder().decode(SessionRecord.self, from: Data(legacyJSON.utf8))
-        #expect(record.pausedUntil == nil)
-        #expect(record.scheduledStopAt == nil)
+    @Test("looking away is breakActive")
+    func lookingAway() {
+        #expect(SessionState.derive(from: record(.lookingAway, firesIn: 10), now: now)
+                == .breakActive(endsAt: now.addingTimeInterval(10)))
     }
 
-    @Test("SessionRecord.idle has nil manualStopDate")
-    func sessionRecordIdleManualStopDate() {
-        #expect(SessionRecord.idle.manualStopDate == nil)
-    }
-
-    @Test("InMemoryPersistence loadSchedule returns nil when nothing saved")
-    func loadScheduleDefaultNil() {
-        let persistence = InMemoryPersistence()
-        #expect(persistence.loadSchedule() == nil)
-    }
-
-    @Test("InMemoryPersistence schedule round-trips through save/load")
-    func scheduleRoundTrip() {
-        let persistence = InMemoryPersistence()
-        let schedule = WeeklySchedule.default
-        persistence.saveSchedule(schedule)
-        let loaded = persistence.loadSchedule()
-        #expect(loaded == schedule)
-    }
-
-    @Test("InMemoryPersistence clear does not affect schedule")
-    func clearDoesNotAffectSchedule() {
-        let persistence = InMemoryPersistence()
-        persistence.saveSchedule(.default)
-        persistence.clear()
-        #expect(persistence.loadSchedule() == .default)
-    }
-
-    // MARK: - Alarm sound mute
-
-    @Test("InMemoryPersistence.loadAlarmSoundMuted() defaults to false")
-    func inMemoryMutedDefaultsFalse() {
-        let p = InMemoryPersistence()
-        #expect(p.loadAlarmSoundMuted() == false)
-    }
-
-    @Test("InMemoryPersistence round-trips alarm sound muted flag")
-    func inMemoryMutedRoundTrip() {
-        let p = InMemoryPersistence()
-        p.saveAlarmSoundMuted(true)
-        #expect(p.loadAlarmSoundMuted() == true)
-        p.saveAlarmSoundMuted(false)
-        #expect(p.loadAlarmSoundMuted() == false)
-    }
-
-    // MARK: - Intent-execution log
-
-    @Test("drainIntentExecutionLog returns empty when nothing was appended")
-    func intentLogEmptyByDefault() {
-        let p = InMemoryPersistence()
-        #expect(p.drainIntentExecutionLog().isEmpty)
-    }
-
-    @Test("appendIntentExecutionLog preserves insertion order and drain clears")
-    func intentLogAppendAndDrain() {
-        let p = InMemoryPersistence()
-        let entry1 = IntentExecutionLogEntry(timestamp: Date(timeIntervalSince1970: 1), intent: "A", message: "first")
-        let entry2 = IntentExecutionLogEntry(timestamp: Date(timeIntervalSince1970: 2), intent: "B", message: "second")
-        p.appendIntentExecutionLog(entry1)
-        p.appendIntentExecutionLog(entry2)
-
-        let drained = p.drainIntentExecutionLog()
-        #expect(drained.count == 2)
-        #expect(drained[0].message == "first")
-        #expect(drained[1].message == "second")
-        // Drain clears so subsequent calls yield empty.
-        #expect(p.drainIntentExecutionLog().isEmpty)
-    }
-
-    @Test("appendIntentExecutionLog caps at intentExecutionLogCapacity, drops oldest")
-    func intentLogBounded() {
-        let p = InMemoryPersistence()
-        let cap = BlinkBreakConstants.intentExecutionLogCapacity
-        for i in 0..<(cap + 5) {
-            p.appendIntentExecutionLog(
-                IntentExecutionLogEntry(timestamp: Date(timeIntervalSince1970: TimeInterval(i)), intent: "I", message: "msg-\(i)")
-            )
-        }
-        let drained = p.drainIntentExecutionLog()
-        #expect(drained.count == cap)
-        // Oldest entries (msg-0 through msg-4) should have been dropped.
-        #expect(drained.first?.message == "msg-5")
-        #expect(drained.last?.message == "msg-\(cap + 4)")
-    }
-
-    @Test("IntentExecutionLogEntry is Codable round-trippable")
-    func intentLogEntryCodable() throws {
-        let entry = IntentExecutionLogEntry(
-            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
-            intent: "SkipBreakIntent",
-            message: "cancel alarm=12345678 (system Stop)"
-        )
-        let data = try JSONEncoder().encode(entry)
-        let decoded = try JSONDecoder().decode(IntentExecutionLogEntry.self, from: data)
-        #expect(decoded.timestamp == entry.timestamp)
-        #expect(decoded.intent == entry.intent)
-        #expect(decoded.message == entry.message)
+    @Test("alarmKind follows the phase")
+    func alarmKind() {
+        #expect(SessionRecord().alarmKind == nil)
+        #expect(record(.scheduled, firesIn: 0).alarmKind == .breakDue)
+        #expect(record(.running, firesIn: 0).alarmKind == .breakDue)
+        #expect(record(.lookingAway, firesIn: 0).alarmKind == .lookAwayDone)
     }
 }

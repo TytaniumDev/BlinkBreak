@@ -3,28 +3,25 @@
 //  BlinkBreak
 //
 //  The schedule configuration block that lives inline on IdleView. Contains the
-//  master toggle, 7 day rows, and expanding time pickers.
+//  on/off toggle, 7 day rows, and expanding time pickers.
 //
-//  Flutter analogue: a Column widget with a SwitchListTile header and a ListView of
+//  Flutter analogue: a Column widget with a SwitchListTile header and a list of
 //  day rows, backed by a ChangeNotifier that persists on every change.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
-    @ObservedObject var controller: Controller
+    let controller: Controller
     @State private var expandedDay: Int?
 
+    /// Weekdays (1 = Sunday … 7 = Saturday) starting from the locale's first day.
     private static var orderedWeekdays: [Int] {
         let first = Calendar.current.firstWeekday
         return (0..<7).map { (first + $0 - 1) % 7 + 1 }
     }
-
-    private let dayNames: [Int: String] = [
-        1: "Sun", 2: "Mon", 3: "Tue", 4: "Wed", 5: "Thu", 6: "Fri", 7: "Sat"
-    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,7 +29,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
                 Text("Schedule")
                     .font(.subheadline.weight(.medium))
                 Spacer()
-                Toggle("Enable Schedule", isOn: masterToggleBinding)
+                Toggle("Enable Schedule", isOn: scheduleToggleBinding)
                     .labelsHidden()
                     .tint(.green)
             }
@@ -42,7 +39,7 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
                 VStack(spacing: 1) {
                     ForEach(Self.orderedWeekdays, id: \.self) { weekday in
                         DayRow(
-                            dayName: dayNames[weekday] ?? "",
+                            dayName: Calendar.current.shortWeekdaySymbols[weekday - 1],
                             daySchedule: dayBinding(for: weekday),
                             isExpanded: expandedBinding(for: weekday)
                         )
@@ -54,16 +51,12 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
         .accessibilityIdentifier("section.schedule")
     }
 
-    private var masterToggleBinding: Binding<Bool> {
+    private var scheduleToggleBinding: Binding<Bool> {
         Binding(
             get: { controller.weeklySchedule.isEnabled },
-            set: { newValue in
+            set: { isEnabled in
                 var schedule = controller.weeklySchedule
-                if schedule.days.isEmpty && newValue {
-                    schedule = .default
-                } else {
-                    schedule.isEnabled = newValue
-                }
+                schedule.isEnabled = isEnabled
                 controller.updateSchedule(schedule)
             }
         )
@@ -71,16 +64,10 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
     private func dayBinding(for weekday: Int) -> Binding<DaySchedule> {
         Binding(
-            get: {
-                controller.weeklySchedule.days[weekday] ?? DaySchedule(
-                    isEnabled: false,
-                    startTime: DateComponents(hour: 9, minute: 0),
-                    endTime: DateComponents(hour: 17, minute: 0)
-                )
-            },
-            set: { newDay in
+            get: { controller.weeklySchedule.day(weekday) },
+            set: { day in
                 var schedule = controller.weeklySchedule
-                schedule.days[weekday] = newDay
+                schedule.days[weekday] = day
                 controller.updateSchedule(schedule)
             }
         )
@@ -111,22 +98,20 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
 
 #Preview("Enabled") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
-        ScheduleSection(controller: {
-            let c = PreviewSessionController(state: .idle)
-            c.weeklySchedule = .default
-            return c
-        }())
+        CalmBackground()
+        ScheduleSection(controller: PreviewSessionController.idleWithSchedule)
             .foregroundStyle(.white)
             .padding(24)
     }
+    .preferredColorScheme(.dark)
 }
 
 #Preview("Disabled") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
-        ScheduleSection(controller: PreviewSessionController(state: .idle))
+        CalmBackground()
+        ScheduleSection(controller: PreviewSessionController.idle)
             .foregroundStyle(.white)
             .padding(24)
     }
+    .preferredColorScheme(.dark)
 }

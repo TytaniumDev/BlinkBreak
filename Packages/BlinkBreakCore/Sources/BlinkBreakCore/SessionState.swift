@@ -2,64 +2,73 @@
 //  SessionState.swift
 //  BlinkBreakCore
 //
-//  The five-case state enum that drives all UI and the state machine. Views `switch`
-//  on this enum to render their body; they never contain business logic beyond that.
+//  The five-case state enum that drives all UI. Views `switch` on this enum to
+//  render their body; they never contain business logic beyond that.
 //
-//  Flutter analogue: this is the equivalent of a sealed class with five subtypes,
-//  consumed by a Selector<SessionState, SessionState> and rendered with a switch.
+//  Flutter analogue: a sealed class with five subtypes, rendered with a switch.
 //
 
 import Foundation
 
-/// The five possible states of a BlinkBreak session. Published by `SessionController`
-/// and observed by all views.
+/// What the UI shows. Derived by `SessionController` from the persisted
+/// `SessionRecord` and the clock.
 ///
 /// ```
-///    idle ────(Start)────► running ────(break-due alarm fires)────► breakPending
-///      ▲                      │                                         │
-///      │                      │                              (user taps "Start break")
-///      │                      │                                         │
-///   (Stop, from any state)   (Stop)                                      ▼
-///      │                      │                                    breakActive
-///      └──────────────────────┴──────(look-away alarm, 20 s later)───────┘
+///    idle ────(Start)────► running ────(break alarm fires)────► breakPending
+///      ▲                      ▲                                     │
+///      │                      │                          (user taps "Start break")
+///   (Stop, from any state)    │                                     ▼
+///      │                      └──────(20 s look-away ends)──── breakActive
 ///
 ///    running / breakPending / breakActive ──(Pause, inside a schedule window)──► paused
 ///    paused ──(Resume)──► running        paused ──(schedule window ends)──► idle
 /// ```
 public enum SessionState: Equatable, Sendable {
 
-    /// No session running. Start button is visible. No pending notifications.
+    /// No session running.
     case idle
 
-    /// A session is active, counting down to the next break.
-    /// - Parameter cycleStartedAt: When the current 20-minute countdown started.
-    ///   The next break fires at `cycleStartedAt + BlinkBreakConstants.breakInterval`.
-    case running(cycleStartedAt: Date)
+    /// Counting down to the next break.
+    /// - Parameter breakAt: When the break alarm fires.
+    case running(breakAt: Date)
 
-    /// The break-due alarm has fired. AlarmKit is showing the full-screen alert UI;
-    /// the app (if foregrounded) renders this state while the user acknowledges.
-    /// - Parameter cycleStartedAt: When the 20-minute countdown for this cycle started.
-    case breakPending(cycleStartedAt: Date)
+    /// The break alarm is alerting; waiting for the user to start the break.
+    case breakPending
 
-    /// The user has tapped "Start break". The 20-second break is counting down.
-    /// - Parameter startedAt: When the break began. The look-away alarm fires at
-    ///   `startedAt + BlinkBreakConstants.lookAwayDuration`.
-    case breakActive(startedAt: Date)
+    /// The user is looking away.
+    /// - Parameter endsAt: When the look-away alarm fires.
+    case breakActive(endsAt: Date)
 
-    /// The user paused a session during a weekly-schedule window (e.g. for a nap).
-    /// No alarms are scheduled and the schedule won't auto-restart the session
-    /// until the user resumes. When the window ends the pause lapses into `.idle`,
-    /// so the schedule auto-starts again at the next scheduled window as usual.
+    /// The user paused inside a weekly-schedule window (e.g. for a nap). No break
+    /// alarms ring until they resume; when the window ends the pause lapses to
+    /// `.idle` and the schedule starts the next window as usual.
     /// - Parameter until: The end of the schedule window the pause belongs to.
     case paused(until: Date)
 }
 
-// MARK: - Convenience queries
-
 extension SessionState {
 
-    /// `true` if a session is running in any form — i.e. alarms are scheduled.
-    /// `.idle` and `.paused` are both inactive.
+    /// Maps a persisted record to UI state at `now`.
+    static func derive(from record: SessionRecord, now: Date) -> SessionState {
+        if record.phase == .idle || record.phase == .scheduled,
+           let pausedUntil = record.pausedUntil, now < pausedUntil {
+            return .paused(until: pausedUntil)
+        }
+        guard let firesAt = record.alarmFiresAt else { return .idle }
+        switch record.phase {
+        case .idle:
+            return .idle
+        case .scheduled where now < firesAt.addingTimeInterval(-BlinkBreakConstants.breakInterval):
+            return .idle
+        case .scheduled, .running:
+            return now < firesAt ? .running(breakAt: firesAt) : .breakPending
+        case .lookingAway:
+            return .breakActive(endsAt: firesAt)
+        }
+    }
+
+    /// `true` while a session is running in any form, i.e. break alarms are
+    /// booked. `.idle` and `.paused` are both inactive.
     public var isActive: Bool {
         switch self {
         case .idle, .paused:
@@ -68,7 +77,6 @@ extension SessionState {
             return true
         }
     }
-
 }
 
 extension SessionState: CustomStringConvertible {

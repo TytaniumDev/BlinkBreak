@@ -13,10 +13,11 @@ The project is deliberately structured to make Swift/SwiftUI easier to learn if 
 | `@main App` struct | `void main() { runApp(MyApp()); }` + `MaterialApp` |
 | `View` protocol (struct with a `body`) | `StatelessWidget` with a `build` method |
 | `@State` | `setState` in a `StatefulWidget` |
-| `@StateObject` / `@ObservedObject` + `@Published` | `ChangeNotifier` + `Provider` + `Consumer` |
-| `@EnvironmentObject` | Top-level `InheritedWidget` / `Provider.of(context)` |
+| `@Observable` class | `ChangeNotifier` (views rebuild when a property they read changes) |
+| `@Environment` value | `Provider.of(context)` / `InheritedWidget` |
+| App Intent (`LiveActivityIntent`) | A notification-action callback in a background isolate |
 | Local Swift Package | Local `path:` dependency in `pubspec.yaml` |
-| XCTest / Swift Testing | `flutter_test` with `test()` / `expect()` |
+| Swift Testing (`@Test`, `#expect`) | `flutter_test` with `test()` / `expect()` |
 | SwiftUI `#Preview` | Flutter's `WidgetbookUseCase` / `flutter_preview` |
 | `AlarmKit` / `AlarmManager.shared` | `flutter_local_notifications` with full-screen intent |
 
@@ -28,14 +29,16 @@ Two software units, each with one clear purpose:
 BlinkBreak/
 ├── Packages/BlinkBreakCore/        ← all business logic (Swift Package)
 ├── BlinkBreak/                     ← iOS app target (SwiftUI views + glue)
-└── BlinkBreakTests/                ← iOS-scheme test target (hosts BlinkBreakCore tests)
+└── BlinkBreakTests/                ← iOS-scheme test target (stub that links BlinkBreakCore)
 ```
 
-**`BlinkBreakCore`** is a local Swift Package that contains everything non-UI: the session state machine, the `AlarmSchedulerProtocol` abstraction, persistence, and the `SessionController` that coordinates them. It has **zero UI framework imports** — no `SwiftUI`, no `UIKit`, no `WatchKit`, and no `AlarmKit`. This is a hard rule enforced by `scripts/lint.sh`.
+**`BlinkBreakCore`** is a local Swift Package that contains everything non-UI: the session state machine (`SessionController`), the `AlarmSchedulerProtocol` abstraction, persistence, and the weekly-schedule math. It imports nothing Apple-platform-specific — no `SwiftUI`, `UIKit`, `AlarmKit`, `AppIntents`, or `Sentry` — so it builds and tests anywhere Swift runs, including Linux. This is a hard rule enforced by `scripts/lint.sh`. It compiles in the Swift 6 language mode, so data races are compile errors.
 
-**`BlinkBreak`** (iOS) imports `BlinkBreakCore` and contains only SwiftUI views, the concrete `AlarmKitScheduler`, and tiny `AppDelegate` plumbing. Views depend on `SessionControllerProtocol`, never on the concrete class, so `PreviewSessionController` can render any state in SwiftUI previews without running real alarms.
+**`BlinkBreak`** (iOS) imports `BlinkBreakCore` and contains SwiftUI views, the concrete `AlarmKitScheduler`, the two alarm-button App Intents, and the composition root (`AppEnvironment`). Views depend on `SessionControllerProtocol`, never on the concrete class, so `PreviewSessionController` can render any state in SwiftUI previews without running real alarms.
 
-See [`docs/superpowers/specs/2026-04-10-blinkbreak-design.md`](docs/superpowers/specs/2026-04-10-blinkbreak-design.md) for the original design document. Note that parts of it describe the pre-AlarmKit architecture (WatchConnectivity, notification cascade); the current implementation is AlarmKit-driven — see the "Alarming system" section below for the up-to-date description.
+The app runs on iPhone (portrait and landscape), iPad (any size: Split View, Slide Over, Stage Manager), and Apple silicon Macs as the iPad app ("Designed for iPad"). Every screen is built on `AdaptiveScreen`, which caps content at a readable width, scrolls when the window is short, and keeps the action buttons pinned at the bottom.
+
+See [`docs/superpowers/specs/`](docs/superpowers/specs/) for historical design documents. Parts of them describe earlier architectures (WatchConnectivity, notification cascade, event-driven cycle chaining); the "Alarming system" section below is the up-to-date description.
 
 ## Prerequisites
 
@@ -77,29 +80,33 @@ open BlinkBreak.xcodeproj
 # 4. In Xcode: select the BlinkBreak scheme, pick a simulator or device, and hit ▶
 ```
 
-On first launch, the app asks for AlarmKit permission. Grant it — BlinkBreak does not work without alarms.
+The first time you tap Start (or turn on the schedule), the app asks for AlarmKit permission. Grant it — BlinkBreak does not work without alarms.
 
 ## Running tests
 
-BlinkBreakCore tests can run two ways:
-
-### Package-level (works with Command Line Tools only)
+### Unit tests (fast — use while iterating)
 
 ```bash
 ./scripts/test.sh
 ```
 
-This runs `swift test` inside `Packages/BlinkBreakCore/`. It's fast (tests complete in under a second) and doesn't need a simulator. Use this while iterating on business logic.
+Runs `swift test` inside `Packages/BlinkBreakCore/`. Tests finish in well under a second, need no simulator, and work with Command Line Tools only — or on Linux with a Swift 6 toolchain.
 
 ### Xcode-scheme level (requires full Xcode)
 
 ```bash
-xcodegen generate
-xcodebuild test -project BlinkBreak.xcodeproj -scheme BlinkBreak \
-  -destination 'platform=iOS Simulator,name=iPhone 15'
+BLINKBREAK_FULL_TESTS=1 ./scripts/test.sh
 ```
 
-This is what CI runs. Requires a full Xcode install and an iOS simulator.
+Also runs `xcodebuild test` on the `BlinkBreak` scheme in an iOS 26.1+ simulator. This is what CI runs.
+
+### Integration tests (slow — final verification)
+
+```bash
+./scripts/test-integration.sh
+```
+
+The XCUITest suite drives the real app through a simulator (~4 minutes). See `CLAUDE.md` for what it covers.
 
 ## Linting
 
@@ -108,7 +115,7 @@ This is what CI runs. Requires a full Xcode install and an iOS simulator.
 ```
 
 Two checks:
-1. **Forbidden import scan** — fails if any file under `Packages/BlinkBreakCore/Sources/` imports `SwiftUI`, `UIKit`, or `WatchKit`. This is the structural guarantee that business logic never touches UI frameworks.
+1. **Forbidden import scan** — fails if any file under `Packages/BlinkBreakCore/Sources/` imports `SwiftUI`, `UIKit`, `WatchKit`, `AlarmKit`, `ActivityKit`, `AppIntents`, or `Sentry`. This is the structural guarantee that business logic stays platform-agnostic.
 2. **SwiftLint** — runs if installed; skipped with a note if not.
 
 ## TestFlight deployment
@@ -139,198 +146,95 @@ To seed signing assets the first time, run `fastlane seed_certs` locally (see `f
   ┌──►│ running │─────┤
   │   └─────────┘     │
   │      │            │
-  │      │ break-due alarm fires (20 min)
+  │      │ break alarm fires (20 min)
   │      ▼            │
   │  ┌───────────────┐│
-  │  │ breakPending  ├┤
+  │  │ breakPending  ├┤──── Stop on the alarm (skip) ──► running
   │  └───────────────┘│
   │      │            │
-  │      │ user taps "Start break"
+  │      │ "Start break" (alarm button or in-app)
   │      ▼            │
   │  ┌──────────────┐ │
   │  │ breakActive  │─┘
   │  └──────────────┘
   │      │
-  │      │ look-away alarm fires (20 sec) + dismissed
+  │      │ look-away alarm fires (20 sec)
   │      ▼
   └──────┘
 ```
 
+Inside a weekly-schedule window, a running session can also be **paused** (e.g. for a nap): no alarms ring until you tap Resume, and when the window ends the pause lapses and the schedule starts the next window as usual. Manually started sessions (and Resume) stop at the end of the current or next schedule window when the schedule is on.
+
+`SessionState` is what the UI shows. It is derived from the persisted `SessionRecord` (phase, owned alarm ID, fire time) and the clock — never stored on its own.
+
 ## Alarming system
 
-BlinkBreak's alarming is a two-beat cycle driven by **AlarmKit** (iOS 26.1+). The full-screen alarm takeover fires at alarm volume regardless of silent switch, Focus, or DND. There are only ever two alarm kinds:
+BlinkBreak's alarming is a two-beat cycle driven by **AlarmKit** (iOS 26.1+). The full-screen alarm takeover fires at alarm volume regardless of silent switch, Focus, or DND. There are two alarm kinds:
 
-- `.breakDue` — a 20-minute countdown. Fires at the end of a `running` cycle.
-- `.lookAwayDone` — a 20-second countdown. Fires at the end of a `breakActive` window.
+- `.breakDue` — fires at the end of a 20-minute `running` cycle. Buttons: **Start break** and the system **Stop** (skip this break).
+- `.lookAwayDone` — fires at the end of the 20-second look-away. Buttons: **End break** and **Stop** (both continue to the next cycle).
 
-Only one alarm is scheduled at a time. Each beat ends in dismissal, which schedules the next beat.
+A session owns exactly one alarm at a time.
+
+### Who moves the cycle forward
+
+The key design goal is that **the cycle keeps going even when iOS has killed the app**:
+
+1. **Alarm buttons run App Intents** (`BreakButtonIntent`, `StopButtonIntent` in `AlarmIntents.swift`). iOS runs these when the user taps, launching the app process in the background if needed. They call `SessionController.respond(to:alarmId:)`, which books the next alarm immediately.
+2. **While the app is alive**, `AlarmKitScheduler` diffs `AlarmManager.shared.alarmUpdates` into `.alerting` / `.removed` events. The look-away alarm ringing rolls the cycle forward on its own. An alarm that disappears with no intent reporting a tap is treated as "skipped", after a 5-second grace period so a slightly late intent still wins.
+3. **`reconcile()`** runs whenever the app becomes active. It catches up on anything missed while the app was dead, cancels alarms the session doesn't own, and applies the weekly schedule.
+4. **The weekly schedule pre-books** the first break alarm of the next window (e.g. 9:20 for a 9:00 start). No background execution is needed for automatic starts. When a schedule-started session reaches the end of its window, it stops and pre-books the next window.
+
+Every transition runs on one serial queue inside `SessionController`, so a Stop tap, an intent, an alarm event, and a reconcile can never interleave across `await`s.
 
 ### Layer map
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                              SwiftUI Views                                 │
-│  RunningView / BreakPendingView / BreakActiveView / IdleView               │
-│       │                                             ▲                      │
-│       │ start() / stop() /                          │ state (@Published)  │
-│       │ acknowledgeCurrentBreak()                   │                      │
-└───────┼─────────────────────────────────────────────┼──────────────────────┘
-        ▼                                             │
-┌────────────────────────────────────────────────────────────────────────────┐
-│                   SessionController (BlinkBreakCore)                       │
-│   - Owns SessionState, publishes to views                                  │
-│   - Subscribes once to alarmScheduler.events at init                       │
-│   - Persists SessionRecord to UserDefaults on every transition             │
-│   - reconcile() rebuilds state from persistence + scheduler + clock        │
-└───────┬───────────────────────────────────────────────────▲────────────────┘
-        │ scheduleCountdown / cancel / cancelAll            │ AlarmEvent stream
-        ▼                                                   │ (.fired / .dismissed)
-┌────────────────────────────────────────────────────────────────────────────┐
-│               AlarmKitScheduler (iOS app target)                           │
-│   - The only file that imports AlarmKit                                    │
-│   - Observer task: `for await alarms in AlarmManager.shared.alarmUpdates`  │
-│   - Maintains id→kind mapping persisted to UserDefaults (survives kill)    │
-│   - Translates AlarmKit snapshots → AlarmEvent vocabulary                  │
-└───────┬──────────────────────────────────────────▲─────────────────────────┘
-        │ schedule / cancel                        │ alarmUpdates AsyncSequence
-        ▼                                          │
-┌────────────────────────────────────────────────────────────────────────────┐
-│                      iOS / AlarmKit (system)                               │
-│   AlarmManager.shared — the actual alarm daemon. Persists across app kill. │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Happy path: full cycle from Start to next Start
-
-```
-User taps Start on IdleView
-  │
-  ▼
-SessionController.start()
-  │
-  ├─► alarmScheduler.cancelAll()                    (clears any lingering alarms)
-  ├─► alarmScheduler.scheduleCountdown(
-  │       duration: 20 min, kind: .breakDue)        → AlarmManager.schedule(.fixed(now+20min))
-  │       returns alarmId
-  ├─► persistence.save(SessionRecord{ sessionActive, cycleStartedAt=now,
-  │                                   currentAlarmId=alarmId })
-  └─► state = .running(cycleStartedAt: now)         (view → RunningView with countdown ring)
-
-  ... 20 minutes elapse, AlarmKit fires the alarm ...
-
-AlarmKit: full-screen takeover appears (Stop slider + "Start break" secondary button)
-AlarmKit: AlarmManager.shared.alarmUpdates emits snapshot where the alarm state=alerting
-  │
-  ▼
-AlarmKitScheduler observer sees nowAlerting grew by alarmId
-  └─► eventContinuation.yield(.fired(alarmId, .breakDue))
-        │
-        ▼
-SessionController.handleAlarmEvent(.fired(_, .breakDue))
-  └─► state = .breakPending(cycleStartedAt)         (if app foregrounded → BreakPendingView)
-
-  User taps "Start break" — two equivalent paths:
-  ┌──────────────────────────────────────┬────────────────────────────────────────┐
-  │  Path A: on the AlarmKit alarm UI    │  Path B: on the in-app BreakPendingView │
-  │                                      │                                         │
-  │  StartBreakIntent.perform() runs     │  View calls                             │
-  │  AlarmManager.shared.cancel(id)      │  controller.acknowledgeCurrentBreak()   │
-  │                                      │    └─► alarmScheduler.cancel(alarmId)   │
-  │                                      │    └─► synthesize .dismissed event      │
-  └──────────────────────────────────────┴────────────────────────────────────────┘
-        │
-        ▼ (either path)
-AlarmKit: alarmUpdates emits snapshot without the alarm
-AlarmKitScheduler observer sees lastKnown - nowKnown = { alarmId }
-  └─► eventContinuation.yield(.dismissed(alarmId, .breakDue))
-        │
-        ▼
-SessionController.handleAlarmEvent(.dismissed(_, .breakDue))
-  │
-  ├─► alarmScheduler.scheduleCountdown(
-  │       duration: 20 sec, kind: .lookAwayDone)    → AlarmManager.schedule(.fixed(now+20s))
-  │       returns lookAwayAlarmId
-  ├─► persistence.save(record with breakActiveStartedAt=now, currentAlarmId=lookAwayId)
-  └─► state = .breakActive(startedAt: now)          (view → BreakActiveView)
-
-  ... 20 seconds elapse, AlarmKit fires the look-away alarm ...
-
-AlarmKit: full-screen takeover appears (Stop slider only — no secondary button)
-Observer yields .fired(lookAwayId, .lookAwayDone)
-  └─► SessionController.handleFired(.lookAwayDone) is a no-op;
-      state stays .breakActive until dismissal
-
-User slides Stop (or app dismisses programmatically via stop())
-Observer yields .dismissed(lookAwayId, .lookAwayDone)
-  │
-  ▼
-SessionController.handleAlarmEvent(.dismissed(_, .lookAwayDone))
-  │
-  ├─► alarmScheduler.scheduleCountdown(
-  │       duration: 20 min, kind: .breakDue)        → next cycle's alarm
-  ├─► persistence.save(new cycle record)
-  └─► state = .running(cycleStartedAt: now)         (loop back to top)
+┌────────────────────────────────────────────┐   ┌──────────────────────────────┐
+│ SwiftUI views (RootView → Idle/Running/…)  │   │ App Intents (alarm buttons)  │
+│   read state; call start/stop/startBreak   │   │   respond(to:alarmId:)       │
+└───────────────────┬────────────────────────┘   └──────────────┬───────────────┘
+                    ▼                                           ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ SessionController (BlinkBreakCore, @Observable, one per process)             │
+│   serial queue · SessionRecord in UserDefaults · derived SessionState        │
+└───────────────────┬──────────────────────────────────────────▲───────────────┘
+                    │ schedule / cancel / currentAlarms         │ .alerting / .removed
+                    ▼                                           │
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ AlarmKitScheduler (app target) → AlarmManager.shared (system alarm daemon)   │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Where the source of truth lives
 
-The app trusts three collaborators in a strict hierarchy:
-
-1. **AlarmKit (`AlarmManager.shared`)** — source of truth for *"what's scheduled right now."* Survives app kill, OS reboot, and background termination. `reconcile()` always asks the scheduler first.
-2. **`SessionRecord` in UserDefaults** — source of truth for *"what cycle is this."* Stores `cycleStartedAt`, `breakActiveStartedAt`, `currentAlarmId`, `wasAutoStarted`. Lets reconciliation interpret what the scheduler reports.
-3. **`@Published state`** — derived, ephemeral, never trusted. Rebuilt by `reconcile()` on launch / foreground / periodic tick from the two sources above.
-
-### Reconciliation on launch
-
-`SessionController.reconcile()` runs on app launch, on foreground, and when a BGTask schedule-check fires. It never trusts in-memory state; it asks:
-
-- Is there a persisted record with `sessionActive == true`?
-- What does `alarmScheduler.currentAlarms()` report?
-- Does the persisted `currentAlarmId` match one of those? Is it alerting?
-
-From those three bits it derives the correct `SessionState`. Edge cases:
-
-- **Alarm alerting, not dismissed** → `.breakPending` (if `.breakDue`) or stay in `.breakActive` (if `.lookAwayDone`).
-- **Alarm scheduled, not yet fired** → `.running` or `.breakActive` based on `breakActiveStartedAt`.
-- **Alarm missing, inside breakActive window per persistence** → `.breakActive` (we were killed mid-break, recover).
-- **Alarm missing, past the break-fire time** → `.breakPending` (alarm fired while we were dead, user never ack'd).
-- **Alarm missing, no recovery signal** → hard reset to `.idle` (system lost the alarm somehow).
-
-### Why the AlarmKit observer is the pivot
-
-Both the system (user slides Stop) and the app (programmatic `cancel`) dismiss alarms through the same funnel: the alarm disappears from `AlarmManager.shared.alarmUpdates`. The observer in `AlarmKitScheduler` converges every source of dismissal into one `.dismissed` event on its `AsyncStream`. `SessionController` only listens to that stream; it never cares *who* dismissed the alarm, just that it was dismissed. This is how the in-app button, the system Stop slider, and the Start-break secondary button all end up driving the same state machine.
-
-One consequence worth noting: because the observer is the authoritative dismissal source, `acknowledgeCurrentBreak()` (which is called from the in-app `BreakPendingView` button) cancels the alarm *and* synthesizes its own `.dismissed` event, because the observer and the synthesized event race — the guard in `handleDismissed` (matching `record.currentAlarmId`) swallows whichever one loses.
+1. **AlarmKit (`AlarmManager.shared.alarms`)** — what's actually scheduled or ringing. Survives app kill and reboot. An alarm that has fired and been stopped is deleted from it.
+2. **`SessionRecord` in UserDefaults** — the session's phase, the one alarm it owns, and when that alarm fires. Enough to interpret what AlarmKit reports.
+3. **`SessionState`** — derived from the two above plus the clock; never stored.
 
 ## Directory layout
 
 ```
 BlinkBreak/
 ├── .github/workflows/              GitHub Actions CI/CD
-├── scripts/                        lint.sh, build.sh, test.sh
+├── scripts/                        lint.sh, build.sh, test.sh, test-integration.sh
 ├── project.yml                     xcodegen spec (source of truth for Xcode project)
 ├── BlinkBreak/                     iOS app target (SwiftUI)
 │   ├── BlinkBreakApp.swift         @main entry point
-│   ├── AppDelegate.swift           BGTaskScheduler handler (UIApplicationDelegate)
-│   ├── Preview/
-│   │   └── PreviewSessionController.swift   mock for SwiftUI previews
-│   └── Views/
-│       ├── RootView.swift                   state router
-│       ├── IdleView.swift
-│       ├── RunningView.swift
-│       ├── BreakPendingView.swift
-│       ├── BreakActiveView.swift
-│       ├── PermissionDeniedView.swift
-│       └── Components/                      reusable small components
+│   ├── AppEnvironment.swift        composition root (the shared SessionController)
+│   ├── AlarmKitScheduler.swift     AlarmKit wrapper
+│   ├── AlarmIntents.swift          alarm-button App Intents
+│   ├── Feedback/                   feedback reporting (Sentry)
+│   ├── Preview/                    PreviewSessionController for SwiftUI previews
+│   └── Views/                      screens, Theme.swift, Components/
 ├── BlinkBreakTests/                iOS scheme test target
+├── BlinkBreakUITests/              XCUITest integration suite
 ├── Packages/
 │   └── BlinkBreakCore/             local Swift Package (all business logic)
 │       ├── Package.swift
 │       ├── Sources/BlinkBreakCore/
 │       └── Tests/BlinkBreakCoreTests/
-└── docs/superpowers/
-    ├── specs/                      design documents
-    └── plans/                      implementation plans
+└── docs/superpowers/               historical specs and plans
 ```
 
 ## License

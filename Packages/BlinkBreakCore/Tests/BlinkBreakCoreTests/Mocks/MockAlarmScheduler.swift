@@ -2,139 +2,123 @@
 //  MockAlarmScheduler.swift
 //  BlinkBreakCoreTests
 //
-//  Test double for AlarmSchedulerProtocol. Lets tests:
-//  - Drive virtual time by calling `simulateFire` and `simulateDismiss`.
-//  - Inspect `scheduled` to assert which alarms were created.
-//  - Override `nextAssignedId` to make assertions deterministic.
+//  Test double for AlarmSchedulerProtocol. Keeps an in-memory list of "system"
+//  alarms so tests can:
+//  - Inspect `scheduled` / `cancelled` to assert what the controller asked for.
+//  - Mark an alarm alerting (`simulateAlerting`) or make it vanish the way the
+//    system does after a button tap (`simulateRemoval`).
+//  - Stub authorization and scheduling failures.
 //
 
 import Foundation
+import Synchronization
 @testable import BlinkBreakCore
 
-final class MockAlarmScheduler: AlarmSchedulerProtocol, @unchecked Sendable {
+final class MockAlarmScheduler: AlarmSchedulerProtocol {
 
     struct ScheduleCall: Equatable {
         let alarmId: UUID
-        let duration: TimeInterval
         let kind: AlarmKind
+        let fireDate: Date
         let muteSound: Bool
     }
 
-    private let lock = NSLock()
-    private var _scheduled: [ScheduleCall] = []
-    private var _cancelled: [UUID] = []
-    private var _cancelAllCount: Int = 0
-    private var _currentAlarms: [ScheduledAlarmInfo] = []
-    private var _stubbedAuthorization: Bool = true
-    private var _nextAssignedId: UUID?
-    /// Hook run inside `scheduleCountdown` before it returns. Lets tests simulate
-    /// concurrent state changes (e.g. `stop()` racing with a cycle-roll) by
-    /// mutating persistence or controller state at the moment the production
-    /// code is awaiting the scheduler.
-    var onScheduleCountdown: (@Sendable () async -> Void)?
+    private struct Storage {
+        var scheduled: [ScheduleCall] = []
+        var cancelled: [UUID] = []
+        var system: [ScheduledAlarm] = []
+        var authorization: AlarmAuthorizationStatus = .authorized
+        var nextError: AlarmSchedulerError?
+    }
 
+    private let storage = Mutex(Storage())
+    private let beforeScheduleHook = Mutex<(@Sendable () async -> Void)?>(nil)
     private let continuation: AsyncStream<AlarmEvent>.Continuation
     let events: AsyncStream<AlarmEvent>
 
     init() {
-        var cont: AsyncStream<AlarmEvent>.Continuation!
-        self.events = AsyncStream { c in cont = c }
-        self.continuation = cont
+        (events, continuation) = AsyncStream.makeStream()
     }
 
     // MARK: - Inspection
 
-    var scheduled: [ScheduleCall] {
-        lock.lock(); defer { lock.unlock() }
-        return _scheduled
+    var scheduled: [ScheduleCall] { storage.withLock { $0.scheduled } }
+    var cancelled: [UUID] { storage.withLock { $0.cancelled } }
+    var systemAlarmIds: [UUID] { storage.withLock { $0.system.map(\.alarmId) } }
+    var lastScheduled: ScheduleCall? { scheduled.last }
+
+    // MARK: - Stubbing
+
+    func stubAuthorization(_ status: AlarmAuthorizationStatus) {
+        storage.withLock { $0.authorization = status }
     }
 
-    var cancelledIds: [UUID] {
-        lock.lock(); defer { lock.unlock() }
-        return _cancelled
+    /// Make the next `schedule` call throw.
+    func failNextSchedule(with error: AlarmSchedulerError) {
+        storage.withLock { $0.nextError = error }
     }
 
-    var cancelAllCount: Int {
-        lock.lock(); defer { lock.unlock() }
-        return _cancelAllCount
+    /// Run `hook` inside every `schedule` call before it returns, to simulate a
+    /// slow AlarmKit round trip that other calls can race against.
+    func setBeforeSchedule(_ hook: (@Sendable () async -> Void)?) {
+        beforeScheduleHook.withLock { $0 = hook }
     }
 
-    // MARK: - Stubbing helpers
-
-    /// Override the next ID returned from `scheduleCountdown`. Useful when a test
-    /// needs a specific UUID it can later assert on.
-    func setNextAssignedId(_ id: UUID) {
-        lock.lock(); defer { lock.unlock() }
-        _nextAssignedId = id
-    }
-
-    func stubAuthorization(_ granted: Bool) {
-        lock.lock(); defer { lock.unlock() }
-        _stubbedAuthorization = granted
-    }
-
-    func setCurrentAlarms(_ alarms: [ScheduledAlarmInfo]) {
-        lock.lock(); defer { lock.unlock() }
-        _currentAlarms = alarms
-    }
-
-    func reset() {
-        lock.lock(); defer { lock.unlock() }
-        _scheduled.removeAll()
-        _cancelled.removeAll()
-        _cancelAllCount = 0
-        _currentAlarms.removeAll()
-        _nextAssignedId = nil
+    /// Put an alarm into the system list as if an earlier launch had scheduled it.
+    func addSystemAlarm(_ id: UUID, isAlerting: Bool = false) {
+        storage.withLock { $0.system.append(ScheduledAlarm(alarmId: id, isAlerting: isAlerting)) }
     }
 
     // MARK: - Event simulation
 
-    /// Push a `.fired` event onto the stream. Called by tests to simulate the
-    /// system firing an alarm.
-    func simulateFire(alarmId: UUID, kind: AlarmKind) {
-        continuation.yield(.fired(alarmId: alarmId, kind: kind))
+    func simulateAlerting(_ id: UUID) {
+        storage.withLock { storage in
+            storage.system = storage.system.map {
+                $0.alarmId == id ? ScheduledAlarm(alarmId: id, isAlerting: true) : $0
+            }
+        }
+        continuation.yield(.alerting(alarmId: id))
     }
 
-    /// Push a `.dismissed` event onto the stream. Simulates the user tapping Stop.
-    func simulateDismiss(alarmId: UUID, kind: AlarmKind) {
-        continuation.yield(.dismissed(alarmId: alarmId, kind: kind))
+    /// The alarm disappears from the system (user tapped a button, or it timed out).
+    func simulateRemoval(_ id: UUID) {
+        storage.withLock { $0.system.removeAll { $0.alarmId == id } }
+        continuation.yield(.removed(alarmId: id))
     }
 
     // MARK: - AlarmSchedulerProtocol
 
-    func requestAuthorizationIfNeeded() async throws -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return _stubbedAuthorization
+    func authorizationStatus() async -> AlarmAuthorizationStatus {
+        storage.withLock { $0.authorization }
     }
 
-    func scheduleCountdown(duration: TimeInterval, kind: AlarmKind, muteSound: Bool) async throws -> UUID {
-        lock.lock()
-        let id = _nextAssignedId ?? UUID()
-        _nextAssignedId = nil
-        _scheduled.append(ScheduleCall(alarmId: id, duration: duration, kind: kind, muteSound: muteSound))
-        // Mirror real AlarmKit behavior: scheduling adds the alarm to the system's
-        // active set. `currentAlarms()` should report it until cancellation or fire.
-        _currentAlarms.append(ScheduledAlarmInfo(alarmId: id, kind: kind))
-        let hook = onScheduleCountdown
-        lock.unlock()
-        if let hook { await hook() }
-        return id
+    func schedule(_ kind: AlarmKind, at fireDate: Date, muteSound: Bool) async throws -> UUID {
+        if let hook = beforeScheduleHook.withLock({ $0 }) {
+            await hook()
+        }
+        return try storage.withLock { storage in
+            if let error = storage.nextError {
+                storage.nextError = nil
+                throw error
+            }
+            if storage.authorization == .denied {
+                throw AlarmSchedulerError.authorizationDenied
+            }
+            let id = UUID()
+            storage.scheduled.append(ScheduleCall(alarmId: id, kind: kind, fireDate: fireDate, muteSound: muteSound))
+            storage.system.append(ScheduledAlarm(alarmId: id))
+            return id
+        }
     }
 
     func cancel(alarmId: UUID) async {
-        lock.lock(); defer { lock.unlock() }
-        _cancelled.append(alarmId)
-        _currentAlarms.removeAll(where: { $0.alarmId == alarmId })
+        storage.withLock { storage in
+            storage.cancelled.append(alarmId)
+            storage.system.removeAll { $0.alarmId == alarmId }
+        }
     }
 
-    func cancelAll() async {
-        lock.lock(); defer { lock.unlock() }
-        _cancelAllCount += 1
-        _currentAlarms.removeAll()
-    }
-
-    func currentAlarms() async -> [ScheduledAlarmInfo] {
-        lock.lock(); defer { lock.unlock() }
-        return _currentAlarms
+    func currentAlarms() async -> [ScheduledAlarm] {
+        storage.withLock { $0.system }
     }
 }

@@ -24,7 +24,7 @@ final class BundleResourceTests: XCTestCase {
         // We can't directly read Bundle.main from the UI test runner process because
         // that runs in a different bundle. Instead we launch the app and observe
         // that it doesn't crash — if the custom sound file were missing, the app
-        // would still launch (UN falls back to .default) so this test is mainly
+        // would still launch (AlarmKit falls back to its default sound) so this test is mainly
         // a smoke check that the app boots with our build configuration.
         let app = XCUIApplication()
         app.launchForIntegrationTest()

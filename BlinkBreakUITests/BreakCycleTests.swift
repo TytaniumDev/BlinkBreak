@@ -3,9 +3,8 @@
 //  BlinkBreakUITests
 //
 //  Full-cycle tests that exercise the automatic state transitions driven by
-//  the break timer. These depend on BB_BREAK_INTERVAL=3 / BB_LOOKAWAY_DURATION=1
-//  (set by the UITests scheme), so expect ~4 seconds of real wall-clock time per
-//  full cycle.
+//  the break timer. `launchForIntegrationTest` shortens both durations to
+//  3 seconds, so expect ~6 seconds of real wall-clock time per full cycle.
 //
 //  Each test uses generous waitForExistence timeouts (up to 10s) to absorb
 //  simulator variance without being flaky.
@@ -27,9 +26,8 @@ final class BreakCycleTests: XCTestCase {
         app.waitForButton(A11y.Idle.startButton).tap()
         _ = app.waitForButton(A11y.Running.stopButton)
 
-        // Wait for auto-transition running → breakPending. The transition is driven by
-        // notification delivery (AppDelegate.willPresent → reconcile()); give it up to
-        // 10s to absorb scheduler jitter.
+        // Wait for auto-transition running → breakPending, driven by the alarm
+        // coming due. Give it up to 10s to absorb scheduler jitter.
         _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
     }
 
@@ -56,7 +54,7 @@ final class BreakCycleTests: XCTestCase {
         app.buttons[A11y.BreakPending.startBreakButton].tap()
         _ = app.waitForElement(A11y.BreakActive.message, timeout: 5)
 
-        // Wait for auto-transition breakActive → running. lookAwayDuration=1 second.
+        // Wait for auto-transition breakActive → running once the look-away ends.
         _ = app.waitForButton(A11y.Running.stopButton, timeout: 10)
     }
 

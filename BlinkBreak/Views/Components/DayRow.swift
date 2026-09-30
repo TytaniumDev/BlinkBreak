@@ -3,15 +3,16 @@
 //  BlinkBreak
 //
 //  A single row in the schedule day list. Shows the day name, time range
-//  (tappable to expand picker), and an enable/disable toggle.
+//  (tappable to expand the pickers), and an enable/disable toggle.
 //
-//  Stateless: takes all values as parameters. Parent manages the Binding.
+//  Stateless: the parent owns the Bindings. Time rounding and keeping the end
+//  after the start live in `DaySchedule.settingStart` / `settingEnd` (Core).
 //
 //  Flutter analogue: a ListTile-style widget with a Switch trailing widget.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 struct DayRow: View {
     let dayName: String
@@ -35,15 +36,13 @@ struct DayRow: View {
 
                 if daySchedule.isEnabled {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isExpanded.toggle()
-                        }
+                        isExpanded.toggle()
                     } label: {
                         Text(timeRangeText)
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.5))
                     }
-                    .accessibilityHint(isExpanded ? "Double tap to collapse time picker" : "Double tap to expand time picker")
+                    .accessibilityHint(isExpanded ? "Collapses the time pickers" : "Expands the time pickers")
                 } else {
                     Text("Off")
                         .font(.caption)
@@ -56,13 +55,10 @@ struct DayRow: View {
 
             if isExpanded && daySchedule.isEnabled {
                 VStack(spacing: 8) {
-                    DatePicker("Start", selection: startTimeBinding,
-                               displayedComponents: .hourAndMinute)
-                        .datePickerStyle(.compact)
-                    DatePicker("End", selection: endTimeBinding,
-                               displayedComponents: .hourAndMinute)
-                        .datePickerStyle(.compact)
+                    DatePicker("Start", selection: startBinding, displayedComponents: .hourAndMinute)
+                    DatePicker("End", selection: endBinding, displayedComponents: .hourAndMinute)
                 }
+                .datePickerStyle(.compact)
                 .font(.caption)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -75,82 +71,72 @@ struct DayRow: View {
         "\(formatScheduleTime(daySchedule.startTime)) \u{2013} \(formatScheduleTime(daySchedule.endTime))"
     }
 
-    private var startTimeBinding: Binding<Date> {
+    private var startBinding: Binding<Date> {
         Binding(
-            get: { dateFromComponents(daySchedule.startTime) },
-            set: { newDate in
-                let cal = Calendar.current
-                let h = cal.component(.hour, from: newDate)
-                let rawM = cal.component(.minute, from: newDate)
-                let m = (rawM / 5) * 5
-                daySchedule.startTime = DateComponents(hour: h, minute: m)
+            get: { Self.date(from: daySchedule.startTime) },
+            set: { date in
+                let (hour, minute) = Self.hourAndMinute(of: date)
+                daySchedule = daySchedule.settingStart(hour: hour, minute: minute)
             }
         )
     }
 
-    private var endTimeBinding: Binding<Date> {
+    private var endBinding: Binding<Date> {
         Binding(
-            get: { dateFromComponents(daySchedule.endTime) },
-            set: { newDate in
-                let cal = Calendar.current
-                let h = cal.component(.hour, from: newDate)
-                let rawM = cal.component(.minute, from: newDate)
-                let m = (rawM / 5) * 5
-                daySchedule.endTime = DateComponents(hour: h, minute: m)
+            get: { Self.date(from: daySchedule.endTime) },
+            set: { date in
+                let (hour, minute) = Self.hourAndMinute(of: date)
+                daySchedule = daySchedule.settingEnd(hour: hour, minute: minute)
             }
         )
     }
 
-    private func dateFromComponents(_ comps: DateComponents) -> Date {
-        let cal = Calendar.current
-        var dc = cal.dateComponents([.year, .month, .day], from: Date())
-        dc.hour = comps.hour ?? 0
-        dc.minute = comps.minute ?? 0
-        return cal.date(from: dc) ?? Date()
+    /// Today's date at the stored time, for the DatePicker to edit.
+    private static func date(from time: DateComponents) -> Date {
+        Calendar.current.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: 0, of: Date()) ?? Date()
+    }
+
+    private static func hourAndMinute(of date: Date) -> (Int, Int) {
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (parts.hour ?? 0, parts.minute ?? 0)
     }
 }
 
 #Preview("Enabled") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
+        CalmBackground()
         DayRow(
-            dayName: "Monday",
-            daySchedule: .constant(DaySchedule(
-                isEnabled: true,
-                startTime: DateComponents(hour: 9, minute: 0),
-                endTime: DateComponents(hour: 17, minute: 0)
-            )),
+            dayName: "Mon",
+            daySchedule: .constant(.nineToFive(isEnabled: true)),
             isExpanded: .constant(false)
-        ).foregroundStyle(.white)
+        )
+        .foregroundStyle(.white)
     }
+    .preferredColorScheme(.dark)
 }
 
 #Preview("Disabled") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
+        CalmBackground()
         DayRow(
-            dayName: "Saturday",
-            daySchedule: .constant(DaySchedule(
-                isEnabled: false,
-                startTime: DateComponents(hour: 9, minute: 0),
-                endTime: DateComponents(hour: 17, minute: 0)
-            )),
+            dayName: "Sat",
+            daySchedule: .constant(.nineToFive(isEnabled: false)),
             isExpanded: .constant(false)
-        ).foregroundStyle(.white)
+        )
+        .foregroundStyle(.white)
     }
+    .preferredColorScheme(.dark)
 }
 
 #Preview("Expanded") {
     ZStack {
-        Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea()
+        CalmBackground()
         DayRow(
-            dayName: "Monday",
-            daySchedule: .constant(DaySchedule(
-                isEnabled: true,
-                startTime: DateComponents(hour: 9, minute: 0),
-                endTime: DateComponents(hour: 17, minute: 0)
-            )),
+            dayName: "Mon",
+            daySchedule: .constant(.nineToFive(isEnabled: true)),
             isExpanded: .constant(true)
-        ).foregroundStyle(.white)
+        )
+        .foregroundStyle(.white)
     }
+    .preferredColorScheme(.dark)
 }

@@ -2,356 +2,247 @@
 //  ScheduleIntegrationTests.swift
 //  BlinkBreakCoreTests
 //
-//  Tests for SessionController's schedule-driven auto-start/stop behavior.
+//  How SessionController follows the weekly schedule: auto-start inside a
+//  window, pre-booking the first break of the next window, stopping at the end
+//  of a window, and respecting manual stops. Uses the real schedule math with a
+//  Mon–Fri 9–5 GMT schedule and virtual time.
 //
 
 import Testing
-import Foundation
 @testable import BlinkBreakCore
 
 @MainActor
-@Suite("SessionController — schedule integration")
+@Suite("SessionController — weekly schedule")
 struct ScheduleIntegrationTests {
 
-    private func makeFixture() -> (SessionControllerFixture, MockScheduleEvaluator) {
-        let evaluator = MockScheduleEvaluator()
-        let fixture = SessionControllerFixture(evaluator: evaluator)
-        return (fixture, evaluator)
+    typealias Fixture = SessionControllerFixture
+    let interval = BlinkBreakConstants.breakInterval
+    let lookAway = BlinkBreakConstants.lookAwayDuration
+
+    func at(_ weekday: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        TestCalendar.date(weekday: weekday, hour: hour, minute: minute)
     }
 
-    @Test("reconcile auto-starts when evaluator says active and state is idle")
-    func autoStart() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        evaluator.stubbedShouldBeActive = true
+    // MARK: - Editing
+
+    @Test("updateSchedule saves and publishes immediately")
+    func updatePersists() async {
+        let f = Fixture()
+        f.controller.updateSchedule(.workweekOn)
+        #expect(f.controller.weeklySchedule == .workweekOn)
+        #expect(f.persistence.loadSchedule() == .workweekOn)
+    }
+
+    @Test("scheduleStatus comes from the schedule")
+    func status() async {
+        let f = Fixture(now: at(2, 8), schedule: .workweekOn)
+        #expect(f.controller.scheduleStatus(at: at(2, 8))?.hasPrefix("Starts at") == true)
+        #expect(f.controller.scheduleStatus(at: at(2, 10))?.hasPrefix("Active until") == true)
+    }
+
+    // MARK: - Auto-start
+
+    @Test("turning the schedule on inside a window starts a session right away")
+    func enableInsideWindow() async {
+        let f = Fixture(now: at(2, 10))
+
+        f.controller.updateSchedule(.workweekOn)
+        await f.settle()
+
+        #expect(f.controller.state == .running(breakAt: at(2, 10).addingTimeInterval(interval)))
+        #expect(f.record.wasAutoStarted)
+    }
+
+    @Test("reconcile inside a window starts a session")
+    func reconcileInsideWindow() async {
+        let f = Fixture(now: at(2, 10), schedule: .workweekOn)
+        await f.controller.reconcile()
+        #expect(f.record.phase == .running)
+        #expect(f.record.wasAutoStarted)
+    }
+
+    @Test("outside a window, the first break of the next window is pre-booked and the UI stays idle")
+    func preBook() async {
+        let f = Fixture(now: at(2, 7))
+
+        f.controller.updateSchedule(.workweekOn)
+        await f.settle()
+
         #expect(f.controller.state == .idle)
-        await f.controller.reconcile()
-        await settle()
-        #expect(f.controller.state != .idle)
-        #expect(f.persistence.load().sessionActive == true)
-
-        // Explicitly assert that exactly one alarm is scheduled when auto-started by schedule
-        #expect(f.alarmScheduler.scheduled.count == 1)
-        #expect(f.alarmScheduler.scheduled[0].kind == .breakDue)
+        #expect(f.record.phase == .scheduled)
+        #expect(f.alarms.lastScheduled?.kind == .breakDue)
+        #expect(f.alarms.lastScheduled?.fireDate == at(2, 9).addingTimeInterval(interval))
     }
 
-    @Test("reconcile auto-stops a schedule-started session when evaluator says inactive")
-    func autoStop() async {
-        let (f, evaluator) = makeFixture()
+    @Test("Friday evening pre-books Monday morning")
+    func preBookSkipsWeekend() async {
+        let f = Fixture(now: at(6, 18), schedule: .workweekOn)
+        await f.controller.reconcile()
+        #expect(f.alarms.lastScheduled?.fireDate == at(2, 9).addingTimeInterval(interval + 7 * 86_400))
+    }
+
+    @Test("when the pre-booked window opens, the UI shows the running countdown")
+    func preBookedWindowOpens() async {
+        let f = Fixture(now: at(2, 7), schedule: .workweekOn)
+        await f.controller.reconcile()
+
+        f.now.value = at(2, 9)
+        await f.releaseSleepsAndSettle()
+
+        #expect(f.controller.state == .running(breakAt: at(2, 9).addingTimeInterval(interval)))
+        #expect(f.record.phase == .running)
+    }
+
+    @Test("the pre-booked alarm's \"Start break\" works even if the app never ran in between")
+    func preBookedAlarmConfirm() async {
+        let f = Fixture(now: at(2, 7), schedule: .workweekOn)
+        await f.controller.reconcile()
+        let alarm = f.record.alarmId!
+
+        f.now.value = at(2, 9, 20)
+        await f.controller.respond(to: .confirm, alarmId: alarm)
+
+        #expect(f.record.phase == .lookingAway)
+    }
+
+    @Test("turning the schedule off drops the pre-booked alarm")
+    func disableDropsPreBook() async {
+        let f = Fixture(now: at(2, 7), schedule: .workweekOn)
+        await f.controller.reconcile()
+        let preBooked = f.record.alarmId!
+
         f.controller.updateSchedule(.default)
-        evaluator.stubbedShouldBeActive = true
+        await f.settle()
+
+        #expect(f.record.phase == .idle)
+        #expect(f.alarms.cancelled.contains(preBooked))
+        #expect(f.alarms.systemAlarmIds.isEmpty)
+    }
+
+    @Test("editing the start time re-books the pre-booked alarm")
+    func editReBooks() async {
+        let f = Fixture(now: at(2, 7), schedule: .workweekOn)
         await f.controller.reconcile()
-        await settle()
-        #expect(f.controller.state != .idle)
 
-        evaluator.stubbedShouldBeActive = false
-        await f.controller.reconcile()
-        await settle()
-        #expect(f.controller.state == .idle)
-    }
-
-    @Test("reconcile does not auto-start when evaluator returns false")
-    func noAutoStartWhenInactive() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        evaluator.stubbedShouldBeActive = false
-        await f.controller.reconcile()
-        await settle()
-        #expect(f.controller.state == .idle)
-    }
-
-    @Test("stop() sets manualStopDate when evaluator says within window")
-    func stopSetsManualStopDate() async {
-        let (f, evaluator) = makeFixture()
-        evaluator.stubbedShouldBeActive = true
-        f.controller.start()
-        await settle()
-        f.controller.stop()
-        await settle()
-        #expect(f.persistence.load().manualStopDate != nil)
-    }
-
-    @Test("stop() does not set manualStopDate when evaluator says outside window")
-    func stopNoManualStopDateOutsideWindow() async {
-        let (f, evaluator) = makeFixture()
-        evaluator.stubbedShouldBeActive = false
-        f.controller.start()
-        await settle()
-        f.controller.stop()
-        await settle()
-        #expect(f.persistence.load().manualStopDate == nil)
-    }
-
-    @Test("reconcile passes manualStopDate to evaluator")
-    func passesManualStopDate() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        let stopDate = Date(timeIntervalSince1970: 1_699_999_000)
-        var record = SessionRecord.idle
-        record.manualStopDate = stopDate
-        f.persistence.save(record)
-        evaluator.stubbedShouldBeActive = false
-        await f.controller.reconcile()
-        await settle()
-        #expect(evaluator.shouldBeActiveCalls.last?.manualStopDate == stopDate)
-    }
-
-    @Test("reconcile does not auto-stop a manually started session before its stop time")
-    func manualStartNotAutoStopped() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        f.controller.start()
-        await settle()
-        #expect(f.controller.state != .idle)
-
-        evaluator.stubbedShouldBeActive = false
-        await f.controller.reconcile()
-        await settle()
-        #expect(f.controller.state != .idle)
-    }
-
-    @Test("reconcile does not auto-stop a manually started session before its stop time, across multiple ticks")
-    func manualStartSurvivesMultipleTicks() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        f.controller.start()
-        await settle()
-        evaluator.stubbedShouldBeActive = false
-        for _ in 0..<5 {
-            f.advance(by: 1)
-            await f.controller.reconcile()
-            await settle()
-        }
-        #expect(f.controller.state != .idle)
-    }
-
-    @Test("auto-started session remains auto-stoppable after a break cycle")
-    func autoStartSurvivesBreakCycle() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        evaluator.stubbedShouldBeActive = true
-        await f.controller.reconcile()
-        await settle()
-        #expect(f.controller.state != .idle)
-
-        // Drive a full break cycle via simulated alarm events.
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        // Ack the breakDue so the controller schedules the look-away.
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        let lookAwayAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
-        f.alarmScheduler.simulateDismiss(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
-        await settle()
-        #expect(f.controller.state != .idle)
-
-        // Schedule says inactive → should auto-stop because session was schedule-started.
-        evaluator.stubbedShouldBeActive = false
-        await f.controller.reconcile()
-        await settle()
-        #expect(f.controller.state == .idle)
-    }
-
-    @Test("updateSchedule saves to persistence and updates published property")
-    func updateSchedule() {
-        let (f, _) = makeFixture()
-        let schedule = WeeklySchedule.default
+        var schedule = WeeklySchedule.workweekOn
+        schedule.days[2]?.startTime = DateComponents(hour: 8, minute: 0)
         f.controller.updateSchedule(schedule)
-        #expect(f.controller.weeklySchedule == schedule)
-        #expect(f.persistence.loadSchedule() == schedule)
+        await f.settle()
+
+        #expect(f.alarms.systemAlarmIds.count == 1)
+        #expect(f.record.alarmFiresAt == at(2, 8).addingTimeInterval(interval))
     }
 
-    // MARK: - Cross-window dismissal (the "alarm fires past midnight" bug)
+    // MARK: - Manual stop
 
-    @Test("auto-started session: dismissing breakDue past schedule end stops instead of scheduling look-away")
-    func breakDueDismissedPastWindowStops() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        evaluator.stubbedShouldBeActive = true
+    @Test("stopping inside a window remembers it and pre-books the next day instead of restarting")
+    func manualStopInWindow() async {
+        let f = Fixture(now: at(2, 10), schedule: .workweekOn)
         await f.controller.reconcile()
-        await settle()
-        #expect(f.controller.state != .idle)
 
-        // Simulate the unattended-phone scenario: the break-due alarm is alerting
-        // and the user finally dismisses it well past the schedule's end.
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        evaluator.stubbedShouldBeActive = false
-        let scheduledBefore = f.alarmScheduler.scheduled.count
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
+        await f.controller.stop()
 
         #expect(f.controller.state == .idle)
-        // No look-away should have been queued.
-        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+        #expect(f.record.phase == .scheduled)
+        #expect(f.record.alarmFiresAt == at(3, 9).addingTimeInterval(interval))
+
+        f.advance(by: 3600)
+        await f.controller.reconcile()
+        #expect(f.record.alarmFiresAt == at(3, 9).addingTimeInterval(interval), "no restart later in the window")
     }
 
-    @Test("auto-started session: dismissing lookAwayDone past schedule end stops instead of rolling next cycle")
-    func lookAwayDismissedPastWindowStops() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        evaluator.stubbedShouldBeActive = true
+    @Test("stopping outside any window doesn't record a manual stop")
+    func manualStopOutsideWindow() async {
+        let f = Fixture(now: at(7, 10))
+        await f.startRunning()
+
+        await f.controller.stop()
+
+        #expect(f.record.manualStopDate == nil)
+    }
+
+    @Test("a manual Start during a stopped window runs normally")
+    func manualStartAfterStop() async {
+        let f = Fixture(now: at(2, 10), schedule: .workweekOn)
         await f.controller.reconcile()
-        await settle()
+        await f.controller.stop()
 
-        // Drive a full break: fire + dismiss break-due (still in window) → look-away scheduled.
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        let lookAwayId = f.alarmScheduler.scheduled.last!.alarmId
+        await f.controller.start()
 
-        // Look-away ends after the schedule window has closed.
-        evaluator.stubbedShouldBeActive = false
-        let scheduledBefore = f.alarmScheduler.scheduled.count
-        f.alarmScheduler.simulateFire(alarmId: lookAwayId, kind: .lookAwayDone)
-        f.alarmScheduler.simulateDismiss(alarmId: lookAwayId, kind: .lookAwayDone)
-        await settle()
+        #expect(f.record.phase == .running)
+        #expect(f.record.wasAutoStarted == false)
+    }
+
+    // MARK: - End of window
+
+    @Test("schedule-started: a cycle that would ring after the window ends stops and pre-books the next day")
+    func autoStopAtWindowEnd() async {
+        let f = Fixture(now: at(2, 16, 30), schedule: .workweekOn)
+        await f.controller.reconcile()
+        let alarm = f.record.alarmId!
+
+        f.now.value = at(2, 16, 50)
+        await f.controller.respond(to: .stop, alarmId: alarm)
 
         #expect(f.controller.state == .idle)
-        // No next-cycle break-due should have been queued.
-        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+        #expect(f.record.phase == .scheduled)
+        #expect(f.record.alarmFiresAt == at(3, 9).addingTimeInterval(interval))
     }
 
-    @Test("manually started session: dismissing outside the window still rolls before its stop time")
-    func manualSessionRollsRegardlessOfWindow() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        evaluator.stubbedShouldBeActive = false
-        f.controller.start()
-        await settle()
-        #expect(f.controller.state != .idle)
-
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        // Look-away should have been scheduled — manual sessions only stop at
-        // their captured stop time (none here: the mock has no window end).
-        let kinds = f.alarmScheduler.scheduled.map(\.kind)
-        #expect(kinds.contains(.lookAwayDone))
-        #expect(f.controller.state != .idle)
-    }
-
-    @Test("manually started session: dismissing lookAwayDone outside the window still rolls before its stop time")
-    func manualSessionLookAwayRollsRegardlessOfWindow() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        evaluator.stubbedShouldBeActive = false
-        f.controller.start()
-        await settle()
-
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        let lookAwayId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: lookAwayId, kind: .lookAwayDone)
-        f.alarmScheduler.simulateDismiss(alarmId: lookAwayId, kind: .lookAwayDone)
-        await settle()
-
-        // Manual session should keep rolling — a second break-due should now exist.
-        let breakDueCount = f.alarmScheduler.scheduled.filter { $0.kind == .breakDue }.count
-        #expect(breakDueCount >= 2)
-        #expect(f.controller.state != .idle)
-    }
-
-    @Test("auto-started session: dismissing breakDue inside window still schedules look-away")
-    func breakDueDismissedInsideWindowRolls() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-        evaluator.stubbedShouldBeActive = true
+    @Test("schedule-started: look-away ending near the window end stops, and the ringing alarm keeps ringing")
+    func autoStopAfterLookAway() async {
+        let f = Fixture(now: at(2, 16, 30), schedule: .workweekOn)
         await f.controller.reconcile()
-        await settle()
+        f.now.value = at(2, 16, 50)
+        await f.controller.startBreak()
+        let lookAwayAlarm = f.record.alarmId!
 
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
+        f.advance(by: lookAway + BlinkBreakConstants.lookAwayCompletionMargin)
+        f.alarms.simulateAlerting(lookAwayAlarm)
+        await f.settle()
 
-        let kinds = f.alarmScheduler.scheduled.map(\.kind)
-        #expect(kinds.contains(.lookAwayDone))
+        #expect(f.record.phase == .scheduled)
+        #expect(f.alarms.systemAlarmIds.contains(lookAwayAlarm))
     }
 
-    // Regression for BLINKBREAK-3: at lookAwayDone dismissal we used to consult the
-    // schedule only at `clock()`, then schedule the next breakDue `breakInterval`
-    // later. If that next fire-time is past the schedule end (e.g. user dismisses
-    // 30 s before 5 pm Friday with a Mon–Fri 9–5 schedule), the alarm fires
-    // outside the schedule window — sometimes on the next scheduled day.
-    @Test("auto-started session: lookAwayDone dismissed near schedule end stops if next breakDue would fire outside window")
-    func lookAwayDismissedNearWindowEndStops() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
-
-        let nowAtDismiss = f.nowBox.value
-        let nextFireTime = nowAtDismiss.addingTimeInterval(BlinkBreakConstants.breakInterval)
-        evaluator.stubbedShouldBeActiveBlock = { date in
-            // In-window at "now" (during dismissal), out-of-window for the next alarm fire-time.
-            return date < nextFireTime
-        }
-
+    @Test("schedule-started: \"Start break\" answered after the window ended stops instead")
+    func lateStartBreak() async {
+        let f = Fixture(now: at(2, 16, 30), schedule: .workweekOn)
         await f.controller.reconcile()
-        await settle()
+        let alarm = f.record.alarmId!
 
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        let lookAwayId = f.alarmScheduler.scheduled.last!.alarmId
+        f.now.value = at(2, 17, 30)
+        await f.controller.respond(to: .confirm, alarmId: alarm)
 
-        let scheduledBefore = f.alarmScheduler.scheduled.count
-        f.alarmScheduler.simulateFire(alarmId: lookAwayId, kind: .lookAwayDone)
-        f.alarmScheduler.simulateDismiss(alarmId: lookAwayId, kind: .lookAwayDone)
-        await settle()
+        #expect(f.alarms.scheduled.contains { $0.kind == .lookAwayDone } == false)
+        #expect(f.record.phase == .scheduled)
+    }
+
+    @Test("schedule-started: reconcile after the window ends stops an unanswered session")
+    func reconcileAfterWindow() async {
+        let f = Fixture(now: at(2, 16, 30), schedule: .workweekOn)
+        await f.controller.reconcile()
+
+        f.now.value = at(2, 18)
+        await f.controller.reconcile()
 
         #expect(f.controller.state == .idle)
-        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+        #expect(f.record.alarmFiresAt == at(3, 9).addingTimeInterval(interval))
     }
 
-    // Default-skip path mirrors the lookAwayDone cycle-roll guard: if the
-    // default dismissal near the schedule end would queue the next breakDue
-    // past the window, stop the session instead of scheduling. With no ack
-    // marker, the dismiss falls into the default skip branch, which runs
-    // the same `scheduleWantsAutoStopForNextBreakFire` check.
-    @Test("auto-started session: default-skip near schedule end stops if next breakDue would fire outside window")
-    func skipNearWindowEndStops() async {
-        let (f, evaluator) = makeFixture()
-        f.controller.updateSchedule(.default)
+    @Test("a manual session started with the schedule off ignores the schedule turned on later")
+    func manualIgnoresSchedule() async {
+        let f = Fixture(now: at(2, 16, 50))
+        let alarm = await f.startRunning()
+        f.controller.updateSchedule(.workweekOn)
+        await f.settle()
 
-        let nowAtSkip = f.nowBox.value
-        let nextFireTime = nowAtSkip.addingTimeInterval(BlinkBreakConstants.breakInterval)
-        evaluator.stubbedShouldBeActiveBlock = { date in
-            return date < nextFireTime
-        }
-
+        f.now.value = at(2, 17, 10)
         await f.controller.reconcile()
-        await settle()
+        #expect(f.record.phase == .running)
 
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        // No ack marker → default skip path → schedule-end guard fires.
-        let scheduledBefore = f.alarmScheduler.scheduled.count
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        #expect(f.controller.state == .idle)
-        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
+        await f.controller.respond(to: .stop, alarmId: alarm)
+        #expect(f.record.phase == .running)
+        #expect(f.record.wasAutoStarted == false)
     }
 }

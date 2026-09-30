@@ -2,147 +2,85 @@
 //  SessionRecord.swift
 //  BlinkBreakCore
 //
-//  The Codable persistence struct stored in UserDefaults. Small on purpose: the
-//  AlarmKit system alarm set is the source of truth for "what happens next";
-//  this record carries the cycle metadata needed to interpret those alarms on
-//  launch.
+//  The Codable struct persisted to UserDefaults. It is the single source of
+//  truth for where the session is in the 20-20-20 cycle: which phase, which
+//  alarm the session owns, and when that alarm fires. `SessionState` (what the
+//  UI shows) is derived from it plus the clock.
 //
 //  Flutter analogue: the @JsonSerializable() model you'd stash in SharedPreferences.
 //
 
 import Foundation
 
-/// The persisted session record. Written on every state transition and read once on
-/// app launch to rehydrate UI state.
+/// The persisted session record. Written on every transition by `SessionController`.
 public struct SessionRecord: Codable, Equatable, Sendable {
 
-    /// Whether a session is currently active. `false` means idle.
-    public var sessionActive: Bool
+    /// Where the session is in the cycle.
+    public enum Phase: String, Codable, Sendable {
+        /// No session. No alarm is owned.
+        case idle
+        /// The weekly schedule has pre-booked the first break of an upcoming
+        /// window. The UI stays idle until the window opens.
+        case scheduled
+        /// Counting down to a break. The break-due alarm is pending or alerting.
+        case running
+        /// The 20-second look-away is in progress. The look-away alarm is
+        /// pending or alerting.
+        case lookingAway
+    }
 
-    /// The current cycle's UUID. Used to tag notifications so we can cancel the
-    /// break notification on acknowledgment without touching unrelated cycles.
-    public var currentCycleId: UUID?
+    public var phase: Phase
 
-    /// When the current running-state cycle began. Used to derive the next-break fire time.
-    /// Nil in the idle state.
-    public var cycleStartedAt: Date?
+    /// The one alarm this session owns. Nil when idle.
+    public var alarmId: UUID?
 
-    /// When the current break window began. Non-nil only in the `breakActive` state.
-    public var breakActiveStartedAt: Date?
+    /// When `alarmId` fires. Nil when idle.
+    public var alarmFiresAt: Date?
 
-    /// When this record was last written (locally or from an incoming remote snapshot).
-    /// Optional so legacy persisted records decode without migration.
-    public var lastUpdatedAt: Date?
+    /// True when the weekly schedule started this session. Only these sessions
+    /// stop automatically at the end of a schedule window.
+    public var wasAutoStarted: Bool
 
-    /// When the user last manually stopped the session. Used to detect intentional
-    /// stops vs. crashes during reconciliation. Optional so legacy records decode
-    /// without migration.
+    /// When the user last stopped (or paused) a session inside a schedule window.
+    /// Keeps the schedule from restarting the session for the rest of that window.
+    /// Carried on idle and pre-booked records.
     public var manualStopDate: Date?
 
-    /// Whether this session was started automatically by the weekly schedule evaluator
-    /// (as opposed to the user manually tapping Start). Only schedule-started sessions
-    /// are eligible for automatic schedule-based stopping. Optional so legacy records
-    /// decode without migration; nil is treated as false.
-    public var wasAutoStarted: Bool?
-
-    /// The AlarmKit alarm ID currently scheduled for this session, if any. Persisted so
-    /// reconciliation after app kill can correlate the in-memory cycle with the alarm
-    /// the system is still tracking. Optional for backwards compatibility.
-    public var currentAlarmId: UUID?
-
-    /// Non-nil while the session is paused (see `SessionState.paused`). Holds the end
-    /// of the schedule window the pause belongs to; once the clock passes it the pause
-    /// lapses and reconciliation clears it back to plain idle. Optional so legacy
-    /// records decode without migration.
+    /// Set while the user has paused inside a schedule window: the end of that
+    /// window. The UI shows `.paused` until then; afterwards the pause lapses and
+    /// the schedule takes over again. Carried on idle and pre-booked records.
     public var pausedUntil: Date?
 
-    /// For manually started sessions: when the weekly schedule should stop the session
-    /// (the end of the schedule window that was open, or next opened, at start time).
-    /// Nil for schedule-started sessions (they follow the live schedule via
-    /// `wasAutoStarted`) and when no schedule is enabled. Optional so legacy records
-    /// decode without migration.
+    /// For manually started sessions (including Resume) while the weekly schedule
+    /// is on: when to hand control back to the schedule — the end of the window
+    /// open at start, or of the next one to open. Nil for schedule-started
+    /// sessions (they follow the live schedule) and when the schedule is off.
     public var scheduledStopAt: Date?
 
     public init(
-        sessionActive: Bool = false,
-        currentCycleId: UUID? = nil,
-        cycleStartedAt: Date? = nil,
-        breakActiveStartedAt: Date? = nil,
-        lastUpdatedAt: Date? = nil,
+        phase: Phase = .idle,
+        alarmId: UUID? = nil,
+        alarmFiresAt: Date? = nil,
+        wasAutoStarted: Bool = false,
         manualStopDate: Date? = nil,
-        wasAutoStarted: Bool? = nil,
-        currentAlarmId: UUID? = nil,
         pausedUntil: Date? = nil,
         scheduledStopAt: Date? = nil
     ) {
-        self.sessionActive = sessionActive
-        self.currentCycleId = currentCycleId
-        self.cycleStartedAt = cycleStartedAt
-        self.breakActiveStartedAt = breakActiveStartedAt
-        self.lastUpdatedAt = lastUpdatedAt
-        self.manualStopDate = manualStopDate
+        self.phase = phase
+        self.alarmId = alarmId
+        self.alarmFiresAt = alarmFiresAt
         self.wasAutoStarted = wasAutoStarted
-        self.currentAlarmId = currentAlarmId
+        self.manualStopDate = manualStopDate
         self.pausedUntil = pausedUntil
         self.scheduledStopAt = scheduledStopAt
     }
 
-    /// The canonical "idle" record. Use this when stopping or clearing session state.
-    public static let idle = SessionRecord(
-        sessionActive: false,
-        currentCycleId: nil,
-        cycleStartedAt: nil,
-        breakActiveStartedAt: nil,
-        lastUpdatedAt: nil
-    )
-
-    // MARK: - Codable
-    //
-    // Custom coding to support a legacy key: earlier builds persisted
-    // `breakActiveStartedAt` under the name `lookAwayStartedAt`. Users upgrading
-    // mid-break-active would otherwise silently lose that timestamp. Encoding
-    // always uses the new key; decoding accepts either.
-
-    private enum CodingKeys: String, CodingKey {
-        case sessionActive
-        case currentCycleId
-        case cycleStartedAt
-        case breakActiveStartedAt
-        case lastUpdatedAt
-        case manualStopDate
-        case wasAutoStarted
-        case currentAlarmId
-        case pausedUntil
-        case scheduledStopAt
-        case lookAwayStartedAt // legacy
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.sessionActive = try c.decodeIfPresent(Bool.self, forKey: .sessionActive) ?? false
-        self.currentCycleId = try c.decodeIfPresent(UUID.self, forKey: .currentCycleId)
-        self.cycleStartedAt = try c.decodeIfPresent(Date.self, forKey: .cycleStartedAt)
-        self.breakActiveStartedAt = try c.decodeIfPresent(Date.self, forKey: .breakActiveStartedAt)
-            ?? c.decodeIfPresent(Date.self, forKey: .lookAwayStartedAt)
-        self.lastUpdatedAt = try c.decodeIfPresent(Date.self, forKey: .lastUpdatedAt)
-        self.manualStopDate = try c.decodeIfPresent(Date.self, forKey: .manualStopDate)
-        self.wasAutoStarted = try c.decodeIfPresent(Bool.self, forKey: .wasAutoStarted)
-        self.currentAlarmId = try c.decodeIfPresent(UUID.self, forKey: .currentAlarmId)
-        self.pausedUntil = try c.decodeIfPresent(Date.self, forKey: .pausedUntil)
-        self.scheduledStopAt = try c.decodeIfPresent(Date.self, forKey: .scheduledStopAt)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(sessionActive, forKey: .sessionActive)
-        try c.encodeIfPresent(currentCycleId, forKey: .currentCycleId)
-        try c.encodeIfPresent(cycleStartedAt, forKey: .cycleStartedAt)
-        try c.encodeIfPresent(breakActiveStartedAt, forKey: .breakActiveStartedAt)
-        try c.encodeIfPresent(lastUpdatedAt, forKey: .lastUpdatedAt)
-        try c.encodeIfPresent(manualStopDate, forKey: .manualStopDate)
-        try c.encodeIfPresent(wasAutoStarted, forKey: .wasAutoStarted)
-        try c.encodeIfPresent(currentAlarmId, forKey: .currentAlarmId)
-        try c.encodeIfPresent(pausedUntil, forKey: .pausedUntil)
-        try c.encodeIfPresent(scheduledStopAt, forKey: .scheduledStopAt)
+    /// The kind of `alarmId`, implied by the phase.
+    public var alarmKind: AlarmKind? {
+        switch phase {
+        case .idle: return nil
+        case .scheduled, .running: return .breakDue
+        case .lookingAway: return .lookAwayDone
+        }
     }
 }

@@ -2,18 +2,15 @@
 //  SessionControllerTests.swift
 //  BlinkBreakCoreTests
 //
-//  State-machine tests for SessionController. Uses an AlarmKit mock + virtual time.
+//  State-machine tests for SessionController, using the AlarmKit mock and
+//  virtual time. Public API calls are awaited directly — the controller runs
+//  every transition on a serial queue, so no sleeps are needed. Alarm events
+//  (which arrive on a stream) use `settle()`.
 //
-//  AlarmKit is event-driven, so most state transitions are driven by simulating
-//  alarm events (`fire`, `dismiss`) rather than by advancing the clock and calling
-//  reconcile. Where the production code spawns a Task to schedule an alarm, tests
-//  await `Task.yield()` (or a small `Task.sleep`) to let the spawned task complete.
-//
-//  Written in Swift Testing (the `import Testing` framework), not legacy XCTest.
+//  Written in Swift Testing (`import Testing`), not legacy XCTest.
 //
 
 import Testing
-import Foundation
 @testable import BlinkBreakCore
 
 @MainActor
@@ -21,526 +18,421 @@ import Foundation
 struct SessionControllerTests {
 
     typealias Fixture = SessionControllerFixture
+    let interval = BlinkBreakConstants.breakInterval
+    let lookAway = BlinkBreakConstants.lookAwayDuration
 
     // MARK: - start()
 
-    @Test("start() transitions idle → running with clock time as cycleStartedAt")
-    func startTransitionsToRunning() async {
+    @Test("start() goes idle → running with the break due one interval from now")
+    func startRuns() async {
         let f = Fixture()
         #expect(f.controller.state == .idle)
 
-        f.controller.start()
-        await settle()
+        await f.controller.start()
 
-        guard case .running(let startedAt) = f.controller.state else {
-            Issue.record("expected running, got \(f.controller.state)")
-            return
-        }
-        #expect(startedAt == f.nowBox.value)
+        #expect(f.controller.state == .running(breakAt: f.now.value.addingTimeInterval(interval)))
     }
 
-    @Test("start() schedules a single break-due alarm")
-    func startSchedulesBreakAlarm() async {
+    @Test("start() books exactly one break alarm and persists it")
+    func startBooksAlarm() async {
         let f = Fixture()
-        f.controller.start()
-        await settle()
+        await f.controller.start()
 
-        #expect(f.alarmScheduler.scheduled.count == 1)
-        let call = f.alarmScheduler.scheduled[0]
+        #expect(f.alarms.scheduled.count == 1)
+        let call = f.alarms.scheduled[0]
         #expect(call.kind == .breakDue)
-        #expect(call.duration == BlinkBreakConstants.breakInterval)
+        #expect(call.fireDate == f.now.value.addingTimeInterval(interval))
+        #expect(f.record == SessionRecord(phase: .running, alarmId: call.alarmId, alarmFiresAt: call.fireDate))
     }
 
-    @Test("start() persists an active record with currentAlarmId set")
-    func startPersistsRecord() async {
+    @Test("start() cancels alarms left over from earlier sessions")
+    func startCancelsLeftovers() async {
         let f = Fixture()
-        f.controller.start()
-        await settle()
+        let orphan = UUID()
+        f.alarms.addSystemAlarm(orphan)
 
-        let record = f.persistence.load()
-        #expect(record.sessionActive)
-        #expect(record.currentCycleId != nil)
-        #expect(record.cycleStartedAt == f.nowBox.value)
-        #expect(record.breakActiveStartedAt == nil)
-        #expect(record.currentAlarmId != nil)
-        #expect(record.currentAlarmId == f.alarmScheduler.scheduled.last?.alarmId)
+        await f.controller.start()
+
+        #expect(f.alarms.cancelled.contains(orphan))
+        #expect(f.alarms.systemAlarmIds == [f.record.alarmId!])
     }
 
-    @Test("start() cancels any previously-scheduled alarms first")
-    func startCancelsExistingAlarms() async {
+    @Test("start() passes the mute preference to the scheduler")
+    func startPassesMute() async {
         let f = Fixture()
+        f.controller.updateAlarmSound(muted: true)
+        await f.controller.start()
+        #expect(f.alarms.lastScheduled?.muteSound == true)
+    }
 
-        f.controller.start()
-        await settle()
-        let firstCancelAllCount = f.alarmScheduler.cancelAllCount
+    @Test("start() with permission denied stays idle and flags authorizationDenied")
+    func startDenied() async {
+        let f = Fixture()
+        f.alarms.stubAuthorization(.denied)
 
-        f.controller.start()
-        await settle()
+        await f.controller.start()
 
-        #expect(f.alarmScheduler.cancelAllCount == firstCancelAllCount + 1)
+        #expect(f.controller.state == .idle)
+        #expect(f.controller.authorizationDenied)
+        #expect(f.record.phase == .idle)
+    }
+
+    @Test("start() that fails to schedule stays idle")
+    func startFails() async {
+        let f = Fixture()
+        f.alarms.failNextSchedule(with: .schedulingFailed(reason: "boom"))
+
+        await f.controller.start()
+
+        #expect(f.controller.state == .idle)
+        #expect(f.controller.authorizationDenied == false)
     }
 
     // MARK: - stop()
 
-    @Test("stop() transitions any state → idle")
-    func stopTransitionsToIdle() async {
+    @Test("stop() goes to idle, cancels every alarm, persists idle")
+    func stopStops() async {
         let f = Fixture()
-        f.controller.start()
-        await settle()
+        let alarm = await f.startRunning()
 
-        f.controller.stop()
-        await settle()
+        await f.controller.stop()
+
+        #expect(f.controller.state == .idle)
+        #expect(f.alarms.cancelled.contains(alarm))
+        #expect(f.alarms.systemAlarmIds.isEmpty)
+        #expect(f.record.phase == .idle)
+    }
+
+    @Test("stop() also cancels an alarm that's ringing")
+    func stopCancelsAlerting() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+        f.advance(by: interval)
+        f.alarms.simulateAlerting(alarm)
+        await f.settle()
+
+        await f.controller.stop()
+
+        #expect(f.alarms.systemAlarmIds.isEmpty)
+    }
+
+    @Test("Stop tapped while start is still scheduling wins: no session is revived")
+    func stopDuringStart() async {
+        let f = Fixture()
+        let gate = ManualSleeper()
+        f.alarms.setBeforeSchedule { await gate.sleep(.zero) }
+
+        let starting = Task { await f.controller.start() }
+        while gate.pendingCount == 0 { await Task.yield() }
+        let stopping = Task { await f.controller.stop() }
+        await Task.yield()
+        f.alarms.setBeforeSchedule(nil)
+        gate.releaseAll()
+        await starting.value
+        await stopping.value
+
+        #expect(f.controller.state == .idle)
+        #expect(f.record.phase == .idle)
+        #expect(f.alarms.systemAlarmIds.isEmpty)
+    }
+
+    // MARK: - Break flow
+
+    @Test("the break coming due shows breakPending")
+    func breakComesDue() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+
+        f.advance(by: interval)
+        f.alarms.simulateAlerting(alarm)
+        await f.settle()
+
+        #expect(f.controller.state == .breakPending)
+    }
+
+    @Test("the UI reaches breakPending on time even without an alerting event")
+    func breakComesDueWithoutEvent() async {
+        let f = Fixture()
+        await f.startRunning()
+
+        f.advance(by: interval)
+        await f.releaseSleepsAndSettle()
+
+        #expect(f.controller.state == .breakPending)
+    }
+
+    @Test("in-app startBreak() books the look-away and shows breakActive")
+    func inAppStartBreak() async {
+        let f = Fixture()
+        let breakAlarm = await f.startRunning()
+        f.advance(by: interval)
+
+        await f.controller.startBreak()
+
+        let endsAt = f.now.value.addingTimeInterval(lookAway)
+        #expect(f.controller.state == .breakActive(endsAt: endsAt))
+        #expect(f.alarms.cancelled.contains(breakAlarm))
+        #expect(f.alarms.lastScheduled?.kind == .lookAwayDone)
+        #expect(f.alarms.lastScheduled?.fireDate == endsAt)
+        #expect(f.record.phase == .lookingAway)
+    }
+
+    @Test("startBreak() while idle does nothing")
+    func startBreakIdle() async {
+        let f = Fixture()
+        await f.controller.startBreak()
+        #expect(f.alarms.scheduled.isEmpty)
+        #expect(f.controller.state == .idle)
+    }
+
+    // MARK: - Alarm buttons (App Intents)
+
+    @Test("\"Start break\" on the break alarm books the look-away")
+    func confirmBreakAlarm() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+        f.advance(by: interval)
+
+        await f.controller.respond(to: .confirm, alarmId: alarm)
+
+        #expect(f.record.phase == .lookingAway)
+        #expect(f.alarms.lastScheduled?.kind == .lookAwayDone)
+    }
+
+    @Test("Stop on the break alarm skips the look-away and books the next break")
+    func stopBreakAlarm() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+        f.advance(by: interval)
+
+        await f.controller.respond(to: .stop, alarmId: alarm)
+
+        let nextFire = f.now.value.addingTimeInterval(interval)
+        #expect(f.controller.state == .running(breakAt: nextFire))
+        #expect(f.alarms.lastScheduled?.kind == .breakDue)
+        #expect(f.alarms.scheduled.allSatisfy { $0.kind == .breakDue })
+    }
+
+    @Test("\"End break\" on the look-away alarm books the next break")
+    func confirmLookAwayAlarm() async {
+        let f = Fixture()
+        let lookAwayAlarm = await f.startLookingAway()
+        f.advance(by: lookAway)
+
+        await f.controller.respond(to: .confirm, alarmId: lookAwayAlarm)
+
+        #expect(f.controller.state == .running(breakAt: f.now.value.addingTimeInterval(interval)))
+        #expect(f.record.phase == .running)
+    }
+
+    @Test("Stop on the look-away alarm also books the next break")
+    func stopLookAwayAlarm() async {
+        let f = Fixture()
+        let lookAwayAlarm = await f.startLookingAway()
+        f.advance(by: lookAway)
+
+        await f.controller.respond(to: .stop, alarmId: lookAwayAlarm)
+
+        #expect(f.record.phase == .running)
+    }
+
+    @Test("a button response for an alarm the session no longer owns is ignored")
+    func staleResponse() async {
+        let f = Fixture()
+        let first = await f.startRunning()
+        await f.controller.stop()
+        await f.startRunning()
+        let before = f.record
+
+        await f.controller.respond(to: .confirm, alarmId: first)
+
+        #expect(f.record == before)
+    }
+
+    @Test("a button response while idle is ignored")
+    func responseWhileIdle() async {
+        let f = Fixture()
+        await f.controller.respond(to: .stop, alarmId: UUID())
+        #expect(f.alarms.scheduled.isEmpty)
+    }
+
+    @Test("when the app is alive, the look-away alarm ringing rolls to the next cycle but keeps ringing")
+    func lookAwayAlertRolls() async {
+        let f = Fixture()
+        let lookAwayAlarm = await f.startLookingAway()
+        f.advance(by: lookAway + BlinkBreakConstants.lookAwayCompletionMargin)
+
+        f.alarms.simulateAlerting(lookAwayAlarm)
+        await f.settle()
+
+        #expect(f.record.phase == .running)
+        #expect(f.alarms.systemAlarmIds.contains(lookAwayAlarm))
+        #expect(f.alarms.cancelled.contains(lookAwayAlarm) == false)
+    }
+
+    @Test("\"End break\" arriving after the app already rolled on doesn't roll twice")
+    func noDoubleRoll() async {
+        let f = Fixture()
+        let lookAwayAlarm = await f.startLookingAway()
+        f.advance(by: lookAway + BlinkBreakConstants.lookAwayCompletionMargin)
+        f.alarms.simulateAlerting(lookAwayAlarm)
+        await f.settle()
+        let afterRoll = f.record
+
+        await f.controller.respond(to: .confirm, alarmId: lookAwayAlarm)
+
+        #expect(f.record == afterRoll)
+    }
+
+    @Test("the look-away ending on time rolls on even without an alerting event")
+    func lookAwayEndsWithoutEvent() async {
+        let f = Fixture()
+        await f.startLookingAway()
+
+        f.advance(by: lookAway + BlinkBreakConstants.lookAwayCompletionMargin)
+        await f.releaseSleepsAndSettle()
+
+        #expect(f.record.phase == .running)
+    }
+
+    // MARK: - Alarm removed with no button response
+
+    @Test("an alarm dismissed with no intent response is treated as skipped after the grace period")
+    func removalFallback() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+        f.advance(by: interval)
+
+        f.alarms.simulateRemoval(alarm)
+        await f.settle()
+        #expect(f.record.alarmId == alarm, "nothing happens during the grace period")
+
+        await f.releaseSleepsAndSettle()
+        #expect(f.record.phase == .running)
+        #expect(f.record.alarmId != alarm)
+    }
+
+    @Test("an intent arriving within the grace period wins over the fallback")
+    func intentBeatsFallback() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+        f.advance(by: interval)
+
+        f.alarms.simulateRemoval(alarm)
+        await f.settle()
+        await f.controller.respond(to: .confirm, alarmId: alarm)
+        await f.releaseSleepsAndSettle()
+
+        #expect(f.record.phase == .lookingAway)
+        #expect(f.alarms.scheduled.filter { $0.kind == .lookAwayDone }.count == 1)
+    }
+
+    @Test("an alarm that vanishes before it fires stops the session")
+    func vanishedEarly() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+
+        f.alarms.simulateRemoval(alarm)
+        await f.releaseSleepsAndSettle()
 
         #expect(f.controller.state == .idle)
     }
 
-    @Test("stop() cancels all alarms")
-    func stopCancelsEverything() async {
+    @Test("removal of an alarm the controller replaced itself is ignored")
+    func removalOfReplacedAlarm() async {
         let f = Fixture()
-        f.controller.start()
-        await settle()
-        let initial = f.alarmScheduler.cancelAllCount
+        let original = await f.startRunning()
+        await f.controller.takeBreakNow()
+        let replaced = f.record
 
-        f.controller.stop()
-        await settle()
+        f.alarms.simulateRemoval(original)
+        await f.releaseSleepsAndSettle()
 
-        #expect(f.alarmScheduler.cancelAllCount == initial + 1)
+        #expect(f.record == replaced)
     }
 
-    @Test("stop() persists idle record")
-    func stopPersistsIdle() async {
+    // MARK: - takeBreakNow()
+
+    @Test("takeBreakNow() moves the break alarm to one second from now")
+    func takeBreakNow() async {
         let f = Fixture()
-        f.controller.start()
-        await settle()
+        let original = await f.startRunning()
 
-        f.controller.stop()
-        await settle()
+        await f.controller.takeBreakNow()
 
-        let record = f.persistence.load()
-        #expect(record.sessionActive == false)
-        #expect(record.currentCycleId == nil)
-        #expect(record.lastUpdatedAt != nil)
+        let soon = f.now.value.addingTimeInterval(1)
+        #expect(f.alarms.cancelled.contains(original))
+        #expect(f.alarms.lastScheduled?.fireDate == soon)
+        #expect(f.record.alarmId == f.alarms.lastScheduled?.alarmId)
+        #expect(f.record.alarmFiresAt == soon)
     }
 
-    // MARK: - Event-driven transitions
-
-    @Test("break-due alarm firing transitions running → breakPending")
-    func breakAlarmFireGoesToBreakPending() async {
+    @Test("takeBreakNow() while idle does nothing")
+    func takeBreakNowIdle() async {
         let f = Fixture()
-        f.controller.start()
-        await settle()
-        let alarmId = f.alarmScheduler.scheduled.last!.alarmId
-
-        f.alarmScheduler.simulateFire(alarmId: alarmId, kind: .breakDue)
-        await settle()
-
-        guard case .breakPending = f.controller.state else {
-            Issue.record("expected breakPending, got \(f.controller.state)")
-            return
-        }
+        await f.controller.takeBreakNow()
+        #expect(f.alarms.scheduled.isEmpty)
     }
 
-    @Test("break-due alarm dismissal with ack marker → breakActive + look-away scheduled")
-    func breakDismissSchedulesLookAway() async {
+    // MARK: - Alarm sound
+
+    @Test("muteAlarmSound defaults to false and updateAlarmSound persists it immediately")
+    func muteDefaults() async {
         let f = Fixture()
-        f.controller.start()
-        await settle()
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
+        #expect(f.controller.muteAlarmSound == false)
 
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        f.advance(by: 5)
-        // Simulate the secondary "Start break" button: write the ack marker
-        // so the dismissed handler routes to schedule-look-away.
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
+        f.controller.updateAlarmSound(muted: true)
 
-        // Should have scheduled a look-away alarm
-        let lookAwayCalls = f.alarmScheduler.scheduled.filter { $0.kind == .lookAwayDone }
-        #expect(lookAwayCalls.count == 1)
-        #expect(lookAwayCalls[0].duration == BlinkBreakConstants.lookAwayDuration)
-
-        // State should be breakActive
-        guard case .breakActive(let startedAt) = f.controller.state else {
-            Issue.record("expected breakActive, got \(f.controller.state)")
-            return
-        }
-        #expect(startedAt == f.nowBox.value)
-
-        // Persistence should have advanced the alarm ID + breakActiveStartedAt
-        let record = f.persistence.load()
-        #expect(record.breakActiveStartedAt == f.nowBox.value)
-        #expect(record.currentAlarmId == lookAwayCalls[0].alarmId)
+        #expect(f.controller.muteAlarmSound)
+        #expect(f.persistence.loadAlarmSoundMuted())
     }
 
-    @Test("look-away alarm dismissal rolls to next cycle")
-    func lookAwayDismissRollsCycle() async {
+    @Test("changing the sound while idle schedules nothing")
+    func muteWhileIdle() async {
         let f = Fixture()
-        f.controller.start()
-        await settle()
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        // Ack the breakDue so the controller schedules the look-away
-        // (default-skip would bypass the look-away entirely).
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        let lookAwayAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        let firstCycleId = f.persistence.load().currentCycleId!
-
-        f.advance(by: BlinkBreakConstants.lookAwayDuration)
-        f.alarmScheduler.simulateFire(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
-        f.alarmScheduler.simulateDismiss(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
-        await settle()
-
-        // State should be running with new cycle
-        guard case .running = f.controller.state else {
-            Issue.record("expected running, got \(f.controller.state)")
-            return
-        }
-        let record = f.persistence.load()
-        #expect(record.currentCycleId != firstCycleId)
-        #expect(record.breakActiveStartedAt == nil)
-
-        // A new break alarm should be scheduled
-        let breakCalls = f.alarmScheduler.scheduled.filter { $0.kind == .breakDue }
-        #expect(breakCalls.count == 2)  // initial + next-cycle
+        f.controller.updateAlarmSound(muted: true)
+        await f.settle()
+        #expect(f.alarms.scheduled.isEmpty)
     }
 
-    @Test("dismissed event for stale alarmId is ignored")
-    func staleDismissIgnored() async {
+    @Test("changing the sound while running re-books the same fire time with the new sound")
+    func muteWhileRunning() async {
         let f = Fixture()
-        f.controller.start()
-        await settle()
-        let stateBefore = f.controller.state
+        let original = await f.startRunning()
+        let firesAt = f.record.alarmFiresAt
 
-        f.alarmScheduler.simulateDismiss(alarmId: UUID(), kind: .breakDue)
-        await settle()
+        f.controller.updateAlarmSound(muted: true)
+        await f.settle()
 
-        #expect(f.controller.state == stateBefore)
-    }
-
-    // Defensive: persistence shows idle when a dismissed event arrives. Can
-    // happen if `stop()` writes idle while AlarmKit is still propagating the
-    // cancellation it issued, so the .dismissed event lands after the record
-    // has flipped. The controller must mirror the idle record into in-memory
-    // state instead of routing through the normal handlers.
-    @Test("dismissed after persistence externally cleared → state syncs to idle, no new alarm queued")
-    func dismissAfterExternalStopSyncsState() async {
-        let f = Fixture()
-        f.controller.start()
-        await settle()
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        f.persistence.save(.idle)
-        let scheduledBefore = f.alarmScheduler.scheduled.count
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        #expect(f.controller.state == .idle)
-        #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
-    }
-
-    // System Stop on the alarm UI just cancels the alarm. The dismissed
-    // event arrives with no acknowledge marker (since only the secondary
-    // "Start break" button writes one), so the controller defaults to the
-    // skip path: no look-away, roll straight to the next breakDue cycle.
-    //
-    // This also covers the production race where AlarmKit's alarmUpdates
-    // can emit `.dismissed` before the user-tapped intent finishes writing
-    // a marker — the default-skip behavior makes that race harmless rather
-    // than scheduling a surprise 20-second look-away alarm (BLINKBREAK-6).
-    @Test("dismissed breakDue with no ack marker → defaults to skip and schedules next breakDue")
-    func dismissBreakDueWithoutAckMarkerRollsCycle() async {
-        let f = Fixture()
-        f.controller.start()
-        await settle()
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        // No look-away scheduled — skipped the break entirely.
-        #expect(!f.alarmScheduler.scheduled.contains(where: { $0.kind == .lookAwayDone }))
-        // Two breakDue calls: the initial one + the post-skip next-cycle.
-        let breakDueCount = f.alarmScheduler.scheduled.filter { $0.kind == .breakDue }.count
-        #expect(breakDueCount == 2)
-        guard case .running = f.controller.state else {
-            Issue.record("expected running after default skip, got \(f.controller.state)")
-            return
-        }
-    }
-
-    // Race guard: if `stop()` (or any other path that writes idle) runs while
-    // `rollToNextCycle` is awaiting `scheduleCountdown`, the Task must not
-    // revive the session by writing a fresh running record on return. The
-    // default skip path and lookAwayDone cycle-roll go through the same
-    // helper, so testing skip exercises the guard for both.
-    @Test("rollToNextCycle: session stopped during scheduling cancels new alarm and stays idle")
-    func rollToNextCycleRaceGuardCancelsNewAlarmIfStoppedMidAwait() async {
-        let f = Fixture()
-        f.controller.start()
-        await settle()
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        // Simulate `stop()` racing with the schedule call: when the Task awaits
-        // the next-cycle scheduleCountdown, persistence flips to idle and the
-        // mock's currentAlarms is cleared.
-        let persistence = f.persistence
-        let scheduler = f.alarmScheduler
-        f.alarmScheduler.onScheduleCountdown = { @Sendable in
-            persistence.save(.idle)
-            await scheduler.cancelAll()
-        }
-
-        // No ack marker → default skip path → rollToNextCycle fires.
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        // The new next-cycle alarm should have been scheduled then cancelled.
-        let nextCycleScheduled = f.alarmScheduler.scheduled.filter { $0.kind == .breakDue }.dropFirst().first
-        if let nextCycleScheduled {
-            #expect(f.alarmScheduler.cancelledIds.contains(nextCycleScheduled.alarmId))
-        }
-        // And the persisted record stays idle — the race-guard prevented a revival.
-        #expect(f.persistence.load().sessionActive == false)
-    }
-
-    // The ack marker is keyed to a specific alarm; a stale marker from a
-    // previous alarm must NOT acknowledge a different alarm. With the
-    // default-skip semantics, a non-matching marker is left untouched and
-    // the dismiss falls through to the skip path. We deliberately don't
-    // clear on mismatch: a stale-dismiss event for a previously-reaped
-    // alarm could otherwise wipe a fresh marker the user just wrote for
-    // the active alarm. Markers are overwritten by each new intent run,
-    // so this can't accumulate stale state.
-    @Test("dismissed breakDue with non-matching ack marker → treated as default skip, marker preserved")
-    func dismissBreakDueWithStaleAckMarkerSkipsLookAway() async {
-        let f = Fixture()
-        f.controller.start()
-        await settle()
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        let staleMarker = UUID()
-        f.persistence.saveAcknowledgeRequestedAlarmId(staleMarker)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        // No look-away should have been queued — non-matching marker doesn't
-        // acknowledge, and the default is skip.
-        #expect(!f.alarmScheduler.scheduled.contains(where: { $0.kind == .lookAwayDone }))
-        // Non-matching marker is preserved (cleared only on match) so a
-        // stale-dismiss event can't wipe a fresh marker intended for the
-        // active alarm.
-        #expect(f.persistence.loadAcknowledgeRequestedAlarmId() == staleMarker)
-    }
-
-    // The ack marker is cleared on the matching case so a subsequent
-    // dismiss can't re-acknowledge stale state.
-    @Test("dismissed breakDue with matching ack marker → schedules look-away, marker consumed")
-    func dismissBreakDueWithAckMarkerSchedulesLookAway() async {
-        let f = Fixture()
-        f.controller.start()
-        await settle()
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        #expect(f.alarmScheduler.scheduled.contains(where: { $0.kind == .lookAwayDone }))
-        #expect(f.persistence.loadAcknowledgeRequestedAlarmId() == nil)
-        guard case .breakActive = f.controller.state else {
-            Issue.record("expected breakActive after ack, got \(f.controller.state)")
-            return
-        }
-    }
-
-    // MARK: - acknowledgeCurrentBreak()
-
-    @Test("acknowledgeCurrentBreak triggers the same flow as alarm dismissal")
-    func acknowledgeFromInsideAppFlow() async {
-        let f = Fixture()
-        f.controller.start()
-        await settle()
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-
-        f.controller.acknowledgeCurrentBreak()
-        await settle()
-
-        // Should have cancelled the break alarm + scheduled look-away
-        #expect(f.alarmScheduler.cancelledIds.contains(breakAlarmId))
-        let lookAwayCalls = f.alarmScheduler.scheduled.filter { $0.kind == .lookAwayDone }
-        #expect(lookAwayCalls.count == 1)
-        guard case .breakActive = f.controller.state else {
-            Issue.record("expected breakActive, got \(f.controller.state)")
-            return
-        }
-    }
-
-    @Test("acknowledgeCurrentBreak with no current alarm is a no-op")
-    func acknowledgeWhileIdleIgnored() async {
-        let f = Fixture()
-        f.controller.acknowledgeCurrentBreak()
-        await settle()
-
-        #expect(f.controller.state == .idle)
-        #expect(f.alarmScheduler.scheduled.isEmpty)
+        #expect(f.alarms.cancelled.contains(original))
+        #expect(f.alarms.lastScheduled?.muteSound == true)
+        #expect(f.alarms.lastScheduled?.fireDate == firesAt)
+        #expect(f.record.alarmId == f.alarms.lastScheduled?.alarmId)
     }
 
     // MARK: - Full loop
 
-    @Test("full loop: start → break fires → ack → look-away → roll cycle")
+    @Test("full loop: start → break due → Start break → End break → running")
     func fullLoop() async {
         let f = Fixture()
+        let breakAlarm = await f.startRunning()
 
-        f.controller.start()
-        await settle()
-        #expect(f.controller.state.description == "running")
-        let firstCycleId = f.persistence.load().currentCycleId!
+        f.advance(by: interval)
+        f.alarms.simulateAlerting(breakAlarm)
+        await f.settle()
+        #expect(f.controller.state == .breakPending)
 
-        let breakAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.alarmScheduler.simulateFire(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        #expect(f.controller.state.description == "breakPending")
+        await f.controller.respond(to: .confirm, alarmId: breakAlarm)
+        guard case .breakActive = f.controller.state else {
+            Issue.record("expected breakActive, got \(f.controller.state)")
+            return
+        }
 
-        // Ack the breakDue so the controller schedules the look-away.
-        f.persistence.saveAcknowledgeRequestedAlarmId(breakAlarmId)
-        f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
-        await settle()
-        #expect(f.controller.state.description == "breakActive")
+        let lookAwayAlarm = f.record.alarmId!
+        f.advance(by: lookAway)
+        await f.controller.respond(to: .confirm, alarmId: lookAwayAlarm)
 
-        let lookAwayAlarmId = f.alarmScheduler.scheduled.last!.alarmId
-        f.advance(by: BlinkBreakConstants.lookAwayDuration)
-        f.alarmScheduler.simulateFire(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
-        f.alarmScheduler.simulateDismiss(alarmId: lookAwayAlarmId, kind: .lookAwayDone)
-        await settle()
-
-        #expect(f.controller.state.description == "running")
-        #expect(f.persistence.load().currentCycleId != firstCycleId)
-
-        f.controller.stop()
-        await settle()
-        #expect(f.controller.state == .idle)
-        #expect(f.persistence.load().sessionActive == false)
-    }
-
-    // MARK: - triggerBreakNow()
-
-    @Test("triggerBreakNow() while running cancels current alarm and schedules 1-second breakDue alarm")
-    func triggerBreakNowWhileRunning() async {
-        let f = Fixture()
-        f.controller.start()
-        await settle()
-
-        let originalId = f.alarmScheduler.scheduled.last!.alarmId
-        f.controller.triggerBreakNow()
-        await settle()
-
-        #expect(f.alarmScheduler.cancelledIds.contains(originalId))
-
-        let newCall = f.alarmScheduler.scheduled.last!
-        #expect(newCall.duration == 1)
-        #expect(newCall.kind == .breakDue)
-    }
-
-    @Test("triggerBreakNow() while running updates SessionRecord.currentAlarmId")
-    func triggerBreakNowUpdatesRecord() async {
-        let f = Fixture()
-        f.controller.start()
-        await settle()
-
-        let idBefore = f.persistence.load().currentAlarmId!
-        f.controller.triggerBreakNow()
-        await settle()
-
-        let idAfter = f.persistence.load().currentAlarmId!
-        #expect(idAfter != idBefore)
-    }
-
-    @Test("triggerBreakNow() while idle is a no-op")
-    func triggerBreakNowWhileIdleIsNoOp() async {
-        let f = Fixture()
-        f.controller.triggerBreakNow()
-        await settle()
-        #expect(f.alarmScheduler.scheduled.isEmpty)
-        #expect(f.alarmScheduler.cancelledIds.isEmpty)
-        #expect(f.controller.state == .idle)
-    }
-
-    // MARK: - muteAlarmSound / updateAlarmSound(muted:)
-
-    @Test("muteAlarmSound defaults to false")
-    func muteAlarmSoundDefaultsFalse() {
-        let f = Fixture()
-        #expect(f.controller.muteAlarmSound == false)
-    }
-
-    @Test("updateAlarmSound(muted:) updates the published property and persists")
-    func updateAlarmSoundPersists() async {
-        let f = Fixture()
-        f.controller.updateAlarmSound(muted: true)
-        #expect(f.controller.muteAlarmSound == true)
-        #expect(f.persistence.loadAlarmSoundMuted() == true)
-
-        f.controller.updateAlarmSound(muted: false)
-        #expect(f.controller.muteAlarmSound == false)
-        #expect(f.persistence.loadAlarmSoundMuted() == false)
-    }
-
-    @Test("updateAlarmSound(muted:) while idle does not schedule or cancel any alarms")
-    func updateAlarmSoundWhileIdleIsNoOp() async {
-        let f = Fixture()
-        f.controller.updateAlarmSound(muted: true)
-        await settle()
-        #expect(f.alarmScheduler.scheduled.isEmpty)
-        #expect(f.alarmScheduler.cancelledIds.isEmpty)
-    }
-
-    @Test("updateAlarmSound(muted:) while running cancels current alarm and reschedules with new muteSound")
-    func updateAlarmSoundWhileRunningReschedules() async {
-        let f = Fixture()
-        f.controller.start()
-        await settle()
-
-        let originalId = f.alarmScheduler.scheduled.last!.alarmId
-        f.advance(by: 5 * 60)  // 5 minutes into the 20-minute cycle
-
-        f.controller.updateAlarmSound(muted: true)
-        await settle()
-
-        // Original alarm cancelled
-        #expect(f.alarmScheduler.cancelledIds.contains(originalId))
-
-        // New alarm scheduled with muteSound: true and remaining duration ≈ 15 minutes
-        let newCall = f.alarmScheduler.scheduled.last!
-        #expect(newCall.muteSound == true)
-        #expect(newCall.kind == .breakDue)
-        #expect(abs(newCall.duration - 15 * 60) < 2)
-    }
-
-    @Test("start() passes muteAlarmSound preference through to scheduleCountdown")
-    func startPassesMuteSoundPreference() async {
-        let f = Fixture()
-        f.controller.updateAlarmSound(muted: true)
-        f.controller.start()
-        await settle()
-
-        let call = f.alarmScheduler.scheduled.last!
-        #expect(call.muteSound == true)
+        #expect(f.controller.state == .running(breakAt: f.now.value.addingTimeInterval(interval)))
+        #expect(f.alarms.systemAlarmIds == [f.record.alarmId!])
     }
 }
