@@ -97,7 +97,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
     // MARK: - Public API (SessionControllerProtocol)
 
-    /// Starts a new session. Transitions idle → running. Schedules the first break alarm.
+    /// Starts a new session. Transitions idle / paused → running. Schedules the first
+    /// break alarm. Doubles as "Resume" from the paused state.
     public func start() {
         startSession(wasAutoStarted: false)
     }
@@ -120,6 +121,11 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
 
         let cycleStartedAt = clock()
         state = .running(cycleStartedAt: cycleStartedAt)
+        // Schedule-started sessions follow the live schedule (see
+        // `scheduleWindowHasEnded`). Manual ones — including a resume after a
+        // pause — are handed back to the schedule at the end of the window that's
+        // open now, or the next one to open.
+        let scheduledStopAt = wasAutoStarted ? nil : manualSessionStopDate(from: cycleStartedAt)
 
         Task { [weak self] in
             guard let self else { return }
@@ -153,7 +159,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 breakActiveStartedAt: nil,
                 lastUpdatedAt: cycleStartedAt,
                 wasAutoStarted: wasAutoStarted ? true : nil,
-                currentAlarmId: alarmId
+                currentAlarmId: alarmId,
+                scheduledStopAt: scheduledStopAt
             )
             self.persistence.save(record)
             self.state = .running(cycleStartedAt: cycleStartedAt)
@@ -176,6 +183,44 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         }
         persistence.save(idleRecord)
         state = .idle
+    }
+
+    /// True when `pause()` would do something: a session is running and the weekly
+    /// schedule has a window open right now. Computed from the clock on every read
+    /// so views re-evaluate it on each render tick.
+    public var canPause: Bool {
+        state.isActive
+            && weeklySchedule.isEnabled
+            && scheduleEvaluator.shouldBeActive(at: clock(), manualStopDate: nil, calendar: calendar)
+    }
+
+    /// Pauses the session for the rest of the current schedule window. Transitions
+    /// running / breakPending / breakActive → paused. Cancels all alarms. The
+    /// schedule won't auto-restart the session until the user resumes via `start()`;
+    /// when the window ends the pause lapses to idle so the next window auto-starts.
+    /// No-op when `canPause` is false.
+    public func pause() {
+        guard canPause else {
+            logBuffer.log(.debug, "pause: not available in state \(state.description), no-op")
+            return
+        }
+        let now = clock()
+        guard let windowEnd = scheduleEvaluator.currentOrNextWindowEnd(from: now, calendar: calendar) else {
+            logBuffer.log(.warning, "pause: no schedule window end found, no-op")
+            return
+        }
+        logBuffer.log(.info, "pause: from state \(state.description) until \(windowEnd)")
+        Task { [weak self] in
+            await self?.alarmScheduler.cancelAll()
+        }
+        var pausedRecord = SessionRecord.idle
+        pausedRecord.lastUpdatedAt = now
+        // Belt and braces: the same marker `stop()` writes, so even if the pause
+        // marker is lost the schedule won't auto-restart during this window.
+        pausedRecord.manualStopDate = now
+        pausedRecord.pausedUntil = windowEnd
+        persistence.save(pausedRecord)
+        state = .paused(until: windowEnd)
     }
 
     /// Replace the weekly schedule, persist it, and update the published property.
@@ -316,8 +361,20 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         let record = persistence.load()
         let now = clock()
 
-        // Case 1: no active session.
+        // Case 1: no active session — either paused or idle.
         guard record.sessionActive else {
+            if let pausedUntil = record.pausedUntil {
+                if weeklySchedule.isEnabled && now < pausedUntil {
+                    state = .paused(until: pausedUntil)
+                    return
+                }
+                // The paused window has ended (or the schedule was turned off):
+                // the pause lapses to plain idle so the schedule takes over again.
+                logBuffer.log(.info, "reconcile: pause lapsed, clearing")
+                var cleared = record
+                cleared.pausedUntil = nil
+                persistence.save(cleared)
+            }
             state = .idle
             return
         }
@@ -412,7 +469,22 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         )
         if shouldBeActive && state == .idle {
             startSession(wasAutoStarted: true)
-        } else if !shouldBeActive && state.isActive && (record.wasAutoStarted ?? false) {
+        } else if state.isActive && scheduleWindowHasEnded(for: record, at: now) {
+            endSessionAtScheduleEnd()
+        }
+    }
+
+    /// The session's schedule window has closed. Stop it — unless another window is
+    /// already open (a manual session whose stop time passed while the app wasn't
+    /// running, e.g. overnight), in which case hand straight over to that window's
+    /// schedule-started session. A plain `stop()` there would record a manual stop
+    /// and suppress the auto-start for the whole day.
+    private func endSessionAtScheduleEnd() {
+        if scheduleEvaluator.shouldBeActive(at: clock(), manualStopDate: nil, calendar: calendar) {
+            logBuffer.log(.info, "schedule: session window ended inside a new window, restarting as scheduled")
+            startSession(wasAutoStarted: true)
+        } else {
+            logBuffer.log(.info, "schedule: session window ended, stopping")
             stop()
         }
     }
@@ -492,10 +564,12 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         // mirror the idle state into the UI immediately instead of waiting
         // for the next reconcile.
         if !record.sessionActive {
-            if state != .idle {
+            // `.paused` is also inactive and already matches persistence — the
+            // late dismissal is just AlarmKit catching up with `pause()`.
+            if state.isActive {
                 state = .idle
             }
-            logBuffer.log(.debug, "dismissed: session no longer active, synced state to idle")
+            logBuffer.log(.debug, "dismissed: session no longer active, synced state to \(state.description)")
             return
         }
         guard record.currentAlarmId == alarmId,
@@ -505,14 +579,14 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
             return
         }
 
-        // If a schedule-started session has rolled past its scheduled end window
-        // (e.g. the break-due alarm sat alerting for hours and the user just now
-        // dismissed it), don't extend the chain. Stop here so the user doesn't get
-        // surprise alarms late at night. Manual sessions are exempt — the user
-        // owns the start/stop on those.
+        // If the session has rolled past its schedule window (e.g. the break-due
+        // alarm sat alerting for hours and the user just now dismissed it), don't
+        // extend the chain. End here so the user doesn't get surprise alarms late
+        // at night. Manual sessions use the stop time captured at start; with the
+        // schedule turned off they're exempt — the user owns start/stop then.
         if scheduleWantsAutoStop(for: record) {
-            logBuffer.log(.info, "dismissed \(kind.rawValue): outside schedule window, stopping instead of rolling")
-            stop()
+            logBuffer.log(.info, "dismissed \(kind.rawValue): outside schedule window, ending instead of rolling")
+            endSessionAtScheduleEnd()
             return
         }
 
@@ -620,7 +694,8 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
                 breakActiveStartedAt: nil,
                 lastUpdatedAt: nextCycleStartedAt,
                 wasAutoStarted: latest.wasAutoStarted,
-                currentAlarmId: nextAlarmId
+                currentAlarmId: nextAlarmId,
+                scheduledStopAt: latest.scheduledStopAt
             )
             self.logBuffer.log(.info, "dismissed \(kindLabel): next breakDue scheduled alarm=\(nextAlarmId.uuidString.prefix(8)) duration=\(Int(BlinkBreakConstants.breakInterval))s")
             self.persistence.save(newRecord)
@@ -628,30 +703,45 @@ public final class SessionController: ObservableObject, SessionControllerProtoco
         }
     }
 
-    /// True when a schedule-started session has rolled past the schedule's end window
-    /// at the current clock time. Cycle-rolling consults this before scheduling the
-    /// next alarm so an unattended chain can't keep firing late at night when the
-    /// user only opens the app sporadically and `reconcile()` rarely runs.
+    /// True when the session has rolled past its schedule window at the current clock
+    /// time. Cycle-rolling consults this before scheduling the next alarm so an
+    /// unattended chain can't keep firing late at night when the user only opens the
+    /// app sporadically and `reconcile()` rarely runs.
     private func scheduleWantsAutoStop(for record: SessionRecord) -> Bool {
-        guard weeklySchedule.isEnabled, record.wasAutoStarted == true else { return false }
-        return !scheduleEvaluator.shouldBeActive(
-            at: clock(),
-            manualStopDate: record.manualStopDate,
-            calendar: calendar
-        )
+        scheduleWindowHasEnded(for: record, at: clock())
     }
 
     /// True when the next break-due alarm — scheduled `breakInterval` after now —
-    /// would fire outside the schedule window. Used at cycle-roll to avoid leaving
-    /// an alarm queued for after the schedule end (or, with a long enough interval,
-    /// for the next scheduled day).
+    /// would fire outside the session's schedule window. Used at cycle-roll to avoid
+    /// leaving an alarm queued for after the schedule end (or, with a long enough
+    /// interval, for the next scheduled day).
     private func scheduleWantsAutoStopForNextBreakFire(for record: SessionRecord) -> Bool {
-        guard weeklySchedule.isEnabled, record.wasAutoStarted == true else { return false }
-        let nextFire = clock().addingTimeInterval(BlinkBreakConstants.breakInterval)
-        return !scheduleEvaluator.shouldBeActive(
-            at: nextFire,
-            manualStopDate: record.manualStopDate,
-            calendar: calendar
-        )
+        scheduleWindowHasEnded(for: record, at: clock().addingTimeInterval(BlinkBreakConstants.breakInterval))
+    }
+
+    /// Whether `date` is past the schedule window this session belongs to.
+    /// - Schedule-started sessions follow the live schedule: ended when the schedule
+    ///   says "inactive" at `date`.
+    /// - Manual sessions stop at the `scheduledStopAt` captured when they started.
+    /// - Nothing ends while the weekly schedule is turned off.
+    private func scheduleWindowHasEnded(for record: SessionRecord, at date: Date) -> Bool {
+        guard weeklySchedule.isEnabled else { return false }
+        if record.wasAutoStarted == true {
+            return !scheduleEvaluator.shouldBeActive(
+                at: date,
+                manualStopDate: record.manualStopDate,
+                calendar: calendar
+            )
+        }
+        guard let scheduledStopAt = record.scheduledStopAt else { return false }
+        return date >= scheduledStopAt
+    }
+
+    /// When a manual session started at `date` should hand back to the schedule:
+    /// the end of the window open at `date`, or of the next one. Nil when the
+    /// schedule is off.
+    private func manualSessionStopDate(from date: Date) -> Date? {
+        guard weeklySchedule.isEnabled else { return nil }
+        return scheduleEvaluator.currentOrNextWindowEnd(from: date, calendar: calendar)
     }
 }

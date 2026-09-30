@@ -115,6 +115,29 @@ struct PersistenceTests {
         #expect(decoded.manualStopDate == record.manualStopDate)
     }
 
+    @Test("SessionRecord with pausedUntil and scheduledStopAt round-trips through JSON")
+    func sessionRecordPauseFieldsRoundTrip() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let record = SessionRecord(
+            sessionActive: false,
+            pausedUntil: now.addingTimeInterval(3600),
+            scheduledStopAt: now.addingTimeInterval(7200)
+        )
+        let data = try JSONEncoder().encode(record)
+        let decoded = try JSONDecoder().decode(SessionRecord.self, from: data)
+        #expect(decoded == record)
+    }
+
+    @Test("SessionRecord without pausedUntil / scheduledStopAt decodes cleanly (backward compat)")
+    func sessionRecordPauseFieldsBackwardCompat() throws {
+        let legacyJSON = """
+        {"sessionActive":true,"currentCycleId":"550E8400-E29B-41D4-A716-446655440000","cycleStartedAt":1700000000}
+        """
+        let record = try JSONDecoder().decode(SessionRecord.self, from: Data(legacyJSON.utf8))
+        #expect(record.pausedUntil == nil)
+        #expect(record.scheduledStopAt == nil)
+    }
+
     @Test("SessionRecord.idle has nil manualStopDate")
     func sessionRecordIdleManualStopDate() {
         #expect(SessionRecord.idle.manualStopDate == nil)

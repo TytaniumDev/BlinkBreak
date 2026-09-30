@@ -65,7 +65,13 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 ### State machine
 
-Four states: `idle`, `running`, `breakPending`, `breakActive`. Two user transitions: `Start` and `Stop`. The cycle progresses event-driven: when the AlarmKit break-due alarm fires, the system shows a full-screen alarm and state becomes `breakPending`; when the user taps "Start break", `SessionController.handleAlarmEvent(.dismissed(.breakDue))` schedules a 20-second look-away alarm and transitions to `breakActive`. When that alarm fires + user dismisses, the controller rolls to a new cycle and schedules the next break alarm.
+Five states: `idle`, `running`, `breakPending`, `breakActive`, `paused`. Three user transitions: `Start` (also "Resume" from paused), `Stop`, and `Pause`. The cycle progresses event-driven: when the AlarmKit break-due alarm fires, the system shows a full-screen alarm and state becomes `breakPending`; when the user taps "Start break", `SessionController.handleAlarmEvent(.dismissed(.breakDue))` schedules a 20-second look-away alarm and transitions to `breakActive`. When that alarm fires + user dismisses, the controller rolls to a new cycle and schedules the next break alarm.
+
+### Weekly schedule, pause, and manual sessions
+
+- **Schedule-started sessions** (`SessionRecord.wasAutoStarted == true`) follow the live schedule and stop when `ScheduleEvaluator.shouldBeActive` turns false.
+- **Manually started sessions** (including Resume) capture `SessionRecord.scheduledStopAt` = the end of the schedule window open at start, or the next one to open (`ScheduleEvaluator.currentOrNextWindowEnd`). They stop there. With the schedule turned off they have no stop time.
+- **Pause** (`SessionController.pause()`, gated by `canPause`: session active + a schedule window open now) cancels all alarms and persists an idle record with `pausedUntil` = window end and `manualStopDate` = now. Reconcile shows `.paused(until:)` until `pausedUntil`, then lapses to `.idle`; the next window auto-starts normally.
 
 ### Alarm wiring
 

@@ -96,7 +96,7 @@ struct ScheduleIntegrationTests {
         #expect(evaluator.shouldBeActiveCalls.last?.manualStopDate == stopDate)
     }
 
-    @Test("reconcile does not auto-stop a manually started session")
+    @Test("reconcile does not auto-stop a manually started session before its stop time")
     func manualStartNotAutoStopped() async {
         let (f, evaluator) = makeFixture()
         f.controller.updateSchedule(.default)
@@ -110,7 +110,7 @@ struct ScheduleIntegrationTests {
         #expect(f.controller.state != .idle)
     }
 
-    @Test("reconcile does not auto-stop a manually started session even after multiple reconcile ticks")
+    @Test("reconcile does not auto-stop a manually started session before its stop time, across multiple ticks")
     func manualStartSurvivesMultipleTicks() async {
         let (f, evaluator) = makeFixture()
         f.controller.updateSchedule(.default)
@@ -219,7 +219,7 @@ struct ScheduleIntegrationTests {
         #expect(f.alarmScheduler.scheduled.count == scheduledBefore)
     }
 
-    @Test("manually started session: dismissing past schedule end still rolls (manual sessions ignore schedule)")
+    @Test("manually started session: dismissing outside the window still rolls before its stop time")
     func manualSessionRollsRegardlessOfWindow() async {
         let (f, evaluator) = makeFixture()
         f.controller.updateSchedule(.default)
@@ -235,13 +235,14 @@ struct ScheduleIntegrationTests {
         f.alarmScheduler.simulateDismiss(alarmId: breakAlarmId, kind: .breakDue)
         await settle()
 
-        // Look-away should have been scheduled — manual sessions ignore the window.
+        // Look-away should have been scheduled — manual sessions only stop at
+        // their captured stop time (none here: the mock has no window end).
         let kinds = f.alarmScheduler.scheduled.map(\.kind)
         #expect(kinds.contains(.lookAwayDone))
         #expect(f.controller.state != .idle)
     }
 
-    @Test("manually started session: dismissing lookAwayDone past schedule end still rolls next cycle")
+    @Test("manually started session: dismissing lookAwayDone outside the window still rolls before its stop time")
     func manualSessionLookAwayRollsRegardlessOfWindow() async {
         let (f, evaluator) = makeFixture()
         f.controller.updateSchedule(.default)

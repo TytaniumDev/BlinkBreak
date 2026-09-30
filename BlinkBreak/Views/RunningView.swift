@@ -2,12 +2,15 @@
 //  RunningView.swift
 //  BlinkBreak
 //
-//  The running-state view. Shows the countdown ring to the next break and a Stop
-//  button. Uses TimelineView to tick the display every second.
+//  The running-state view. Shows the countdown ring to the next break, a Stop
+//  button, and — inside a schedule window — a Pause button. Uses TimelineView to
+//  tick the display every second.
 //
 //  No business logic here — every value shown is derived from `cycleStartedAt`
-//  and the current wall-clock time. Controller methods called: `stop()`,
+//  and the current wall-clock time. Controller methods called: `stop()`, `pause()`,
 //  `triggerBreakNow()`, and `updateAlarmSound(muted:)` (via SoundToggleRow).
+//  `canPause` is re-read on every tick, so the Pause button appears / disappears
+//  as schedule windows open and close.
 //
 
 import SwiftUI
@@ -65,16 +68,31 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .accessibilityIdentifier("button.running.takeBreakNow")
 
-                Button(role: .destructive) {
-                    controller.stop()
-                } label: {
-                    Text("Stop")
-                        .frame(maxWidth: .infinity)
+                HStack(spacing: 12) {
+                    if controller.canPause {
+                        Button {
+                            controller.pause()
+                        } label: {
+                            Text("Pause")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .tint(.white)
+                        .accessibilityIdentifier("button.running.pause")
+                    }
+
+                    Button(role: .destructive) {
+                        controller.stop()
+                    } label: {
+                        Text("Stop")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(.white)
+                    .accessibilityIdentifier("button.running.stop")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .tint(.white)
-                .accessibilityIdentifier("button.running.stop")
             }
             .padding(24)
         }
@@ -86,11 +104,22 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
     }
 }
 
-#Preview {
+#Preview("Manual") {
     ZStack {
         CalmBackground()
         RunningView(
             controller: PreviewSessionController.running,
+            cycleStartedAt: Date().addingTimeInterval(-14 * 60)
+        )
+        .foregroundStyle(.white)
+    }
+}
+
+#Preview("In schedule (pausable)") {
+    ZStack {
+        CalmBackground()
+        RunningView(
+            controller: PreviewSessionController.runningInSchedule,
             cycleStartedAt: Date().addingTimeInterval(-14 * 60)
         )
         .foregroundStyle(.white)

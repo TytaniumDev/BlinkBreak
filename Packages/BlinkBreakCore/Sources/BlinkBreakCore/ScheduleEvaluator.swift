@@ -2,9 +2,10 @@
 //  ScheduleEvaluator.swift
 //  BlinkBreakCore
 //
-//  Pure logic for weekly schedule evaluation. Answers two questions:
+//  Pure logic for weekly schedule evaluation. Answers three questions:
 //  1. "Should a session be active right now?" (shouldBeActive)
 //  2. "When is the next time the answer flips?" (nextTransitionDate)
+//  3. "When does the current (or next) schedule window end?" (currentOrNextWindowEnd)
 //
 //  Has zero dependencies on UIKit, notifications, or SessionController.
 //  SessionController consults this during reconcile().
@@ -17,6 +18,11 @@ import Foundation
 public protocol ScheduleEvaluatorProtocol: Sendable {
     func shouldBeActive(at date: Date, manualStopDate: Date?, calendar: Calendar) -> Bool
     func nextTransitionDate(from date: Date, calendar: Calendar) -> Date?
+    /// The end of the schedule window containing `date`, or — if `date` is between
+    /// windows — the end of the next window. Nil when the schedule is disabled or has
+    /// no enabled days. Used to decide when a manually started or paused session
+    /// should hand control back to the schedule.
+    func currentOrNextWindowEnd(from date: Date, calendar: Calendar) -> Date?
     func statusText(at date: Date, calendar: Calendar) -> String?
 }
 
@@ -24,6 +30,7 @@ public struct NoopScheduleEvaluator: ScheduleEvaluatorProtocol {
     public init() {}
     public func shouldBeActive(at date: Date, manualStopDate: Date?, calendar: Calendar) -> Bool { false }
     public func nextTransitionDate(from date: Date, calendar: Calendar) -> Date? { nil }
+    public func currentOrNextWindowEnd(from date: Date, calendar: Calendar) -> Date? { nil }
     public func statusText(at date: Date, calendar: Calendar) -> String? { nil }
 }
 
@@ -107,9 +114,27 @@ public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Send
     }
 
     public func nextTransitionDate(from date: Date, calendar: Calendar) -> Date? {
-        let sched = schedule()
-        guard sched.isEnabled else { return nil }
+        for window in upcomingWindows(from: date, calendar: calendar) {
+            if date < window.start { return window.start }
+            if date < window.end { return window.end }
+        }
+        return nil
+    }
 
+    public func currentOrNextWindowEnd(from date: Date, calendar: Calendar) -> Date? {
+        // Skip malformed windows (end at or before start) — `shouldBeActive` never
+        // treats them as open, so they can't bound a session either.
+        upcomingWindows(from: date, calendar: calendar)
+            .first(where: { $0.start < $0.end && date < $0.end })?.end
+    }
+
+    /// Concrete start/end dates for each enabled day's window, from the day containing
+    /// `date` through the same weekday next week, in chronological order.
+    private func upcomingWindows(from date: Date, calendar: Calendar) -> [(start: Date, end: Date)] {
+        let sched = schedule()
+        guard sched.isEnabled else { return [] }
+
+        var windows: [(start: Date, end: Date)] = []
         for dayOffset in 0..<8 {
             guard let checkDate = calendar.date(byAdding: .day, value: dayOffset, to: date) else {
                 continue
@@ -132,10 +157,8 @@ public final class ScheduleEvaluator: ScheduleEvaluatorProtocol, @unchecked Send
             endComps.minute = endMinute
             guard let endDate = calendar.date(from: endComps) else { continue }
 
-            if date < startDate { return startDate }
-            if date >= startDate && date < endDate { return endDate }
+            windows.append((start: startDate, end: endDate))
         }
-
-        return nil
+        return windows
     }
 }

@@ -188,6 +188,92 @@ struct ScheduleEvaluatorNextTransitionTests {
     }
 }
 
+@Suite("ScheduleEvaluator — currentOrNextWindowEnd")
+struct ScheduleEvaluatorWindowEndTests {
+
+    let calendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "GMT")!
+        return cal
+    }()
+
+    /// 2026-04-05 is Sunday (weekday 1), 2026-04-06 is Monday (weekday 2), etc.
+    func date(weekday: Int, hour: Int, minute: Int) -> Date {
+        var comps = DateComponents()
+        comps.year = 2026; comps.month = 4
+        comps.day = 5 + (weekday - 1)
+        comps.hour = hour; comps.minute = minute; comps.second = 0
+        return calendar.date(from: comps)!
+    }
+
+    func evaluator(schedule: WeeklySchedule) -> ScheduleEvaluator {
+        ScheduleEvaluator(schedule: { schedule })
+    }
+
+    @Test("Returns today's end when inside today's window")
+    func insideWindow() {
+        let eval = evaluator(schedule: .default)
+        let end = eval.currentOrNextWindowEnd(from: date(weekday: 2, hour: 12, minute: 0), calendar: calendar)
+        #expect(end == date(weekday: 2, hour: 17, minute: 0))
+    }
+
+    @Test("Returns today's end when before today's window")
+    func beforeWindow() {
+        let eval = evaluator(schedule: .default)
+        let end = eval.currentOrNextWindowEnd(from: date(weekday: 2, hour: 7, minute: 0), calendar: calendar)
+        #expect(end == date(weekday: 2, hour: 17, minute: 0))
+    }
+
+    @Test("Returns tomorrow's end when after today's window")
+    func afterWindow() {
+        let eval = evaluator(schedule: .default)
+        let end = eval.currentOrNextWindowEnd(from: date(weekday: 2, hour: 18, minute: 0), calendar: calendar)
+        #expect(end == date(weekday: 3, hour: 17, minute: 0))
+    }
+
+    @Test("Skips disabled days (Saturday → Monday's end)")
+    func skipsDisabledDays() {
+        let eval = evaluator(schedule: .default)
+        let end = eval.currentOrNextWindowEnd(from: date(weekday: 7, hour: 10, minute: 0), calendar: calendar)
+        let mondayEnd = date(weekday: 2, hour: 17, minute: 0).addingTimeInterval(7 * 24 * 60 * 60)
+        #expect(end == mondayEnd)
+    }
+
+    @Test("Exactly at the end time rolls to the next window")
+    func atEndTime() {
+        let eval = evaluator(schedule: .default)
+        let end = eval.currentOrNextWindowEnd(from: date(weekday: 2, hour: 17, minute: 0), calendar: calendar)
+        #expect(end == date(weekday: 3, hour: 17, minute: 0))
+    }
+
+    @Test("Skips a malformed window whose end is before its start")
+    func skipsMalformedWindow() {
+        var schedule = WeeklySchedule.default
+        schedule.days[2] = DaySchedule(
+            isEnabled: true,
+            startTime: DateComponents(hour: 17, minute: 0),
+            endTime: DateComponents(hour: 9, minute: 0)
+        )
+        let eval = evaluator(schedule: schedule)
+        let end = eval.currentOrNextWindowEnd(from: date(weekday: 2, hour: 7, minute: 0), calendar: calendar)
+        #expect(end == date(weekday: 3, hour: 17, minute: 0))
+    }
+
+    @Test("Returns nil when no days are enabled")
+    func noDaysEnabled() {
+        let eval = evaluator(schedule: WeeklySchedule(isEnabled: true, days: [:]))
+        #expect(eval.currentOrNextWindowEnd(from: date(weekday: 2, hour: 10, minute: 0), calendar: calendar) == nil)
+    }
+
+    @Test("Returns nil when master toggle is off")
+    func masterToggleOff() {
+        var schedule = WeeklySchedule.default
+        schedule.isEnabled = false
+        let eval = evaluator(schedule: schedule)
+        #expect(eval.currentOrNextWindowEnd(from: date(weekday: 2, hour: 10, minute: 0), calendar: calendar) == nil)
+    }
+}
+
 @Suite("ScheduleEvaluator — statusText")
 struct ScheduleEvaluatorStatusTextTests {
 
