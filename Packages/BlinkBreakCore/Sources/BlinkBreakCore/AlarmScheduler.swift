@@ -3,10 +3,12 @@
 //  BlinkBreakCore
 //
 //  Protocol abstraction over AlarmKit's AlarmManager. Zero AlarmKit imports
-//  here — concrete iOS-target wrapper imports AlarmKit; mock impl for tests
-//  publishes events synchronously.
+//  here — the concrete iOS-target wrapper imports AlarmKit; the test mock
+//  records calls and publishes events on demand.
 //
-//  SessionController depends on this protocol, not on AlarmKit directly.
+//  The scheduler is deliberately dumb: it schedules, cancels, and reports what
+//  the system currently holds. It does not remember which alarm is which —
+//  `SessionRecord` already knows the kind of the one alarm a session owns.
 //
 //  Flutter analogue: an abstract AlarmService with a platform-specific iOS
 //  implementation that wraps the AlarmKit channel.
@@ -14,7 +16,8 @@
 
 import Foundation
 
-/// Which beat of the 20-20-20 cycle this alarm represents.
+/// Which beat of the 20-20-20 cycle an alarm represents. Only affects how the
+/// alarm is presented (title, button label).
 public enum AlarmKind: String, Sendable, Codable {
     /// The 20-minute "look away now" alarm.
     case breakDue
@@ -22,70 +25,61 @@ public enum AlarmKind: String, Sendable, Codable {
     case lookAwayDone
 }
 
-/// Events emitted by the alarm scheduler. Sent on the `events` AsyncStream so
-/// SessionController can react to system-driven state transitions (alarm fired,
-/// user dismissed) without polling.
+/// Changes the system reports for alarms this app owns.
 public enum AlarmEvent: Sendable, Equatable {
-    /// The alarm fired and is now showing the alert UI to the user.
-    case fired(alarmId: UUID, kind: AlarmKind)
-    /// The user acknowledged the alarm (tapped Stop) or it was cancelled.
-    case dismissed(alarmId: UUID, kind: AlarmKind)
+    /// The alarm started alerting (the full-screen alarm UI is up).
+    case alerting(alarmId: UUID)
+    /// The alarm is gone from the system: the user stopped it, it was
+    /// cancelled, or it finished alerting.
+    case removed(alarmId: UUID)
 }
 
-/// A snapshot of an alarm currently scheduled with the system.
-/// Returned from `currentAlarms()` for reconciliation after app kill.
-public struct ScheduledAlarmInfo: Sendable, Equatable {
+/// A snapshot of one alarm the system currently holds for this app.
+public struct ScheduledAlarm: Sendable, Equatable {
     public let alarmId: UUID
-    public let kind: AlarmKind
-    /// True when this alarm is currently showing the system alert UI (the user
-    /// hasn't dismissed it yet). Reconciliation uses this to distinguish "scheduled
-    /// for later" from "firing right now."
+    /// True while the system alarm UI is showing.
     public let isAlerting: Bool
 
-    public init(alarmId: UUID, kind: AlarmKind, isAlerting: Bool = false) {
+    public init(alarmId: UUID, isAlerting: Bool = false) {
         self.alarmId = alarmId
-        self.kind = kind
         self.isAlerting = isAlerting
     }
 }
 
+/// Whether the user allows the app to schedule alarms.
+public enum AlarmAuthorizationStatus: Sendable, Equatable {
+    case notDetermined
+    case authorized
+    case denied
+}
+
 /// Errors the scheduler can raise.
 public enum AlarmSchedulerError: Error, Sendable, Equatable {
-    /// User denied alarm permission; scheduler can't function until granted.
+    /// The user denied alarm permission.
     case authorizationDenied
-    /// Underlying scheduler call failed for some other reason.
+    /// The underlying scheduler call failed for some other reason.
     case schedulingFailed(reason: String)
 }
 
 /// The narrow surface SessionController needs from AlarmKit.
-///
-/// `AnyObject` because the iOS implementation holds an internal `AsyncStream`
-/// continuation that must persist across calls. The mock is a class for the same
-/// reason. `Sendable` because SessionController's main-actor `init` spins up a
-/// `Task { for await event in alarmScheduler.events { ... } }` that crosses
-/// actor isolation boundaries.
-public protocol AlarmSchedulerProtocol: AnyObject, Sendable {
+public protocol AlarmSchedulerProtocol: Sendable {
 
-    /// Request user permission for alarms. Returns `true` if granted (or already
-    /// granted). Idempotent — safe to call on every app launch.
-    func requestAuthorizationIfNeeded() async throws -> Bool
+    /// Current authorization. Never prompts the user.
+    func authorizationStatus() async -> AlarmAuthorizationStatus
 
-    /// Schedule a countdown alarm that fires after `duration` seconds.
-    /// Returns the UUID assigned to the new alarm (callers should persist this
-    /// for cancellation and event-correlation).
-    /// - Parameter muteSound: When true, the alarm fires silently (full-screen UI
-    ///   still appears, no audio). Uses the bundled silent CAF file.
-    func scheduleCountdown(duration: TimeInterval, kind: AlarmKind, muteSound: Bool) async throws -> UUID
+    /// Schedule a one-shot alarm at `fireDate`. Prompts for permission first if
+    /// the user hasn't been asked yet.
+    /// - Returns: The new alarm's ID.
+    /// - Throws: `AlarmSchedulerError`.
+    func schedule(_ kind: AlarmKind, at fireDate: Date, muteSound: Bool) async throws -> UUID
 
-    /// Cancel a specific alarm by ID. Idempotent — cancelling an unknown ID is a no-op.
+    /// Cancel an alarm. Cancelling an unknown ID is a no-op.
     func cancel(alarmId: UUID) async
 
-    /// Cancel every alarm this scheduler has scheduled. Used when the session stops.
-    func cancelAll() async
+    /// Every alarm the system currently holds for this app, including ones
+    /// scheduled by earlier app launches.
+    func currentAlarms() async -> [ScheduledAlarm]
 
-    /// Snapshot the currently-scheduled alarms. Used for reconciliation on launch.
-    func currentAlarms() async -> [ScheduledAlarmInfo]
-
-    /// AsyncStream of fired/dismissed events. SessionController subscribes once at init.
+    /// Alarm lifecycle changes. SessionController is the only subscriber.
     var events: AsyncStream<AlarmEvent> { get }
 }

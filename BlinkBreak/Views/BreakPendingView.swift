@@ -2,67 +2,57 @@
 //  BreakPendingView.swift
 //  BlinkBreak
 //
-//  The breakPending-state view. Full-bleed red alert with a large "Start break"
-//  button. Only shown when the app is foregrounded during the cascade — backgrounded
-//  users see the notifications instead.
+//  The breakPending-state view: full-bleed red alert with a large "Start break"
+//  button. Shown when the app is open while the break alarm rings; otherwise the
+//  system alarm UI does this job.
 //
-//  Contains zero business logic: the "Start break" button calls
-//  `controller.acknowledgeCurrentBreak()` and the controller looks up its own
-//  cycleId from persistence. The view doesn't know or care about cycleIds.
+//  Contains zero business logic: "Start break" calls `controller.startBreak()`.
 //
 
-import SwiftUI
 import BlinkBreakCore
+import SwiftUI
 
 struct BreakPendingView<Controller: SessionControllerProtocol>: View {
 
-    @ObservedObject var controller: Controller
+    let controller: Controller
 
     var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
+        AdaptiveScreen {
+            VStack(spacing: 16) {
+                Spacer(minLength: 0)
 
-            EyebrowLabel(text: "Break time")
+                EyebrowLabel(text: "Break time")
 
-            Text("Look at something\n20 feet away")
-                .font(.largeTitle.weight(.semibold))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.white)
+                Text("Look at something\n20 feet away")
+                    .font(.largeTitle.weight(.semibold))
+                    .multilineTextAlignment(.center)
 
-            Text("Focus on a distant object for 20 seconds to rest your eyes.")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+                Text("Focus on a distant object for 20 seconds to rest your eyes.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center)
 
-            Spacer()
-
+                Spacer(minLength: 0)
+            }
+        } actions: {
             VStack(spacing: 12) {
                 Button {
-                    controller.acknowledgeCurrentBreak()
+                    Task { await controller.startBreak() }
                 } label: {
                     Text("Start break")
                         .frame(maxWidth: .infinity)
-                        .foregroundStyle(Color(red: 0.69, green: 0.00, blue: 0.13))
+                        .foregroundStyle(Color.alertRed)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(.white)
+                .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("button.breakPending.startBreak")
 
-                Button(role: .destructive) {
-                    controller.stop()
-                } label: {
-                    Text("Stop")
-                        .frame(maxWidth: .infinity)
+                StopButton(identifier: "button.breakPending.stop") {
+                    await controller.stop()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .tint(.white)
-                .accessibilityIdentifier("button.breakPending.stop")
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
         }
     }
 }
@@ -71,5 +61,7 @@ struct BreakPendingView<Controller: SessionControllerProtocol>: View {
     ZStack {
         AlertBackground()
         BreakPendingView(controller: PreviewSessionController.breakPending)
+            .foregroundStyle(.white)
     }
+    .preferredColorScheme(.dark)
 }

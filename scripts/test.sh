@@ -18,7 +18,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-DEVELOPER_DIR="$(xcode-select -p)"
+# xcode-select doesn't exist on Linux, where `swift test` works as-is.
+DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"
 CLT_FRAMEWORKS="/Library/Developer/CommandLineTools/Library/Developer/Frameworks"
 
 echo "→ Running BlinkBreakCore tests via swift test..."

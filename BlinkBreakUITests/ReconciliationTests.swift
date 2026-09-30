@@ -31,59 +31,50 @@ final class ReconciliationUITests: XCTestCase {
         // the app to come up in running state (because we terminate before the
         // break fires, within the 3-second window — tight but doable).
         let relaunched = XCUIApplication()
-        relaunched.launchEnvironment["BB_BREAK_INTERVAL"] = "30"  // Long so reconcile sees running state
-        relaunched.launchEnvironment["BB_LOOKAWAY_DURATION"] = "1"
         // Note: no -BB_RESET_DEFAULTS; we want the persisted record to survive.
-        relaunched.launch()
+        // The persisted alarm fire time is what matters, not the relaunch's interval.
+        relaunched.launchForIntegrationTest(breakIntervalSeconds: 30, resetDefaults: false)
 
         // Expect running state because the persisted cycleStartedAt is recent and
         // the break interval is 30s now (plenty of time remaining).
         _ = relaunched.waitForButton(A11y.Running.stopButton)
     }
 
-    func test_startThenRelaunchAfterFullCycleTimeout_fallsBackToIdle() {
-        // First launch: start a session with short intervals.
+    func test_startThenRelaunchAfterBreakTime_keepsSessionGoing() {
+        // First launch: start a session with short intervals, then terminate.
         let app = XCUIApplication()
         app.launchForIntegrationTest()
         app.waitForButton(A11y.Idle.startButton).tap()
         _ = app.waitForButton(A11y.Running.stopButton)
         app.terminate()
 
-        // Wait long enough for the break + notification delivery window to fully
-        // elapse with NO app running to process them. When we relaunch with fresh
-        // short timers, reconcile should find:
-        //   - persisted record with a cycleStartedAt old enough that breakFireTime passed
-        //   - no pending cascade notifications (the process was dead when they would
-        //     have fired, and the app was terminated so UN didn't deliver them to a handler)
-        // The reconciliation path: "past break time with no pending notifications → idle"
-        // should produce idle state.
+        // Let the break come due with no app running.
         sleep(5)
 
+        // Relaunch without resetting. Either the break alarm is still ringing
+        // (breakPending), or it's already gone and reconcile skipped ahead to the
+        // next cycle (running). The session must not silently end.
         let relaunched = XCUIApplication()
-        relaunched.launchEnvironment["BB_BREAK_INTERVAL"] = "3"
-        relaunched.launchEnvironment["BB_LOOKAWAY_DURATION"] = "1"
-        relaunched.launch()
+        relaunched.launchForIntegrationTest(resetDefaults: false)
 
-        // The reconciliation outcome depends on whether iOS retained the pending
-        // notifications across the terminate. In practice UN keeps them, so reconcile
-        // may see them as "pending → breakPending". Both outcomes are acceptable
-        // provided the app doesn't crash and shows SOME valid state.
-        let idleExists = relaunched.buttons[A11y.Idle.startButton].waitForExistence(timeout: 5)
-        let breakActiveExists = relaunched.buttons[A11y.BreakPending.startBreakButton].waitForExistence(timeout: 1)
-        XCTAssertTrue(
-            idleExists || breakActiveExists,
-            "After terminate + wait + relaunch, app should be in idle or breakPending; got neither"
+        let breakPending = relaunched.buttons[A11y.BreakPending.startBreakButton]
+        let running = relaunched.buttons[A11y.Running.stopButton]
+        let eitherState = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in breakPending.exists || running.exists },
+            object: nil
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [eitherState], timeout: 10),
+            .completed,
+            "After terminate + wait + relaunch, the session should still be active"
         )
     }
 
     func test_startThenRelaunchDuringBreakActive_preservesBreakActiveState() {
         // Start, wait for break, ack → breakActive, terminate inside breakActive window.
         let app = XCUIApplication()
-        app.launchEnvironment["BB_BREAK_INTERVAL"] = "3"
         // Use a long breakActive duration so we have time to terminate + relaunch before it expires.
-        app.launchEnvironment["BB_LOOKAWAY_DURATION"] = "20"
-        app.launchArguments.append("-BB_RESET_DEFAULTS")
-        app.launch()
+        app.launchForIntegrationTest(lookAwayDurationSeconds: 20)
 
         app.waitForButton(A11y.Idle.startButton).tap()
         _ = app.waitForButton(A11y.BreakPending.startBreakButton, timeout: 10)
@@ -92,12 +83,10 @@ final class ReconciliationUITests: XCTestCase {
 
         app.terminate()
 
-        // Relaunch without resetting defaults. Persisted record has breakActiveStartedAt
-        // set, and we're still within the 20-second window.
+        // Relaunch without resetting defaults. The persisted record is in the
+        // look-away phase and we're still within the 20-second window.
         let relaunched = XCUIApplication()
-        relaunched.launchEnvironment["BB_BREAK_INTERVAL"] = "3"
-        relaunched.launchEnvironment["BB_LOOKAWAY_DURATION"] = "20"
-        relaunched.launch()
+        relaunched.launchForIntegrationTest(lookAwayDurationSeconds: 20, resetDefaults: false)
 
         _ = relaunched.waitForElement(A11y.BreakActive.message, timeout: 5)
     }

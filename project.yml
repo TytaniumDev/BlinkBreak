@@ -17,7 +17,8 @@ options:
 
 settings:
   base:
-    SWIFT_VERSION: "5.9"
+    # Swift 6 language mode: data races are compile errors.
+    SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.5.0"
     CURRENT_PROJECT_VERSION: "2"
     DEVELOPMENT_TEAM: "F2HXQGU2CC"
@@ -25,13 +26,15 @@ settings:
 
 # Package dependencies.
 #   - BlinkBreakCore: local package, all business logic
-#   - Sentry: crash / error reporting for Release builds
+#   - Sentry: crash / error reporting for Release builds. Pinned to an exact
+#     version because the generated project's Package.resolved isn't committed;
+#     bump it deliberately.
 packages:
   BlinkBreakCore:
     path: Packages/BlinkBreakCore
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
-    from: "8.40.0"
+    exactVersion: "8.58.4"
 
 targets:
 
@@ -63,17 +66,20 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations: {}
-        UIBackgroundModes:
-          - fetch
-        BGTaskSchedulerPermittedIdentifiers:
-          - com.tytaniumdev.BlinkBreak.scheduleCheck
         UIRequiredDeviceCapabilities:
           - arm64
-        # Portrait-only; UIRequiresFullScreen silences Xcode's "all orientations must
-        # be supported" validation warning for single-orientation apps.
-        UIRequiresFullScreen: true
+        # Every screen uses AdaptiveScreen, so the app works at any size and
+        # orientation: iPhone portrait + landscape, and fully resizable on iPad
+        # (Split View, Slide Over, Stage Manager) and on Mac ("Designed for iPad").
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         # AlarmKit user-permission prompt copy. Shown the first time we call
         # AlarmManager.shared.requestAuthorization().
         NSAlarmKitUsageDescription: "BlinkBreak schedules alarms to remind you to take 20-second eye-rest breaks every 20 minutes."
@@ -84,6 +90,11 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreak
         TARGETED_DEVICE_FAMILY: "1,2"  # iPhone + iPad
+        # Runs on Apple silicon Macs as the iPad app ("Designed for iPad").
+        # AlarmKit is available there; visionOS has no AlarmKit, so opt out.
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_MACCATALYST: NO
         ENABLE_PREVIEWS: YES
         SWIFT_EMIT_LOC_STRINGS: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -133,6 +144,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreakUITests
         TEST_TARGET_NAME: BlinkBreak
         GENERATE_INFOPLIST_FILE: YES
+        # XCUITest's element APIs are main-actor isolated; the suite stays in the
+        # Swift 5 language mode until it's migrated to @MainActor test methods.
+        SWIFT_VERSION: "5.0"
 
 schemes:
   BlinkBreak:
@@ -170,6 +184,9 @@ schemes:
       targets:
         - BlinkBreakUITests
       gatherCoverageData: false
+      # The app under test gets its environment from XCUIApplication.launchEnvironment
+      # (see BlinkBreakUITestsBase.swift); these apply to the test runner.
       environmentVariables:
+        BB_UI_TESTING: "1"
         BB_BREAK_INTERVAL: "3"
         BB_LOOKAWAY_DURATION: "3"

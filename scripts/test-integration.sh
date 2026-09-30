@@ -2,27 +2,28 @@
 #
 # scripts/test-integration.sh
 #
-# Runs the XCUITest integration suite — 21 end-to-end tests that drive the
-# real iOS app through a simulator.
+# Runs the XCUITest integration suite — end-to-end tests that drive the real
+# iOS app through a simulator.
 #
 # SLOW (~4 minutes). ONLY run as a final verification step before committing
 # or creating a PR. Do NOT run during iteration — use ./scripts/test.sh
-# instead for the fast unit-test loop (~4ms, runs in swift test).
+# instead for the fast unit-test loop (well under a second, runs in swift test).
 #
 # The suite covers:
 #   - App launch and idle state
 #   - Start/Stop transitions
-#   - Full break cycle (running → breakActive → lookAway → running)
+#   - Full break cycle (running → breakPending → breakActive → running)
 #   - State reconciliation across app terminate + relaunch
 #   - Rapid start/stop stress testing
+#   - Landscape layout
 #
 # What the suite CANNOT cover (requires on-device manual verification):
 #   - Focus Mode break-through semantics
 #   - Actual custom alarm sound playback through the speaker
 #
-# The UITests scheme sets BB_BREAK_INTERVAL=3 and BB_LOOKAWAY_DURATION=3 so
-# tests can exercise a full cycle in ~6 seconds of wall-clock time instead of
-# 20 minutes + 20 seconds.
+# The tests launch the app with BB_BREAK_INTERVAL=3 and BB_LOOKAWAY_DURATION=3
+# (see BlinkBreakUITestsBase.swift) so a full cycle takes ~6 seconds of
+# wall-clock time instead of 20 minutes + 20 seconds.
 #
 
 set -euo pipefail
@@ -75,7 +76,7 @@ fi
 
 echo ""
 echo "→ Running XCUITest integration suite on \"$DEVICE_NAME\" (expect ~4 minutes)..."
-echo "  BB_BREAK_INTERVAL=3, BB_LOOKAWAY_DURATION=3 set by the UITests scheme."
+echo "  BB_BREAK_INTERVAL=3, BB_LOOKAWAY_DURATION=3 set by the test launch helper."
 echo ""
 
 xcodebuild test \

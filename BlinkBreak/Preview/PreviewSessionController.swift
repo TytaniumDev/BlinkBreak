@@ -6,47 +6,56 @@
 //  for SwiftUI previews. Lets you render any view in any state inside Xcode
 //  Previews without actually running alarms or persistence.
 //
-//  Flutter analogue: a stub ChangeNotifier you'd pass to a widget test or
-//  Flutter DevTools preview to render without touching real services.
+//  Flutter analogue: a stub ChangeNotifier you'd pass to a widget to render it
+//  without touching real services.
 //
 
-import Foundation
-import Combine
 import BlinkBreakCore
+import Foundation
+import Observation
 
-/// A SwiftUI-preview-friendly stand-in for `SessionController`. Conforms to
-/// `SessionControllerProtocol` so any view that depends on the protocol can render
-/// against this mock.
 @MainActor
-final class PreviewSessionController: ObservableObject, SessionControllerProtocol {
+@Observable
+final class PreviewSessionController: SessionControllerProtocol {
 
-    @Published var state: SessionState
-    @Published var weeklySchedule: WeeklySchedule = .empty
-    @Published var muteAlarmSound: Bool = false
-    @Published var authorizationDenied: Bool = false
+    var state: SessionState
+    var weeklySchedule: WeeklySchedule
+    var muteAlarmSound = false
+    var authorizationDenied: Bool
 
-    init(state: SessionState = .idle, authorizationDenied: Bool = false) {
+    init(
+        state: SessionState = .idle,
+        weeklySchedule: WeeklySchedule = .default,
+        authorizationDenied: Bool = false
+    ) {
         self.state = state
+        self.weeklySchedule = weeklySchedule
         self.authorizationDenied = authorizationDenied
     }
 
     // MARK: - SessionControllerProtocol
 
-    func start() {
-        state = .running(cycleStartedAt: Date())
+    func scheduleStatus(at date: Date) -> String? {
+        weeklySchedule.statusText(at: date, calendar: .current)
     }
 
-    func stop() {
+    func start() async {
+        state = .running(breakAt: Date().addingTimeInterval(BlinkBreakConstants.breakInterval))
+    }
+
+    func stop() async {
         state = .idle
     }
 
-    func acknowledgeCurrentBreak() {
-        state = .breakActive(startedAt: Date())
+    func startBreak() async {
+        state = .breakActive(endsAt: Date().addingTimeInterval(BlinkBreakConstants.lookAwayDuration))
     }
 
-    func reconcile() async {
-        // No-op in previews.
+    func takeBreakNow() async {
+        state = .breakPending
     }
+
+    func reconcile() async {}
 
     func updateSchedule(_ schedule: WeeklySchedule) {
         weeklySchedule = schedule
@@ -56,36 +65,30 @@ final class PreviewSessionController: ObservableObject, SessionControllerProtoco
         muteAlarmSound = muted
     }
 
-    func triggerBreakNow() {
-        // No-op in previews.
-    }
-
-    func refreshPermission() async {
-        // No-op in previews.
-    }
-
     // MARK: - Preview fixtures
 
-    /// Preview states for each scenario a view might render.
-    static let idle = PreviewSessionController(state: .idle)
+    static var idle: PreviewSessionController { PreviewSessionController() }
 
+    static var idleWithSchedule: PreviewSessionController {
+        var schedule = WeeklySchedule.default
+        schedule.isEnabled = true
+        return PreviewSessionController(weeklySchedule: schedule)
+    }
+
+    /// About six minutes left in the cycle.
     static var running: PreviewSessionController {
-        PreviewSessionController(
-            state: .running(cycleStartedAt: Date().addingTimeInterval(-14 * 60))  // ~14 min into a cycle
-        )
+        PreviewSessionController(state: .running(breakAt: Date().addingTimeInterval(6 * 60)))
     }
 
     static var breakPending: PreviewSessionController {
-        PreviewSessionController(
-            state: .breakPending(cycleStartedAt: Date().addingTimeInterval(-20 * 60))
-        )
+        PreviewSessionController(state: .breakPending)
     }
 
     static var breakActive: PreviewSessionController {
-        PreviewSessionController(
-            state: .breakActive(startedAt: Date().addingTimeInterval(-5))
-        )
+        PreviewSessionController(state: .breakActive(endsAt: Date().addingTimeInterval(15)))
     }
 
-    static let permissionDenied = PreviewSessionController(state: .idle, authorizationDenied: true)
+    static var permissionDenied: PreviewSessionController {
+        PreviewSessionController(authorizationDenied: true)
+    }
 }

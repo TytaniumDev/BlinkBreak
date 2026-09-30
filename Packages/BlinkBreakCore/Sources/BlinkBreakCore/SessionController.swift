@@ -3,655 +3,499 @@
 //  BlinkBreakCore
 //
 //  The brain of BlinkBreak. Owns the state machine, coordinates the alarm
-//  scheduler and persistence, and publishes state changes to observing SwiftUI views.
+//  scheduler and persistence, and exposes observable state to SwiftUI.
 //
-//  Cycle chaining is event-driven: AlarmSchedulerProtocol emits .fired and
-//  .dismissed events as the system delivers alarms and the user acknowledges them.
-//  We subscribe in init and react.
+//  How the cycle keeps going:
+//  - The alarm buttons ("Start break", "End break", Stop) run App Intents. iOS
+//    runs those even when the app isn't open, and they call `respond(to:alarmId:)`
+//    here, which books the next alarm. So the cycle doesn't depend on the app
+//    being alive.
+//  - When the app IS alive it also watches the system alarm list. The look-away
+//    alarm firing rolls the cycle on by itself, and an alarm that disappears
+//    with no intent reporting a tap is treated as "skipped" after a short grace
+//    period.
+//  - `reconcile()` (on launch / foreground) catches up on anything missed.
+//  - The weekly schedule pre-books the first break alarm of the next window, so
+//    automatic starts need no background execution either.
 //
-//  Flutter analogue: this is the ChangeNotifier / Cubit / Bloc for the whole app.
-//  Views consume `state` as a @Published value; they call `start()` / `stop()` etc.
-//  to request transitions. Views never mutate state directly.
+//  Every transition runs on one serial queue, so transitions never interleave
+//  across `await`s.
+//
+//  Flutter analogue: the ChangeNotifier / Cubit / Bloc for the whole app. Views
+//  read `state` and call `start()` / `stop()` etc. to request transitions.
 //
 
 import Foundation
-import Combine
+import Observation
 
-/// The concrete `SessionControllerProtocol` used by the iOS app target.
-///
-/// Marked `@MainActor` so SwiftUI observation of `state` is thread-safe without manual
-/// dispatch. All state mutations happen on the main actor.
+/// Which alarm button the user tapped. Reported by the app's App Intents.
+public enum AlarmResponse: String, Sendable {
+    /// The custom button: "Start break" on the break alarm, "End break" on the
+    /// look-away alarm.
+    case confirm
+    /// The system Stop button. Skips the break (or ends the look-away) and
+    /// continues on the normal cadence.
+    case stop
+}
+
 @MainActor
-public final class SessionController: ObservableObject, SessionControllerProtocol {
+@Observable
+public final class SessionController: SessionControllerProtocol {
 
-    // MARK: - Published state
+    // MARK: - Observable state
 
-    /// The current session state. Views observe this via @ObservedObject / @StateObject.
-    @Published public private(set) var state: SessionState = .idle
-
-    /// The current weekly schedule. Views observe this to display schedule settings.
-    @Published public private(set) var weeklySchedule: WeeklySchedule = .empty
-
-    /// Whether the alarm sound is muted. Loaded from persistence on init.
-    @Published public private(set) var muteAlarmSound: Bool = false
-
-    /// True when the AlarmKit authorization prompt has been denied. Views check this
-    /// to swap the idle UI for a "go to Settings" prompt.
-    @Published public private(set) var authorizationDenied: Bool = false
+    public private(set) var state: SessionState = .idle
+    public private(set) var weeklySchedule: WeeklySchedule
+    public private(set) var muteAlarmSound: Bool
+    public private(set) var authorizationDenied = false
 
     // MARK: - Dependencies
 
-    private let alarmScheduler: AlarmSchedulerProtocol
-    private let persistence: PersistenceProtocol
-    private let clock: @Sendable () -> Date
-    private let scheduleEvaluator: ScheduleEvaluatorProtocol
-    private let calendar: Calendar
-    private let logBuffer: LogBuffer
+    @ObservationIgnored private let alarms: AlarmSchedulerProtocol
+    @ObservationIgnored private let persistence: PersistenceProtocol
+    @ObservationIgnored private let calendar: Calendar
+    @ObservationIgnored private let clock: @Sendable () -> Date
+    @ObservationIgnored private let sleep: @Sendable (Duration) async -> Void
+    @ObservationIgnored private let log: AppLogger
 
-    private var eventTask: Task<Void, Never>?
-
-    /// Guards `startSession` against re-entry. Set `true` synchronously before
-    /// the scheduling Task and cleared in the Task's `defer`. Prevents duplicate
-    /// alarm scheduling when two `reconcile()` calls race on launch.
-    private var startInFlight = false
+    @ObservationIgnored private let queue = SerialTaskQueue()
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var wakeTask: Task<Void, Never>?
+    @ObservationIgnored private var wakeDate: Date?
 
     // MARK: - Init
 
     /// - Parameters:
-    ///   - alarmScheduler: AlarmKit wrapper. Use `AlarmKitScheduler()` in production,
-    ///     `MockAlarmScheduler()` in tests.
-    ///   - persistence: Session record storage. Use `UserDefaultsPersistence()` in production,
-    ///     `InMemoryPersistence()` in tests.
-    ///   - clock: Closure returning "now". Defaults to `{ Date() }`. Tests pass a closure
-    ///     backed by a mutable fake date so they can advance virtual time.
+    ///   - alarmScheduler: `AlarmKitScheduler()` in the app, `MockAlarmScheduler()` in tests.
+    ///   - persistence: `UserDefaultsPersistence()` in the app, `InMemoryPersistence()` in tests.
+    ///   - calendar: Used for schedule windows.
+    ///   - clock: Returns "now". Tests pass a closure over a fake date to control time.
+    ///   - sleep: Suspends for a duration. Tests pass an instant or gated version.
     public init(
         alarmScheduler: AlarmSchedulerProtocol,
         persistence: PersistenceProtocol,
-        scheduleEvaluator: ScheduleEvaluatorProtocol = NoopScheduleEvaluator(),
         calendar: Calendar = .current,
         clock: @escaping @Sendable () -> Date = { Date() },
-        logBuffer: LogBuffer = .shared
+        sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+        logger: AppLogger = .shared
     ) {
-        self.alarmScheduler = alarmScheduler
+        self.alarms = alarmScheduler
         self.persistence = persistence
-        self.scheduleEvaluator = scheduleEvaluator
         self.calendar = calendar
         self.clock = clock
-        self.logBuffer = logBuffer
-        self.weeklySchedule = persistence.loadSchedule() ?? .empty
+        self.sleep = sleep
+        self.log = logger
+        self.weeklySchedule = persistence.loadSchedule()
         self.muteAlarmSound = persistence.loadAlarmSoundMuted()
+        self.state = SessionState.derive(from: persistence.loadSession(), now: clock())
 
-        // Subscribe to alarm events. The Task hops to the main actor for each event so
-        // state mutations are isolated correctly.
-        let stream = alarmScheduler.events
-        self.eventTask = Task { @MainActor [weak self] in
-            for await event in stream {
-                self?.handleAlarmEvent(event)
+        let events = alarmScheduler.events
+        eventTask = Task { [weak self] in
+            for await event in events {
+                self?.handle(event)
             }
         }
     }
 
     deinit {
         eventTask?.cancel()
+        wakeTask?.cancel()
     }
 
-    // MARK: - Public API (SessionControllerProtocol)
+    // MARK: - Public API
 
-    /// Starts a new session. Transitions idle → running. Schedules the first break alarm.
-    public func start() {
-        startSession(wasAutoStarted: false)
+    public func scheduleStatus(at date: Date) -> String? {
+        weeklySchedule.statusText(at: date, calendar: calendar)
     }
 
-    /// Core start logic. Used by both `start()` (manual) and `evaluateSchedule()` (auto).
-    private func startSession(wasAutoStarted: Bool = false) {
-        // Guard against re-entry: both `onAppear` and `scenePhase == .active`
-        // can fire `reconcile()` near-simultaneously on launch. Each reconcile
-        // runs `evaluateSchedule()`, which checks `state == .idle`. If we set
-        // state inside the Task (async), the second evaluateSchedule sees idle
-        // and calls startSession again. The two Tasks then race to schedule
-        // alarms — one becomes orphaned in AlarmKit and fires as a duplicate.
-        // Setting state synchronously here closes the window.
-        guard !startInFlight else {
-            logBuffer.log(.debug, "start: already in flight, skipping duplicate")
-            return
+    public func start() async {
+        await queue.run { await self.startSession(autoStarted: false) }
+    }
+
+    public func stop() async {
+        await queue.run { await self.stopSession(reason: .user) }
+    }
+
+    public func startBreak() async {
+        await queue.run { await self.beginBreak(expecting: nil) }
+    }
+
+    public func takeBreakNow() async {
+        await queue.run {
+            let record = self.persistence.loadSession()
+            guard case .running = self.state, let firesAt = record.alarmFiresAt else { return }
+            let soon = self.clock().addingTimeInterval(1)
+            guard soon < firesAt else { return }
+            self.log.log(.info, "takeBreakNow: moving break alarm to now")
+            await self.rescheduleCurrentAlarm(record, at: soon)
         }
-        startInFlight = true
-        logBuffer.log(.info, "start: beginning session (auto=\(wasAutoStarted))")
+    }
 
-        let cycleStartedAt = clock()
-        state = .running(cycleStartedAt: cycleStartedAt)
-
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.startInFlight = false }
-            await self.alarmScheduler.cancelAll()
-
-            let cycleId = UUID()
-
-            let alarmId: UUID
-            do {
-                alarmId = try await self.alarmScheduler.scheduleCountdown(
-                    duration: BlinkBreakConstants.breakInterval,
-                    kind: .breakDue,
-                    muteSound: self.muteAlarmSound
-                )
-            } catch AlarmSchedulerError.authorizationDenied {
-                self.logBuffer.log(.warning, "start: permission denied")
-                self.authorizationDenied = true
-                self.state = .idle
-                return
-            } catch {
-                self.logBuffer.log(.error, "start: scheduling failed: \(error)")
-                self.state = .idle
+    /// Called by the alarm App Intents with the button the user tapped.
+    public func respond(to response: AlarmResponse, alarmId: UUID) async {
+        await queue.run {
+            let record = self.persistence.loadSession()
+            guard record.alarmId == alarmId else {
+                self.log.log(.info, "respond(\(response.rawValue)): alarm \(alarmId.short) is not current, ignoring")
                 return
             }
-
-            let record = SessionRecord(
-                sessionActive: true,
-                currentCycleId: cycleId,
-                cycleStartedAt: cycleStartedAt,
-                breakActiveStartedAt: nil,
-                lastUpdatedAt: cycleStartedAt,
-                wasAutoStarted: wasAutoStarted ? true : nil,
-                currentAlarmId: alarmId
-            )
-            self.persistence.save(record)
-            self.state = .running(cycleStartedAt: cycleStartedAt)
-            self.authorizationDenied = false
-            self.logBuffer.log(.info, "start: running, alarm=\(alarmId.uuidString.prefix(8))")
+            self.log.log(.info, "respond(\(response.rawValue)): alarm \(alarmId.short) phase=\(record.phase.rawValue)")
+            switch (response, record.phase) {
+            case (_, .idle):
+                return
+            case (.confirm, .scheduled), (.confirm, .running):
+                await self.beginBreak(expecting: alarmId)
+            case (.confirm, .lookingAway), (.stop, _):
+                await self.completeCycle(expecting: alarmId)
+            }
         }
     }
 
-    /// Stops the current session. Transitions any-state → idle. Cancels all alarms.
-    public func stop() {
-        let now = clock()
-        logBuffer.log(.info, "stop: from state \(state.description)")
-        Task { [weak self] in
-            await self?.alarmScheduler.cancelAll()
-        }
-        var idleRecord = SessionRecord.idle
-        idleRecord.lastUpdatedAt = now
-        if scheduleEvaluator.shouldBeActive(at: now, manualStopDate: nil, calendar: calendar) {
-            idleRecord.manualStopDate = now
-        }
-        persistence.save(idleRecord)
-        state = .idle
+    public func reconcile() async {
+        await queue.run { await self.reconcileWithSystem() }
     }
 
-    /// Replace the weekly schedule, persist it, and update the published property.
     public func updateSchedule(_ schedule: WeeklySchedule) {
         persistence.saveSchedule(schedule)
         weeklySchedule = schedule
+        queue.enqueue { await self.applyScheduleChange() }
     }
 
-    /// Update the alarm-sound mute preference. Reschedules the current alarm if running.
     public func updateAlarmSound(muted: Bool) {
         persistence.saveAlarmSoundMuted(muted)
         muteAlarmSound = muted
-        // Only reschedule during .running. In .breakActive the look-away alarm is
-        // already firing and lasts at most 20 s; the next cycle's alarm will pick up
-        // the new value from self.muteAlarmSound. In .breakPending the break alarm
-        // is already alerting on-screen, so there is nothing useful to reschedule.
-        guard case .running(let cycleStartedAt) = state,
-              let currentAlarmId = persistence.load().currentAlarmId else { return }
-        let remaining = max(1, cycleStartedAt
-            .addingTimeInterval(BlinkBreakConstants.breakInterval)
-            .timeIntervalSince(clock()))
-        logBuffer.log(.info, "updateAlarmSound: muted=\(muted), rescheduling \(Int(remaining))s")
-        replaceRunningAlarm(previousAlarmId: currentAlarmId, duration: remaining, muteSound: muted)
-    }
-
-    /// Cancel the current alarm and reschedule it to fire in 1 second. Wired to the
-    /// "Take break now" button; no-op outside the `.running` state.
-    public func triggerBreakNow() {
-        guard case .running = state,
-              let currentAlarmId = persistence.load().currentAlarmId else { return }
-        logBuffer.log(.info, "triggerBreakNow: rescheduling break-due alarm to 1s")
-        replaceRunningAlarm(previousAlarmId: currentAlarmId, duration: 1, muteSound: muteAlarmSound)
-    }
-
-    /// Cancel the break-due alarm currently attached to the running session and schedule
-    /// a replacement with new timing. Used by both `updateAlarmSound(muted:)` and
-    /// `triggerBreakNow()`. If `stop()` or a concurrent call changes `currentAlarmId`
-    /// while we're awaiting the scheduler, the replacement is cancelled and the record
-    /// left untouched.
-    private func replaceRunningAlarm(previousAlarmId: UUID, duration: TimeInterval, muteSound: Bool) {
-        Task { [weak self] in
-            guard let self else { return }
-            await self.alarmScheduler.cancel(alarmId: previousAlarmId)
-            let newId: UUID
-            do {
-                newId = try await self.alarmScheduler.scheduleCountdown(
-                    duration: duration,
-                    kind: .breakDue,
-                    muteSound: muteSound
-                )
-            } catch AlarmSchedulerError.authorizationDenied {
-                self.logBuffer.log(.error, "replaceRunningAlarm: permission denied — stopping session")
-                self.authorizationDenied = true
-                self.stop()
-                return
-            } catch {
-                // Cancel already succeeded but reschedule failed — the session is now
-                // in a zombie state where no break alarm will ever fire. Stop cleanly
-                // rather than leaving the UI claiming we're running.
-                self.logBuffer.log(.error, "replaceRunningAlarm: reschedule failed, stopping session: \(error)")
-                self.stop()
-                return
-            }
-            var record = self.persistence.load()
-            guard record.sessionActive, record.currentAlarmId == previousAlarmId else {
-                await self.alarmScheduler.cancel(alarmId: newId)
-                return
-            }
-            record.currentAlarmId = newId
-            self.persistence.save(record)
+        queue.enqueue {
+            // Re-book the pending alarm so the new sound setting applies to it.
+            let record = self.persistence.loadSession()
+            guard record.phase != .idle, let firesAt = record.alarmFiresAt,
+                  firesAt > self.clock().addingTimeInterval(1) else { return }
+            await self.rescheduleCurrentAlarm(record, at: firesAt)
         }
     }
 
-    /// Acknowledges the current break cycle from inside the app (e.g. the user tapped
-    /// "Start break" on the foregrounded `BreakPendingView` instead of on the alarm UI).
-    /// Synthesizes a dismissed event for the current break alarm.
-    public func acknowledgeCurrentBreak() {
-        guard let alarmId = persistence.load().currentAlarmId else {
-            logBuffer.log(.debug, "acknowledgeCurrentBreak: no current alarm, no-op")
-            return
-        }
-        // Mirror what `DismissAlarmIntent` does on the alarm UI: write the
-        // acknowledge marker so `handleDismissed` takes the schedule-look-away
-        // branch instead of defaulting to skip.
-        logBuffer.log(.info, "acknowledgeCurrentBreak: writing ack marker for alarm=\(alarmId.uuidString.prefix(8))")
-        persistence.saveAcknowledgeRequestedAlarmId(alarmId)
-        Task { [weak self] in
-            guard let self else { return }
-            await self.alarmScheduler.cancel(alarmId: alarmId)
-            await MainActor.run {
-                self.handleAlarmEvent(.dismissed(alarmId: alarmId, kind: .breakDue))
-            }
-        }
+    /// Wait until every queued transition has finished. For tests.
+    func waitUntilIdle() async {
+        await queue.drain()
     }
 
-    /// Rebuilds the in-memory `state` from the persisted record + the alarm scheduler's
-    /// current set of scheduled alarms + the current clock. Never trusts in-memory state.
-    /// Called on launch, on foreground, and on periodic ticks.
-    public func reconcile() async {
-        guard !startInFlight else {
-            logBuffer.log(.info, "reconcile: start is in flight, skipping reconcile")
-            return
-        }
-        await refreshPermission()
-        guard !startInFlight else {
-            logBuffer.log(.info, "reconcile: start became in flight during refreshPermission, skipping reconcile")
-            return
-        }
-        await reconcileState()
-        guard !startInFlight else {
-            logBuffer.log(.info, "reconcile: start became in flight during reconcileState, skipping reconcile")
-            return
-        }
-        evaluateSchedule()
-        logBuffer.log(.info, "reconcile: state=\(state.description), permissionDenied=\(authorizationDenied)")
-    }
+    // MARK: - Alarm events
 
-    /// Query the scheduler's authorization state and publish whether it's denied.
-    /// On `.notDetermined`, this will trigger the system prompt the first time; on
-    /// subsequent calls it's a read.
-    public func refreshPermission() async {
-        do {
-            let granted = try await alarmScheduler.requestAuthorizationIfNeeded()
-            authorizationDenied = !granted
-        } catch AlarmSchedulerError.authorizationDenied {
-            authorizationDenied = true
-        } catch {
-            // Transient scheduler error — don't flip the UI to permission-denied on a
-            // one-off failure. Leave `authorizationDenied` unchanged; a later reconcile
-            // will re-query.
-            logBuffer.log(.warning, "refreshPermission: transient error, leaving state unchanged: \(error)")
-        }
-    }
-
-    // MARK: - Reconciliation
-
-    private func reconcileState() async {
-        let record = persistence.load()
-        let now = clock()
-
-        // Case 1: no active session.
-        guard record.sessionActive else {
-            state = .idle
-            return
-        }
-
-        // Case 2: corrupt record (sessionActive but missing fields) → recover to idle.
-        guard let _ = record.currentCycleId,
-              let cycleStartedAt = record.cycleStartedAt else {
-            persistence.save(.idle)
-            state = .idle
-            return
-        }
-
-        // What's actually scheduled in the system right now?
-        let scheduled = await alarmScheduler.currentAlarms()
-        let activeAlarm = record.currentAlarmId.flatMap { id in
-            scheduled.first(where: { $0.alarmId == id })
-        }
-
-        if let alarm = activeAlarm {
-            // If the alarm is currently alerting (system alert UI is up), we're
-            // mid-transition between scheduled-for-later and user-dismissed. Surface
-            // the appropriate "alerting now" state so the in-app UI matches.
-            if alarm.isAlerting {
-                switch alarm.kind {
-                case .breakDue:
-                    state = .breakPending(cycleStartedAt: cycleStartedAt)
-                case .lookAwayDone:
-                    // Look-away alarm is alerting — the cycle is about to roll. Stay
-                    // in breakActive until the dismissed event drives the transition.
-                    if let breakActiveStartedAt = record.breakActiveStartedAt {
-                        state = .breakActive(startedAt: breakActiveStartedAt)
-                    } else {
-                        state = .running(cycleStartedAt: cycleStartedAt)
-                    }
-                }
-                return
-            }
-            switch alarm.kind {
-            case .breakDue:
-                state = .running(cycleStartedAt: cycleStartedAt)
-            case .lookAwayDone:
-                if let breakActiveStartedAt = record.breakActiveStartedAt {
-                    state = .breakActive(startedAt: breakActiveStartedAt)
-                } else {
-                    state = .running(cycleStartedAt: cycleStartedAt)
-                }
-            }
-            return
-        }
-
-        // No alarm scheduled. If we're inside the breakActive window per persistence,
-        // the alarm fired while we were killed — show breakPending so the user can ack
-        // (or continue the look-away if they already did, depending on the data).
-        if let breakActiveStartedAt = record.breakActiveStartedAt {
-            let breakActiveEnd = breakActiveStartedAt.addingTimeInterval(BlinkBreakConstants.lookAwayDuration)
-            if now < breakActiveEnd {
-                state = .breakActive(startedAt: breakActiveStartedAt)
-                return
-            }
-            // breakActive elapsed without us hearing the dismiss. Clear and fall through.
-            var cleared = record
-            cleared.breakActiveStartedAt = nil
-            persistence.save(cleared)
-        }
-
-        // breakPending fallback: the break alarm fired while killed and the user never
-        // acknowledged. The persisted cycleStartedAt is past its 20-minute window.
-        let breakFireTime = cycleStartedAt.addingTimeInterval(BlinkBreakConstants.breakInterval)
-        if now >= breakFireTime {
-            state = .breakPending(cycleStartedAt: cycleStartedAt)
-            return
-        }
-
-        // Otherwise we're between events with no scheduled alarm — the system lost the
-        // alarm somehow. Stop the session so the user can restart cleanly.
-        var idleRecord = SessionRecord.idle
-        idleRecord.lastUpdatedAt = now
-        persistence.save(idleRecord)
-        state = .idle
-    }
-
-    /// Consult the schedule evaluator to auto-start or auto-stop the session.
-    /// Runs after `reconcileState()` so the in-memory state reflects persistence.
-    private func evaluateSchedule() {
-        guard weeklySchedule.isEnabled else { return }
-        let record = persistence.load()
-        let now = clock()
-        let shouldBeActive = scheduleEvaluator.shouldBeActive(
-            at: now,
-            manualStopDate: record.manualStopDate,
-            calendar: calendar
-        )
-        if shouldBeActive && state == .idle {
-            startSession(wasAutoStarted: true)
-        } else if !shouldBeActive && state.isActive && (record.wasAutoStarted ?? false) {
-            stop()
-        }
-    }
-
-    // MARK: - Alarm event handling
-
-    private func handleAlarmEvent(_ event: AlarmEvent) {
+    func handle(_ event: AlarmEvent) {
         switch event {
-        case let .fired(alarmId, kind):
-            handleFired(alarmId: alarmId, kind: kind)
-        case let .dismissed(alarmId, kind):
-            handleDismissed(alarmId: alarmId, kind: kind)
+        case .alerting(let id):
+            log.log(.info, "event: alarm \(id.short) alerting")
+            queue.enqueue { await self.evaluateTimedTransitions() }
+        case .removed(let id):
+            log.log(.info, "event: alarm \(id.short) removed")
+            checkMissingAlarmAfterGrace(id)
         }
     }
 
-    private func handleFired(alarmId: UUID, kind: AlarmKind) {
-        logBuffer.log(.info, "fired: alarm=\(alarmId.uuidString.prefix(8)) kind=\(kind.rawValue)")
-        let record = persistence.load()
-        guard record.sessionActive,
-              let cycleStartedAt = record.cycleStartedAt else { return }
-        switch kind {
-        case .breakDue:
-            // Break alarm is showing the alert UI. State is breakPending until the user
-            // dismisses (which we treat as "Start break").
-            state = .breakPending(cycleStartedAt: cycleStartedAt)
-        case .lookAwayDone:
-            // Look-away alarm is showing the alert UI. We don't change state here;
-            // SwiftUI continues to show the lookAway countdown UI until dismissal
-            // (which rolls to the next cycle). The state stays at breakActive — the
-            // alarm UI is the system's responsibility.
+    /// An alarm we own is gone. Usually a button intent is about to report what
+    /// the user tapped — wait for it, then handle the alarm only if no intent did.
+    private func checkMissingAlarmAfterGrace(_ id: UUID) {
+        Task {
+            await sleep(BlinkBreakConstants.missingAlarmGrace)
+            await queue.run { await self.handleMissingAlarm(id) }
+        }
+    }
+
+    private func handleMissingAlarm(_ id: UUID) async {
+        let record = persistence.loadSession()
+        guard record.alarmId == id, record.phase != .idle else { return }
+        guard !(await alarms.currentAlarms().contains { $0.alarmId == id }) else { return }
+        if let firesAt = record.alarmFiresAt, clock() < firesAt {
+            log.log(.warning, "alarm \(id.short) vanished before firing; stopping")
+            await stopSession(reason: .error)
+        } else {
+            log.log(.info, "alarm \(id.short) dismissed with no button response; continuing")
+            await completeCycle(expecting: id)
+        }
+    }
+
+    // MARK: - Transitions (always run on `queue`)
+
+    private enum StopReason {
+        /// The user tapped Stop.
+        case user
+        /// A schedule-started session reached the end of its window.
+        case scheduleEnded
+        /// Something went wrong (scheduling failed, alarm vanished).
+        case error
+    }
+
+    /// Cancel everything and book the first break. `cycleStart` in the future
+    /// pre-books a schedule window instead of starting now.
+    private func startSession(autoStarted: Bool, cycleStart: Date? = nil) async {
+        let previous = persistence.loadSession()
+        // A user's Start replaces everything; an automatic start leaves a
+        // ringing alarm (e.g. the day's last look-away) to finish ringing.
+        await cancelAlarms(keepingAlerting: autoStarted)
+        let start = cycleStart ?? clock()
+        let firesAt = start.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        guard let alarmId = await scheduleAlarm(.breakDue, at: firesAt) else {
+            save(SessionRecord(manualStopDate: previous.manualStopDate))
+            return
+        }
+        save(SessionRecord(
+            phase: cycleStart == nil ? .running : .scheduled,
+            alarmId: alarmId,
+            alarmFiresAt: firesAt,
+            wasAutoStarted: autoStarted
+        ))
+        log.log(.info, "start: \(cycleStart == nil ? "running" : "pre-booked"), auto=\(autoStarted), alarm=\(alarmId.short)")
+    }
+
+    private func stopSession(reason: StopReason) async {
+        let now = clock()
+        // A user Stop cancels the ringing alarm too. Automatic stops leave an
+        // alerting alarm alone so its sound isn't cut off mid-ring.
+        await cancelAlarms(keepingAlerting: reason != .user)
+        var idle = SessionRecord()
+        if reason != .error, weeklySchedule.isActive(at: now, calendar: calendar) {
+            // Don't let the schedule restart the session in this same window.
+            idle.manualStopDate = now
+        }
+        save(idle)
+        log.log(.info, "stop: reason=\(reason)")
+        await applySchedule()
+    }
+
+    /// breakDue → look-away. `expecting` guards against a stale intent.
+    private func beginBreak(expecting alarmId: UUID?) async {
+        let record = persistence.loadSession()
+        guard record.phase == .running || record.phase == .scheduled else { return }
+        if let alarmId, alarmId != record.alarmId { return }
+        if record.wasAutoStarted, !weeklySchedule.isActive(at: clock(), calendar: calendar) {
+            // The user answered a schedule-started break after the window ended.
+            await stopSession(reason: .scheduleEnded)
+            return
+        }
+        if let current = record.alarmId {
+            await alarms.cancel(alarmId: current)
+        }
+        let endsAt = clock().addingTimeInterval(BlinkBreakConstants.lookAwayDuration)
+        guard let lookAwayId = await scheduleAlarm(.lookAwayDone, at: endsAt) else {
+            await stopSession(reason: .error)
+            return
+        }
+        save(SessionRecord(
+            phase: .lookingAway,
+            alarmId: lookAwayId,
+            alarmFiresAt: endsAt,
+            wasAutoStarted: record.wasAutoStarted
+        ))
+        log.log(.info, "break: look-away until \(endsAt), alarm=\(lookAwayId.short)")
+    }
+
+    /// Finish the current cycle (break skipped, or look-away over) and book the
+    /// next break — or stop, if a schedule-started session would run past its window.
+    /// - Parameter cancelCurrent: False when the look-away alarm is ringing and
+    ///   should keep ringing until the user dismisses it.
+    private func completeCycle(expecting alarmId: UUID?, cancelCurrent: Bool = true) async {
+        let record = persistence.loadSession()
+        guard record.phase != .idle else { return }
+        if let alarmId, alarmId != record.alarmId { return }
+        if cancelCurrent, let current = record.alarmId {
+            await alarms.cancel(alarmId: current)
+        }
+        let nextFire = clock().addingTimeInterval(BlinkBreakConstants.breakInterval)
+        if record.wasAutoStarted, !weeklySchedule.isActive(at: nextFire, calendar: calendar) {
+            await stopSession(reason: .scheduleEnded)
+            return
+        }
+        guard let nextId = await scheduleAlarm(.breakDue, at: nextFire) else {
+            await stopSession(reason: .error)
+            return
+        }
+        save(SessionRecord(
+            phase: .running,
+            alarmId: nextId,
+            alarmFiresAt: nextFire,
+            wasAutoStarted: record.wasAutoStarted
+        ))
+        log.log(.info, "cycle: next break at \(nextFire), alarm=\(nextId.short)")
+    }
+
+    /// Transitions that happen because time passed rather than because of a tap.
+    private func evaluateTimedTransitions() async {
+        defer { refreshState() }
+        var record = persistence.loadSession()
+        let now = clock()
+        guard let firesAt = record.alarmFiresAt else { return }
+        switch record.phase {
+        case .scheduled where now >= firesAt.addingTimeInterval(-BlinkBreakConstants.breakInterval):
+            // The pre-booked window has opened.
+            record.phase = .running
+            save(record)
+        case .lookingAway where now >= firesAt.addingTimeInterval(BlinkBreakConstants.lookAwayCompletionMargin):
+            await completeCycle(expecting: record.alarmId, cancelCurrent: false)
+        default:
             break
         }
     }
 
-    private func handleDismissed(alarmId: UUID, kind: AlarmKind) {
-        // Drain intent-execution log entries written by `SkipBreakIntent` /
-        // `DismissAlarmIntent` — possibly from a different process — so they
-        // land in this app's `LogBuffer` (and therefore in Sentry breadcrumbs)
-        // alongside the dispatch decision below. Without this, a user bug
-        // report would show the dismissal but no record of whether an intent
-        // ran first, which alarm UUID it targeted, or what it wrote.
-        for entry in persistence.drainIntentExecutionLog() {
-            logBuffer.log(.info, "\(entry.intent): \(entry.message)")
+    private func reconcileWithSystem() async {
+        defer { refreshState() }
+        await refreshAuthorization()
+        await evaluateTimedTransitions()
+
+        let record = persistence.loadSession()
+        let now = clock()
+        let systemAlarms = await alarms.currentAlarms()
+
+        // Alarms we don't own come from older builds or interrupted operations.
+        for alarm in systemAlarms where alarm.alarmId != record.alarmId && !alarm.isAlerting {
+            log.log(.info, "reconcile: cancelling orphaned alarm \(alarm.alarmId.short)")
+            await alarms.cancel(alarmId: alarm.alarmId)
         }
 
-        // Consume the "acknowledge this break" marker only when it matches the
-        // dismissed alarm. Clearing on every dismissal (even mismatches) opens
-        // a race: a stale-dismiss event for a previously-reaped alarm fires
-        // before the alarm the marker was written for is dismissed, wiping
-        // the marker and pushing the upcoming dismissal into the default-skip
-        // branch instead of the acknowledge branch. Markers are scoped to a
-        // single alarm UUID and are overwritten by each new intent run, so
-        // limiting the clear to the match case can't accumulate stale markers.
-        let ackAlarmId = persistence.loadAcknowledgeRequestedAlarmId()
-        let isAcknowledgeRequested = ackAlarmId == alarmId
-        if isAcknowledgeRequested {
-            persistence.saveAcknowledgeRequestedAlarmId(nil)
-        }
-        // Single-line summary of the dispatch input. Reading the marker state
-        // explicitly (not just the eventual branch) makes it possible to tell
-        // a real user-initiated skip from a race where the dismissed event
-        // raced ahead of the ack-marker write — the two now produce the same
-        // outcome by design, but the breadcrumb still distinguishes them.
-        let markerState: String
-        if let ackAlarmId {
-            markerState = isAcknowledgeRequested
-                ? "ack=match"
-                : "ack=stale(\(ackAlarmId.uuidString.prefix(8)))"
-        } else {
-            markerState = "ack=none"
-        }
-        logBuffer.log(.info, "dismissed: alarm=\(alarmId.uuidString.prefix(8)) kind=\(kind.rawValue) \(markerState)")
-
-        let record = persistence.load()
-        // Defensive: if persistence already shows idle (e.g. an in-flight
-        // `stop()` ran while AlarmKit was still propagating the cancellation),
-        // mirror the idle state into the UI immediately instead of waiting
-        // for the next reconcile.
-        if !record.sessionActive {
-            if state != .idle {
-                state = .idle
-            }
-            logBuffer.log(.debug, "dismissed: session no longer active, synced state to idle")
+        if record.phase == .idle {
+            await applySchedule()
             return
         }
-        guard record.currentAlarmId == alarmId,
-              record.currentCycleId != nil,
-              record.cycleStartedAt != nil else {
-            logBuffer.log(.debug, "dismissed: ignored stale alarm \(alarmId.uuidString.prefix(8))")
+        // A schedule-started session still going after its window closed (for
+        // example a break alarm nobody answered) ends here. A pre-booked start
+        // (still `.scheduled` after the promotion above) is in the future, so it's exempt.
+        if record.wasAutoStarted, record.phase != .scheduled,
+           !weeklySchedule.isActive(at: now, calendar: calendar) {
+            await stopSession(reason: .scheduleEnded)
             return
         }
+        if let id = record.alarmId, !systemAlarms.contains(where: { $0.alarmId == id }) {
+            checkMissingAlarmAfterGrace(id)
+        }
+    }
 
-        // If a schedule-started session has rolled past its scheduled end window
-        // (e.g. the break-due alarm sat alerting for hours and the user just now
-        // dismissed it), don't extend the chain. Stop here so the user doesn't get
-        // surprise alarms late at night. Manual sessions are exempt — the user
-        // owns the start/stop on those.
-        if scheduleWantsAutoStop(for: record) {
-            logBuffer.log(.info, "dismissed \(kind.rawValue): outside schedule window, stopping instead of rolling")
-            stop()
+    /// When idle, start or pre-book according to the weekly schedule.
+    private func applySchedule() async {
+        let record = persistence.loadSession()
+        guard record.phase == .idle, weeklySchedule.isEnabled else { return }
+        let now = clock()
+        if weeklySchedule.isActive(at: now, manualStopDate: record.manualStopDate, calendar: calendar) {
+            await startSession(autoStarted: true)
+        } else if let next = weeklySchedule.nextWindowStart(after: now, calendar: calendar) {
+            await startSession(autoStarted: true, cycleStart: next)
+        }
+    }
+
+    private func applyScheduleChange() async {
+        await evaluateTimedTransitions()
+        let record = persistence.loadSession()
+        switch record.phase {
+        case .idle:
+            await applySchedule()
+        case .scheduled:
+            // Re-book (or drop) the pre-booked start for the new schedule.
+            await cancelAlarms(keepingAlerting: false)
+            save(SessionRecord())
+            await applySchedule()
+        case .running, .lookingAway:
+            // A running session picks up the new schedule at its next cycle.
+            break
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func refreshAuthorization() async {
+        let status = await alarms.authorizationStatus()
+        authorizationDenied = status == .denied
+    }
+
+    private func scheduleAlarm(_ kind: AlarmKind, at date: Date) async -> UUID? {
+        do {
+            let id = try await alarms.schedule(kind, at: date, muteSound: muteAlarmSound)
+            authorizationDenied = false
+            return id
+        } catch AlarmSchedulerError.authorizationDenied {
+            log.log(.warning, "schedule \(kind.rawValue): permission denied")
+            authorizationDenied = true
+            return nil
+        } catch {
+            log.log(.error, "schedule \(kind.rawValue) failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Replace the current alarm with an identical one at `date`.
+    private func rescheduleCurrentAlarm(_ record: SessionRecord, at date: Date) async {
+        guard let kind = record.alarmKind else { return }
+        if let current = record.alarmId {
+            await alarms.cancel(alarmId: current)
+        }
+        guard let newId = await scheduleAlarm(kind, at: date) else {
+            await stopSession(reason: .error)
             return
         }
+        var updated = record
+        updated.alarmId = newId
+        updated.alarmFiresAt = date
+        save(updated)
+    }
 
-        switch kind {
-        case .breakDue where isAcknowledgeRequested:
-            // User tapped the secondary "Start break" (or `acknowledgeCurrentBreak`
-            // ran from the in-app UI). Schedule the look-away countdown.
-            logBuffer.log(.info, "dismissed breakDue (ack): scheduling look-away")
-            Task { [weak self] in
-                guard let self else { return }
-                let breakActiveStartedAt = self.clock()
-                let lookAwayAlarmId: UUID
-                do {
-                    lookAwayAlarmId = try await self.alarmScheduler.scheduleCountdown(
-                        duration: BlinkBreakConstants.lookAwayDuration,
-                        kind: .lookAwayDone,
-                        muteSound: self.muteAlarmSound
-                    )
-                } catch {
-                    self.logBuffer.log(.error, "dismissed breakDue: look-away schedule failed, stopping: \(error)")
-                    self.stop()
-                    return
-                }
-                // Re-check after await: stop() may have run while we awaited the
-                // scheduler. If so, cancel the freshly-scheduled alarm and bail
-                // instead of writing a record that contradicts the idle state.
-                var latest = self.persistence.load()
-                guard latest.sessionActive else {
-                    self.logBuffer.log(.info, "dismissed breakDue: session stopped during scheduling, cancelling new look-away")
-                    await self.alarmScheduler.cancel(alarmId: lookAwayAlarmId)
-                    return
-                }
-                latest.breakActiveStartedAt = breakActiveStartedAt
-                latest.lastUpdatedAt = self.clock()
-                latest.currentAlarmId = lookAwayAlarmId
-                self.persistence.save(latest)
-                self.state = .breakActive(startedAt: breakActiveStartedAt)
-                self.logBuffer.log(.info, "dismissed breakDue (ack): look-away scheduled alarm=\(lookAwayAlarmId.uuidString.prefix(8)) duration=\(Int(BlinkBreakConstants.lookAwayDuration))s")
-            }
-        case .breakDue:
-            // Default path: no acknowledge marker. Covers the system Stop
-            // button (which only cancels the alarm), the system auto-dismiss
-            // at the alert time limit, and the AlarmKit race where the
-            // dismissed event arrives before the secondary intent's marker
-            // write is visible. Skip the look-away and roll straight to the
-            // next breakDue cycle, gated by the same schedule-end guard the
-            // lookAwayDone path uses so a skip near the window end stops
-            // cleanly instead of queueing an alarm past the schedule.
-            if scheduleWantsAutoStopForNextBreakFire(for: record) {
-                logBuffer.log(.info, "dismissed breakDue (skip): next break-due would fire outside schedule, stopping")
-                stop()
-                return
-            }
-            logBuffer.log(.info, "dismissed breakDue (skip): rolling to next cycle")
-            rollToNextCycle(carryingOver: record, kindLabel: "breakDue(skip)")
-        case .lookAwayDone:
-            // Look-away period over. Roll to a new cycle — but only if the next
-            // break alarm would fire within the schedule. Without this, a session
-            // that dismisses 30 s before the schedule end pushes a breakDue alarm
-            // past it (BLINKBREAK-3: alarm fired Saturday with a Mon–Fri schedule).
-            if scheduleWantsAutoStopForNextBreakFire(for: record) {
-                logBuffer.log(.info, "dismissed lookAwayDone: next break-due would fire outside schedule, stopping")
-                stop()
-                return
-            }
-            logBuffer.log(.info, "dismissed lookAwayDone: rolling to next cycle")
-            rollToNextCycle(carryingOver: record, kindLabel: "lookAwayDone")
+    private func cancelAlarms(keepingAlerting: Bool) async {
+        for alarm in await alarms.currentAlarms() where !(keepingAlerting && alarm.isAlerting) {
+            await alarms.cancel(alarmId: alarm.alarmId)
         }
     }
 
-    /// Schedule a fresh breakDue alarm and persist a new running cycle. Shared
-    /// between the lookAwayDone-dismissed path and the default breakDue-skip
-    /// path — both produce the same "back to running, next break in
-    /// `breakInterval`" outcome.
-    private func rollToNextCycle(carryingOver record: SessionRecord, kindLabel: String) {
-        Task { [weak self] in
-            guard let self else { return }
-            let nextCycleId = UUID()
-            let nextCycleStartedAt = self.clock()
-            let nextAlarmId: UUID
-            do {
-                nextAlarmId = try await self.alarmScheduler.scheduleCountdown(
-                    duration: BlinkBreakConstants.breakInterval,
-                    kind: .breakDue,
-                    muteSound: self.muteAlarmSound
-                )
-            } catch {
-                self.logBuffer.log(.error, "dismissed \(kindLabel): next-cycle schedule failed, stopping: \(error)")
-                self.stop()
-                return
+    /// Persist, then refresh the derived UI state and the next timed wake-up.
+    private func save(_ record: SessionRecord) {
+        persistence.saveSession(record)
+        refreshState()
+    }
+
+    private func refreshState() {
+        let record = persistence.loadSession()
+        let now = clock()
+        let newState = SessionState.derive(from: record, now: now)
+        if newState != state {
+            state = newState
+        }
+        scheduleWake(for: record, now: now)
+    }
+
+    /// While the app is alive, wake up when the UI state would change on its own
+    /// (a pre-booked window opens, a break comes due, a look-away ends).
+    private func scheduleWake(for record: SessionRecord, now: Date) {
+        let target: Date? = {
+            guard let firesAt = record.alarmFiresAt else { return nil }
+            switch record.phase {
+            case .idle:
+                return nil
+            case .scheduled:
+                let cycleStart = firesAt.addingTimeInterval(-BlinkBreakConstants.breakInterval)
+                return now < cycleStart ? cycleStart : firesAt
+            case .running:
+                return firesAt
+            case .lookingAway:
+                return firesAt.addingTimeInterval(BlinkBreakConstants.lookAwayCompletionMargin)
             }
-            // Re-check after await: stop() may have run while we awaited the
-            // scheduler. Constructing a fresh running SessionRecord here without
-            // this check would revive a session the user just ended.
-            let latest = self.persistence.load()
-            guard latest.sessionActive else {
-                self.logBuffer.log(.info, "dismissed \(kindLabel): session stopped during scheduling, cancelling new alarm")
-                await self.alarmScheduler.cancel(alarmId: nextAlarmId)
-                return
+        }()
+        guard let target, target > now else {
+            wakeTask?.cancel()
+            wakeTask = nil
+            wakeDate = nil
+            return
+        }
+        guard target != wakeDate else { return }
+        wakeTask?.cancel()
+        wakeDate = target
+        wakeTask = Task { [weak self, sleep, clock] in
+            // Loop in case the sleep returns before the wall clock reaches the target.
+            while !Task.isCancelled {
+                let remaining = target.timeIntervalSince(clock())
+                guard remaining > 0 else { break }
+                await sleep(.milliseconds(Int64((remaining * 1000).rounded(.up))))
             }
-            let newRecord = SessionRecord(
-                sessionActive: true,
-                currentCycleId: nextCycleId,
-                cycleStartedAt: nextCycleStartedAt,
-                breakActiveStartedAt: nil,
-                lastUpdatedAt: nextCycleStartedAt,
-                wasAutoStarted: latest.wasAutoStarted,
-                currentAlarmId: nextAlarmId
-            )
-            self.logBuffer.log(.info, "dismissed \(kindLabel): next breakDue scheduled alarm=\(nextAlarmId.uuidString.prefix(8)) duration=\(Int(BlinkBreakConstants.breakInterval))s")
-            self.persistence.save(newRecord)
-            self.state = .running(cycleStartedAt: nextCycleStartedAt)
+            guard !Task.isCancelled, let self else { return }
+            self.queue.enqueue { await self.evaluateTimedTransitions() }
         }
     }
+}
 
-    /// True when a schedule-started session has rolled past the schedule's end window
-    /// at the current clock time. Cycle-rolling consults this before scheduling the
-    /// next alarm so an unattended chain can't keep firing late at night when the
-    /// user only opens the app sporadically and `reconcile()` rarely runs.
-    private func scheduleWantsAutoStop(for record: SessionRecord) -> Bool {
-        guard weeklySchedule.isEnabled, record.wasAutoStarted == true else { return false }
-        return !scheduleEvaluator.shouldBeActive(
-            at: clock(),
-            manualStopDate: record.manualStopDate,
-            calendar: calendar
-        )
-    }
-
-    /// True when the next break-due alarm — scheduled `breakInterval` after now —
-    /// would fire outside the schedule window. Used at cycle-roll to avoid leaving
-    /// an alarm queued for after the schedule end (or, with a long enough interval,
-    /// for the next scheduled day).
-    private func scheduleWantsAutoStopForNextBreakFire(for record: SessionRecord) -> Bool {
-        guard weeklySchedule.isEnabled, record.wasAutoStarted == true else { return false }
-        let nextFire = clock().addingTimeInterval(BlinkBreakConstants.breakInterval)
-        return !scheduleEvaluator.shouldBeActive(
-            at: nextFire,
-            manualStopDate: record.manualStopDate,
-            calendar: calendar
-        )
-    }
+extension UUID {
+    /// First 8 characters, for log lines.
+    var short: String { String(uuidString.prefix(8)) }
 }

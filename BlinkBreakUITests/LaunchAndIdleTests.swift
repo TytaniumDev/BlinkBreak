@@ -42,6 +42,25 @@ final class LaunchAndIdleTests: XCTestCase {
         XCTAssertFalse(app.buttons[A11y.BreakPending.startBreakButton].exists)
     }
 
+    func test_landscape_keepsControlsReachable() {
+        let app = XCUIApplication()
+        app.launchForIntegrationTest()
+        _ = app.waitForButton(A11y.Idle.startButton)
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        // The idle screen scrolls in a short window; Start stays pinned and tappable.
+        XCTAssertTrue(app.buttons[A11y.Idle.startButton].isHittable)
+        app.buttons[A11y.Idle.startButton].tap()
+
+        let stop = app.waitForButton(A11y.Running.stopButton)
+        XCTAssertTrue(stop.isHittable)
+        XCTAssertTrue(app.buttons[A11y.Running.takeBreakNowButton].isHittable)
+        stop.tap()
+        _ = app.waitForButton(A11y.Idle.startButton)
+    }
+
     func test_feedbackButton_opensAndDismissesFeedbackSheet() {
         let app = XCUIApplication()
         app.launchForIntegrationTest()

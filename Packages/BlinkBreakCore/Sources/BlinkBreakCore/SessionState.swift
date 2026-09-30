@@ -2,62 +2,62 @@
 //  SessionState.swift
 //  BlinkBreakCore
 //
-//  The four-case state enum that drives all UI and the state machine. Views `switch`
-//  on this enum to render their body; they never contain business logic beyond that.
+//  The four-case state enum that drives all UI. Views `switch` on this enum to
+//  render their body; they never contain business logic beyond that.
 //
-//  Flutter analogue: this is the equivalent of a sealed class with four subtypes,
-//  consumed by a Selector<SessionState, SessionState> and rendered with a switch.
+//  Flutter analogue: a sealed class with four subtypes, rendered with a switch.
 //
 
 import Foundation
 
-/// The four possible states of a BlinkBreak session. Published by `SessionController`
-/// and observed by all views.
+/// What the UI shows. Derived by `SessionController` from the persisted
+/// `SessionRecord` and the clock.
 ///
 /// ```
-///    idle ────(Start)────► running ────(break-due alarm fires)────► breakPending
-///      ▲                      │                                         │
-///      │                      │                              (user taps "Start break")
-///      │                      │                                         │
-///   (Stop, from any state)   (Stop)                                      ▼
-///      │                      │                                    breakActive
-///      └──────────────────────┴──────(look-away alarm, 20 s later)───────┘
+///    idle ────(Start)────► running ────(break alarm fires)────► breakPending
+///      ▲                      ▲                                     │
+///      │                      │                          (user taps "Start break")
+///   (Stop, from any state)    │                                     ▼
+///      │                      └──────(20 s look-away ends)──── breakActive
 /// ```
 public enum SessionState: Equatable, Sendable {
 
-    /// No session running. Start button is visible. No pending notifications.
+    /// No session running.
     case idle
 
-    /// A session is active, counting down to the next break.
-    /// - Parameter cycleStartedAt: When the current 20-minute countdown started.
-    ///   The next break fires at `cycleStartedAt + BlinkBreakConstants.breakInterval`.
-    case running(cycleStartedAt: Date)
+    /// Counting down to the next break.
+    /// - Parameter breakAt: When the break alarm fires.
+    case running(breakAt: Date)
 
-    /// The break-due alarm has fired. AlarmKit is showing the full-screen alert UI;
-    /// the app (if foregrounded) renders this state while the user acknowledges.
-    /// - Parameter cycleStartedAt: When the 20-minute countdown for this cycle started.
-    case breakPending(cycleStartedAt: Date)
+    /// The break alarm is alerting; waiting for the user to start the break.
+    case breakPending
 
-    /// The user has tapped "Start break". The 20-second break is counting down.
-    /// - Parameter startedAt: When the break began. The look-away alarm fires at
-    ///   `startedAt + BlinkBreakConstants.lookAwayDuration`.
-    case breakActive(startedAt: Date)
+    /// The user is looking away.
+    /// - Parameter endsAt: When the look-away alarm fires.
+    case breakActive(endsAt: Date)
 }
-
-// MARK: - Convenience queries
 
 extension SessionState {
 
-    /// `true` if the session is active in any form (not `.idle`).
-    public var isActive: Bool {
-        switch self {
+    /// Maps a persisted record to UI state at `now`.
+    static func derive(from record: SessionRecord, now: Date) -> SessionState {
+        guard let firesAt = record.alarmFiresAt else { return .idle }
+        switch record.phase {
         case .idle:
-            return false
-        case .running, .breakPending, .breakActive:
-            return true
+            return .idle
+        case .scheduled where now < firesAt.addingTimeInterval(-BlinkBreakConstants.breakInterval):
+            return .idle
+        case .scheduled, .running:
+            return now < firesAt ? .running(breakAt: firesAt) : .breakPending
+        case .lookingAway:
+            return .breakActive(endsAt: firesAt)
         }
     }
 
+    /// `true` for every state except `.idle`.
+    public var isActive: Bool {
+        self != .idle
+    }
 }
 
 extension SessionState: CustomStringConvertible {
