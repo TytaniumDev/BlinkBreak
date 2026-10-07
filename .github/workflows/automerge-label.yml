@@ -1,26 +1,33 @@
 name: Automerge Label
 
+# Adding the `automerge` label turns on GitHub's native auto-merge for the PR;
+# removing it turns auto-merge off. GitHub itself then waits for the required
+# status checks (CI / Lint, CI / Build, CI / Test) on the `main` ruleset before
+# squash-merging, so this workflow never merges anything directly.
+#
+# Requires "Allow auto-merge" in the repo's General settings and a
+# "Require status checks to pass" rule on `main`; without required checks,
+# GitHub merges as soon as auto-merge is enabled.
+
 on:
   pull_request:
-    types: [labeled, unlabeled, synchronize, opened, reopened, ready_for_review]
-  pull_request_review:
-    types: [submitted]
-  check_suite:
-    types: [completed]
-  status: {}
+    types: [labeled, unlabeled]
 
 permissions:
-  pull-requests: write
   contents: write
+  pull-requests: write
 
 jobs:
   automerge:
+    if: github.event.label.name == 'automerge'
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.labels.*.name, 'automerge')
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
     steps:
-      - uses: pascalgn/automerge-action@v0.16.4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MERGE_METHOD: squash
-          MERGE_LABELS: automerge
-          MERGE_REMOVE_LABELS: automerge
+      - name: Enable auto-merge
+        if: github.event.action == 'labeled'
+        run: gh pr merge --auto --squash "$PR_URL"
+      - name: Disable auto-merge
+        if: github.event.action == 'unlabeled'
+        run: gh pr merge --disable-auto "$PR_URL"

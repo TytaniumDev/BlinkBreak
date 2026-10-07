@@ -132,7 +132,7 @@ Any PR that affects alarm behavior must exercise on-device manual verification b
 Matches the `TytaniumDev` repo pattern established by Wheelson / HeadsUpCDM / MythicPlusDiscordBot:
 
 - `.github/workflows/ci.yml` (`pull_request` trigger) calls `.github/workflows/ci-shared.yml` (reusable `workflow_call`).
-- `ci-shared.yml` has three jobs: `Lint`, `Build`, `Test` — all on `macos-15` because iOS SDK requires macOS + Xcode. Branch protection requires check names `CI / Lint`, `CI / Build`, `CI / Test`. **Do not rename the calling job ID (`CI`) in `ci.yml` or the reusable job IDs (`Lint`, `Build`, `Test`) in `ci-shared.yml`, and do not add extra triggers to `ci.yml`.**
+- `ci-shared.yml` has three jobs: `Lint`, `Build`, `Test` — all on `macos-15` because iOS SDK requires macOS + Xcode. The `Standard` ruleset on `main` requires check names `CI / Lint`, `CI / Build`, `CI / Test`. **Do not rename the calling job ID (`CI`) in `ci.yml` or the reusable job IDs (`Lint`, `Build`, `Test`) in `ci-shared.yml`, and do not add extra triggers to `ci.yml`.**
 - `.github/workflows/claude.yml` and `claude-code-review.yml` call the shared workflows in `TytaniumDev/.github/.github/workflows/` (same pattern as Wheelson).
 - `.github/workflows/deploy-testflight.yml` runs on push to `main`. Secrets come from Doppler; the only GitHub secret is `DOPPLER_TOKEN` — see `README.md → TestFlight deployment`.
 
@@ -140,8 +140,8 @@ Matches the `TytaniumDev` repo pattern established by Wheelson / HeadsUpCDM / My
 
 - Never push directly to `main`.
 - Every change goes through a feature branch + PR.
-- Branch protection requires CI green before merge.
-- PRs labeled `automerge` will auto-merge once CI passes and reviews are satisfied.
+- The `Standard` ruleset on `main` requires `CI / Lint`, `CI / Build` and `CI / Test` to pass before merge.
+- Labeling a PR `automerge` turns on GitHub's native auto-merge (`automerge-label.yml`); GitHub squash-merges it once the required checks pass. Removing the label turns auto-merge off.
 
 ## Key conventions
 
