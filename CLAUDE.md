@@ -22,7 +22,7 @@ Runs the BlinkBreakCore unit suite via `swift test`. Sub-second runtime (~125 te
 ```bash
 ./scripts/test-integration.sh
 ```
-Runs the XCUITest integration suite — end-to-end tests that drive the iOS app through a real simulator. Takes ~4 minutes. **Do not run during iteration.** Run only as a final verification step before committing or creating a PR, and when you suspect a change might have broken end-to-end behavior that the unit tests can't catch.
+Runs the XCUITest integration suite — end-to-end tests that drive the iOS app through a real simulator. Takes ~4 minutes. **Do not run during iteration.** Run it before every PR (see Test structure → Integration tests), and when you suspect a change might have broken end-to-end behavior that the unit tests can't catch.
 
 The suite covers: app launch, idle state, start/stop transitions, full break cycle (running → breakPending → breakActive → running), state reconciliation across app terminate + relaunch, rapid start/stop stress testing, and landscape layout. `launchForIntegrationTest` sets `BB_UI_TESTING=1`, `BB_BREAK_INTERVAL=3` and `BB_LOOKAWAY_DURATION=3` so a full cycle runs in ~6 seconds of wall-clock time instead of 20 minutes + 20 seconds.
 
@@ -91,7 +91,7 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 ### Persistence + reconciliation
 
-`SessionRecord` (phase, alarmId, alarmFiresAt, wasAutoStarted, manualStopDate) is persisted to `UserDefaults` under `BlinkBreak.Session.v2`. AlarmKit is the source of truth for what is actually scheduled or ringing (`AlarmManager.shared.alarms`); the record says which of those alarms the session owns and what it means. Nothing else caches alarm state.
+`SessionRecord` (phase, alarmId, alarmFiresAt, wasAutoStarted, manualStopDate, pausedUntil, scheduledStopAt) is persisted to `UserDefaults` under `BlinkBreak.Session.v2`. AlarmKit is the source of truth for what is actually scheduled or ringing (`AlarmManager.shared.alarms`); the record says which of those alarms the session owns and what it means. Nothing else caches alarm state.
 
 ## Test structure
 
@@ -108,8 +108,7 @@ Two layers. **Run unit tests during iteration; run integration tests only as fin
 
 - **Location:** `BlinkBreakUITests/` — XCUITest target that builds alongside the iOS app. Stays in the Swift 5 language mode until migrated to `@MainActor` test methods.
 - **Runner:** `./scripts/test-integration.sh` → `xcodebuild test -scheme BlinkBreakUITests`.
-- **Do NOT run during iteration.**
-- **Run integration tests when:** (a) your change touches view ↔ controller wiring or persistence, (b) you changed reconciliation or any state-transition logic, (c) you're about to commit or create a PR as a final sanity check.
+- **When to run:** before every PR, as the final check. Also run it mid-task if you suspect a change broke end-to-end behavior the unit tests can't catch. It needs Xcode and an iOS simulator; where those aren't available (Linux, Command Line Tools only), say in the PR description that the suite wasn't run.
 - **Launch hooks (DEBUG builds only):** `BB_UI_TESTING=1` skips the AlarmKit permission check and uses the silent sound (`UITestSupport.swift`); `BB_BREAK_INTERVAL` / `BB_LOOKAWAY_DURATION` shorten the cycle (`BlinkBreakConstants`); `-BB_RESET_DEFAULTS` wipes all stored data at launch. `launchForIntegrationTest` sets all of these.
 - **Accessibility identifiers:** every state-bearing UI element carries an `accessibilityIdentifier` like `button.idle.start`, `button.running.stop`, `button.running.takeBreakNow`, `button.breakPending.startBreak`, `button.breakPending.stop`, `button.breakActive.stop`, `button.running.pause`, `button.paused.resume`, `label.running.countdown`. Tests query for these via the `A11y` enum in `BlinkBreakUITestsBase.swift`. Adding a new view state? Add its identifier to `A11y` and to the view.
 
@@ -124,7 +123,7 @@ Any PR that affects alarm behavior must exercise on-device manual verification b
 
 ## Platform constraints
 
-- **iOS 26.1+.** Required for AlarmKit (and its fixed Stop-button behavior). (Pre-AlarmKit history: app shipped on iOS 17+ via UNNotification banners through PR #24; PR #25 migrated to AlarmKit and bumped the floor.)
+- **iOS 26.1+.** Required for AlarmKit (and its fixed Stop-button behavior).
 - **Command Line Tools swift test workaround:** If only CLT is installed (no full Xcode.app), tests are run with `-Xswiftc -F /Library/Developer/CommandLineTools/Library/Developer/Frameworks` plus the matching `-Xlinker -F` and `-Xlinker -rpath` flags to locate Apple's Swift Testing framework. `scripts/test.sh` handles this automatically. Also, a `FoundationReExport.swift` file in BlinkBreakCore has `@_exported import Foundation` to work around a `_Testing_Foundation` cross-import issue in CLT-only environments.
 
 ## CI/CD conventions
@@ -152,14 +151,5 @@ Matches the `TytaniumDev` repo pattern established by Wheelson / HeadsUpCDM / My
 - Every SwiftUI view file has a `#Preview` for each state it can render.
 - `SessionController` methods are the only place state mutations happen. Views never mutate state directly.
 - Third-party SDKs (Sentry) stay out of views; views get services from the SwiftUI environment (see `Feedback/FeedbackReporting.swift`).
-- When adding a new state-machine transition or alarm path: write the unit test first, watch it fail, make it pass. All existing unit tests must stay green after any `BlinkBreakCore` change. For cross-target changes (view wiring, persistence round-trips, reconciliation), also run `./scripts/test-integration.sh` before committing.
+- When adding a new state-machine transition or alarm path: write the unit test first, watch it fail, make it pass. All existing unit tests must stay green after any `BlinkBreakCore` change.
 - iOS app target is `BlinkBreak`; bundle ID `com.tytaniumdev.BlinkBreak`.
-
-## Apple Developer Program prerequisites
-
-BlinkBreak's TestFlight workflow requires a paid Apple Developer Program account. The $99/year enrollment:
-- Enables 1-year provisioning profiles (vs. free personal-team's 7-day expiry)
-- Grants access to TestFlight for beta distribution
-- Is required for any real device deployment beyond a single developer's phone
-
-Until enrolled, development still works via Xcode's free personal-team signing, but the user will need to re-open Xcode and re-build to the device every 7 days.
