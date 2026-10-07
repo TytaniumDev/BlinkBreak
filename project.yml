@@ -120,9 +120,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreakUITests
         TEST_TARGET_NAME: BlinkBreak
         GENERATE_INFOPLIST_FILE: YES
-        # XCUITest's element APIs are main-actor isolated; the suite stays in the
-        # Swift 5 language mode until it's migrated to @MainActor test methods.
-        SWIFT_VERSION: "5.0"
 
 schemes:
   BlinkBreak:

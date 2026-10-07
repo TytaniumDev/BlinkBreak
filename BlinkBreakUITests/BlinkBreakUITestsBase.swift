@@ -43,7 +43,7 @@ extension XCUIApplication {
 
     /// Wait for a button with the given accessibility identifier to exist, up to `timeout` seconds.
     /// Fails the test if it doesn't appear.
-    func waitForButton(_ id: String, timeout: TimeInterval = 5, file: StaticString = #file, line: UInt = #line) -> XCUIElement {
+    func waitForButton(_ id: String, timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
         let button = buttons[id]
         let exists = button.waitForExistence(timeout: timeout)
         XCTAssertTrue(exists, "Button \"\(id)\" did not appear within \(timeout)s", file: file, line: line)
@@ -51,7 +51,7 @@ extension XCUIApplication {
     }
 
     /// Wait for an accessibility element (any element) with the given identifier to exist.
-    func waitForElement(_ id: String, timeout: TimeInterval = 5, file: StaticString = #file, line: UInt = #line) -> XCUIElement {
+    func waitForElement(_ id: String, timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
         let element = descendants(matching: .any).matching(identifier: id).firstMatch
         let exists = element.waitForExistence(timeout: timeout)
         XCTAssertTrue(exists, "Element \"\(id)\" did not appear within \(timeout)s", file: file, line: line)
@@ -59,7 +59,7 @@ extension XCUIApplication {
     }
 
     /// Wait for a button to NOT exist (i.e. state transitioned away from where it was showing).
-    func waitForButtonToDisappear(_ id: String, timeout: TimeInterval = 5, file: StaticString = #file, line: UInt = #line) {
+    func waitForButtonToDisappear(_ id: String, timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line) {
         let button = buttons[id]
         let predicate = NSPredicate(format: "exists == false")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: button)

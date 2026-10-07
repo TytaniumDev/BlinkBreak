@@ -106,7 +106,7 @@ Two layers. **Run unit tests during iteration; run integration tests only as fin
 
 ### Integration tests (slow — minutes)
 
-- **Location:** `BlinkBreakUITests/` — XCUITest target that builds alongside the iOS app. Stays in the Swift 5 language mode until migrated to `@MainActor` test methods.
+- **Location:** `BlinkBreakUITests/` — XCUITest target that builds alongside the iOS app. Swift 6 language mode; test classes are `@MainActor` and use `setUp() async throws`.
 - **Runner:** `./scripts/test-integration.sh` → `xcodebuild test -scheme BlinkBreakUITests`.
 - **When to run:** before every PR, as the final check. Also run it mid-task if you suspect a change broke end-to-end behavior the unit tests can't catch. It needs Xcode and an iOS simulator; where those aren't available (Linux, Command Line Tools only), say in the PR description that the suite wasn't run.
 - **Launch hooks (DEBUG builds only):** `BB_UI_TESTING=1` skips the AlarmKit permission check and uses the silent sound (`UITestSupport.swift`); `BB_BREAK_INTERVAL` / `BB_LOOKAWAY_DURATION` shorten the cycle (`BlinkBreakConstants`); `-BB_RESET_DEFAULTS` wipes all stored data at launch. `launchForIntegrationTest` sets all of these.
