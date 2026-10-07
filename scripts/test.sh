@@ -9,9 +9,9 @@
 # should use during local iteration.
 #
 # CI / full path: when the env var BLINKBREAK_FULL_TESTS=1 is set, also runs
-# `xcodebuild test -scheme BlinkBreak` on an iOS simulator. This is what
-# GitHub Actions runs on macos-15 runners where a simulator runtime is
-# guaranteed available.
+# `xcodebuild test -scheme BlinkBreak`, which runs the BlinkBreakCore test
+# suite on an iOS simulator. This is what GitHub Actions runs on macos-15
+# runners where a simulator runtime is guaranteed available.
 #
 
 set -euo pipefail

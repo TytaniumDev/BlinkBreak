@@ -28,8 +28,7 @@ Two software units, each with one clear purpose:
 ```
 BlinkBreak/
 ├── Packages/BlinkBreakCore/        ← all business logic (Swift Package)
-├── BlinkBreak/                     ← iOS app target (SwiftUI views + glue)
-└── BlinkBreakTests/                ← iOS-scheme test target (stub that links BlinkBreakCore)
+└── BlinkBreak/                     ← iOS app target (SwiftUI views + glue)
 ```
 
 **`BlinkBreakCore`** is a local Swift Package that contains everything non-UI: the session state machine (`SessionController`), the `AlarmSchedulerProtocol` abstraction, persistence, and the weekly-schedule math. It imports nothing Apple-platform-specific — no `SwiftUI`, `UIKit`, `AlarmKit`, `AppIntents`, or `Sentry` — so it builds and tests anywhere Swift runs, including Linux. This is a hard rule enforced by `scripts/lint.sh`. It compiles in the Swift 6 language mode, so data races are compile errors.
@@ -227,7 +226,6 @@ BlinkBreak/
 │   ├── Feedback/                   feedback reporting (Sentry)
 │   ├── Preview/                    PreviewSessionController for SwiftUI previews
 │   └── Views/                      screens, Theme.swift, Components/
-├── BlinkBreakTests/                iOS scheme test target
 ├── BlinkBreakUITests/              XCUITest integration suite
 ├── Packages/
 │   └── BlinkBreakCore/             local Swift Package (all business logic)
