@@ -7,7 +7,7 @@
 //  - Inspect `scheduled` / `cancelled` to assert what the controller asked for.
 //  - Mark an alarm alerting (`simulateAlerting`) or make it vanish the way the
 //    system does after a button tap (`simulateRemoval`).
-//  - Stub authorization and scheduling failures.
+//  - Stub authorization, scheduling, and alarm-list read failures.
 //
 
 import Foundation
@@ -29,6 +29,7 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol {
         var system: [ScheduledAlarm] = []
         var authorization: AlarmAuthorizationStatus = .authorized
         var nextError: AlarmSchedulerError?
+        var listingError: AlarmSchedulerError?
     }
 
     private let storage = Mutex(Storage())
@@ -56,6 +57,11 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol {
     /// Make the next `schedule` call throw.
     func failNextSchedule(with error: AlarmSchedulerError) {
         storage.withLock { $0.nextError = error }
+    }
+
+    /// Make every `currentAlarms()` call throw `error` until called again with nil.
+    func failCurrentAlarms(with error: AlarmSchedulerError?) {
+        storage.withLock { $0.listingError = error }
     }
 
     /// Run `hook` inside every `schedule` call before it returns, to simulate a
@@ -118,7 +124,10 @@ final class MockAlarmScheduler: AlarmSchedulerProtocol {
         }
     }
 
-    func currentAlarms() async -> [ScheduledAlarm] {
-        storage.withLock { $0.system }
+    func currentAlarms() async throws -> [ScheduledAlarm] {
+        try storage.withLock { storage in
+            if let error = storage.listingError { throw error }
+            return storage.system
+        }
     }
 }

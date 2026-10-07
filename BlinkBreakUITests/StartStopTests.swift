@@ -8,10 +8,11 @@
 
 import XCTest
 
+@MainActor
 final class StartStopTests: XCTestCase {
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         continueAfterFailure = false
     }
 

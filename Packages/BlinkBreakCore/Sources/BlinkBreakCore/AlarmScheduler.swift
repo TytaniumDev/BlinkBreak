@@ -59,6 +59,8 @@ public enum AlarmSchedulerError: Error, Sendable, Equatable {
     case authorizationDenied
     /// The underlying scheduler call failed for some other reason.
     case schedulingFailed(reason: String)
+    /// Reading the system's alarm list failed. Not the same as "no alarms".
+    case listingFailed(reason: String)
 }
 
 /// The narrow surface SessionController needs from AlarmKit.
@@ -78,7 +80,9 @@ public protocol AlarmSchedulerProtocol: Sendable {
 
     /// Every alarm the system currently holds for this app, including ones
     /// scheduled by earlier app launches.
-    func currentAlarms() async -> [ScheduledAlarm]
+    /// - Throws: `AlarmSchedulerError.listingFailed` when the system can't be
+    ///   read. Callers must not treat a failed read as an empty list.
+    func currentAlarms() async throws -> [ScheduledAlarm]
 
     /// Alarm lifecycle changes. SessionController is the only subscriber.
     var events: AsyncStream<AlarmEvent> { get }

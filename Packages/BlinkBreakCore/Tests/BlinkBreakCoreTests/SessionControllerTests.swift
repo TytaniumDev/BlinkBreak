@@ -351,6 +351,62 @@ struct SessionControllerTests {
         #expect(f.record == replaced)
     }
 
+    // MARK: - System alarm list unavailable
+
+    @Test("reconcile keeps a running session when the alarm list can't be read")
+    func reconcileWithUnreadableAlarmList() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+        let breakAt = f.now.value.addingTimeInterval(interval)
+        f.alarms.failCurrentAlarms(with: .listingFailed(reason: "boom"))
+
+        await f.controller.reconcile()
+        await f.releaseSleepsAndSettle()
+
+        #expect(f.controller.state == .running(breakAt: breakAt))
+        #expect(f.record.alarmId == alarm)
+        #expect(f.alarms.cancelled.isEmpty)
+    }
+
+    @Test("a vanished-alarm check that can't read the alarm list leaves the session alone")
+    func missingAlarmCheckWithUnreadableList() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+
+        f.alarms.simulateRemoval(alarm)
+        await f.settle()
+        f.alarms.failCurrentAlarms(with: .listingFailed(reason: "boom"))
+        await f.releaseSleepsAndSettle()
+
+        #expect(f.controller.state != .idle)
+        #expect(f.record.alarmId == alarm)
+    }
+
+    @Test("Stop still cancels the session's alarm when the alarm list can't be read")
+    func stopWithUnreadableAlarmList() async {
+        let f = Fixture()
+        let alarm = await f.startRunning()
+        f.alarms.failCurrentAlarms(with: .listingFailed(reason: "boom"))
+
+        await f.controller.stop()
+
+        #expect(f.controller.state == .idle)
+        #expect(f.alarms.cancelled.contains(alarm))
+    }
+
+    @Test("Start over a running session cancels the old alarm when the alarm list can't be read")
+    func restartWithUnreadableAlarmList() async {
+        let f = Fixture()
+        let first = await f.startRunning()
+        f.alarms.failCurrentAlarms(with: .listingFailed(reason: "boom"))
+
+        await f.controller.start()
+
+        #expect(f.alarms.cancelled.contains(first))
+        #expect(f.record.alarmId != first)
+        #expect(f.record.phase == .running)
+    }
+
     // MARK: - takeBreakNow()
 
     @Test("takeBreakNow() moves the break alarm to one second from now")

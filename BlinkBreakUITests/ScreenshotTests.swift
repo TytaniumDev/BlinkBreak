@@ -24,10 +24,11 @@
 
 import XCTest
 
+@MainActor
 final class ScreenshotTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
         continueAfterFailure = false
         // Skip unless explicitly opted in. This keeps the regular integration
         // suite fast and prevents accidental captures in CI.

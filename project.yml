@@ -99,30 +99,6 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    scheme:
-      testTargets:
-        - BlinkBreakTests
-      gatherCoverageData: true
-
-  # =========================================================================
-  # Unit test target (runs BlinkBreakCore tests via the iOS scheme; the
-  # package-level `swift test` run covers these too, this is for Xcode / CI
-  # running xcodebuild test).
-  # =========================================================================
-  BlinkBreakTests:
-    type: bundle.unit-test
-    platform: iOS
-    sources:
-      - path: BlinkBreakTests
-    dependencies:
-      - target: BlinkBreak
-      - package: BlinkBreakCore
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreakTests
-        BUNDLE_LOADER: "$(TEST_HOST)"
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/BlinkBreak.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BlinkBreak"
-        GENERATE_INFOPLIST_FILE: YES
 
   # =========================================================================
   # UI test target — XCUITest integration suite.
@@ -144,9 +120,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.tytaniumdev.BlinkBreakUITests
         TEST_TARGET_NAME: BlinkBreak
         GENERATE_INFOPLIST_FILE: YES
-        # XCUITest's element APIs are main-actor isolated; the suite stays in the
-        # Swift 5 language mode until it's migrated to @MainActor test methods.
-        SWIFT_VERSION: "5.0"
 
 schemes:
   BlinkBreak:
@@ -158,7 +131,8 @@ schemes:
     test:
       config: Debug
       targets:
-        - BlinkBreakTests
+        # The Core package's own Swift Testing suite, run on the iOS simulator.
+        - package: BlinkBreakCore/BlinkBreakCoreTests
       gatherCoverageData: true
     profile:
       config: Release

@@ -60,7 +60,6 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     // MARK: - AlarmSchedulerProtocol
 
     func authorizationStatus() async -> AlarmAuthorizationStatus {
-        if UITestSupport.isActive { return .authorized }
         switch AlarmManager.shared.authorizationState {
         case .authorized: return .authorized
         case .denied: return .denied
@@ -95,13 +94,39 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     }
 
     func cancel(alarmId: UUID) async {
-        // Throws for an alarm that's already gone, which is fine.
-        try? AlarmManager.shared.cancel(id: alarmId)
+        // Apple's call for silencing a ringing alarm is `stop(id:)`; `cancel(id:)`
+        // removes one that hasn't fired yet. Both throw for an alarm that's
+        // already gone, which is harmless, but AlarmKit's errors don't say which
+        // failure it was, so every failure is logged rather than swallowed.
+        let shortId = alarmId.uuidString.prefix(8)
+        var isAlerting = false
+        do {
+            isAlerting = try AlarmManager.shared.alarms
+                .contains { $0.id == alarmId && $0.state == .alerting }
+        } catch {
+            // Can't tell whether it's ringing; fall through to `cancel(id:)`.
+            AppLogger.shared.log(.warning, "alarm \(shortId): listing alarms before cancel failed: \(error)")
+        }
+        do {
+            if isAlerting {
+                try AlarmManager.shared.stop(id: alarmId)
+            } else {
+                try AlarmManager.shared.cancel(id: alarmId)
+            }
+        } catch {
+            let action = isAlerting ? "stop" : "cancel"
+            AppLogger.shared.log(.warning, "alarm \(shortId): \(action) failed: \(error)")
+        }
     }
 
-    func currentAlarms() async -> [ScheduledAlarm] {
-        let alarms = (try? AlarmManager.shared.alarms) ?? []
-        return alarms.map { ScheduledAlarm(alarmId: $0.id, isAlerting: $0.state == .alerting) }
+    func currentAlarms() async throws -> [ScheduledAlarm] {
+        do {
+            return try AlarmManager.shared.alarms.map {
+                ScheduledAlarm(alarmId: $0.id, isAlerting: $0.state == .alerting)
+            }
+        } catch {
+            throw AlarmSchedulerError.listingFailed(reason: String(describing: error))
+        }
     }
 
     // MARK: - Helpers
@@ -113,7 +138,13 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
         case .denied:
             throw AlarmSchedulerError.authorizationDenied
         case .notDetermined:
-            let state = try? await AlarmManager.shared.requestAuthorization()
+            let state: AlarmManager.AuthorizationState
+            do {
+                state = try await AlarmManager.shared.requestAuthorization()
+            } catch {
+                // The request itself failed; that isn't the user saying no.
+                throw AlarmSchedulerError.schedulingFailed(reason: "authorization request failed: \(error)")
+            }
             guard state == .authorized else { throw AlarmSchedulerError.authorizationDenied }
         }
     }
@@ -140,7 +171,14 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     }
 
     private static func sound(muted: Bool) -> AlertConfiguration.AlertSound {
-        // UI tests use the silent file so simulator runs stay quiet.
-        muted || UITestSupport.isActive ? .named("break-alarm-silent.caf") : .named("break-alarm.caf")
+        // UI tests use the system default. Observed on the iOS 26.4 simulator
+        // runtime: SpringBoard crashes (`-[AVAudioSession reporterID]:
+        // unrecognized selector`) whenever an alarm plays a bundled sound file,
+        // even the silent one. That runtime can't load the default tone at all,
+        // so the default is both safe and quiet there. Revisit when the simulator
+        // runtime changes — a runtime that can load the default tone would make
+        // UI-test alarms audible and may reintroduce the crash.
+        if UITestSupport.isActive { return .default }
+        return muted ? .named("break-alarm-silent.caf") : .named("break-alarm.caf")
     }
 }
