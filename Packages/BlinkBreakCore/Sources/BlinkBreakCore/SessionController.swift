@@ -222,7 +222,15 @@ public final class SessionController: SessionControllerProtocol {
     private func handleMissingAlarm(_ id: UUID) async {
         let record = persistence.loadSession()
         guard record.alarmId == id, record.phase != .idle else { return }
-        guard !(await alarms.currentAlarms().contains { $0.alarmId == id }) else { return }
+        let stillScheduled: Bool
+        do {
+            stillScheduled = try await alarms.currentAlarms().contains { $0.alarmId == id }
+        } catch {
+            // Can't tell whether the alarm is really gone. Leave the session alone; the next reconcile checks again.
+            log.log(.warning, "alarm \(id.short) check skipped: \(error)")
+            return
+        }
+        guard !stillScheduled else { return }
         if let firesAt = record.alarmFiresAt, clock() < firesAt {
             log.log(.warning, "alarm \(id.short) vanished before firing; stopping")
             await stopSession(reason: .error)
@@ -394,10 +402,18 @@ public final class SessionController: SessionControllerProtocol {
 
         let record = persistence.loadSession()
         let now = clock()
-        let systemAlarms = await alarms.currentAlarms()
+        let systemAlarms: [ScheduledAlarm]?
+        do {
+            systemAlarms = try await alarms.currentAlarms()
+        } catch {
+            // A failed read isn't "no alarms": skip the orphan and missing-alarm
+            // checks this time rather than act on a wrong picture.
+            log.log(.warning, "reconcile: alarm list unavailable: \(error)")
+            systemAlarms = nil
+        }
 
         // Alarms we don't own come from older builds or interrupted operations.
-        for alarm in systemAlarms where alarm.alarmId != record.alarmId && !alarm.isAlerting {
+        for alarm in systemAlarms ?? [] where alarm.alarmId != record.alarmId && !alarm.isAlerting {
             log.log(.info, "reconcile: cancelling orphaned alarm \(alarm.alarmId.short)")
             await alarms.cancel(alarmId: alarm.alarmId)
         }
@@ -413,7 +429,7 @@ public final class SessionController: SessionControllerProtocol {
             await stopSession(reason: .windowClosed)
             return
         }
-        if let id = record.alarmId, !systemAlarms.contains(where: { $0.alarmId == id }) {
+        if let systemAlarms, let id = record.alarmId, !systemAlarms.contains(where: { $0.alarmId == id }) {
             checkMissingAlarmAfterGrace(id)
         }
     }
@@ -559,7 +575,20 @@ extension SessionController {
     }
 
     private func cancelAlarms(keepingAlerting: Bool) async {
-        for alarm in await alarms.currentAlarms() where !(keepingAlerting && alarm.isAlerting) {
+        let systemAlarms: [ScheduledAlarm]
+        do {
+            systemAlarms = try await alarms.currentAlarms()
+        } catch {
+            // Fall back to the one alarm the session knows it owns. Its ringing
+            // state is unknown; cutting a ring short beats leaving a duplicate
+            // alarm booked. Reconcile cancels any other leftovers later.
+            log.log(.warning, "cancel: alarm list unavailable, cancelling the session's alarm: \(error)")
+            if let id = persistence.loadSession().alarmId {
+                await alarms.cancel(alarmId: id)
+            }
+            return
+        }
+        for alarm in systemAlarms where !(keepingAlerting && alarm.isAlerting) {
             await alarms.cancel(alarmId: alarm.alarmId)
         }
     }

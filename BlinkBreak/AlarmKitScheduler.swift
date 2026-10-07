@@ -95,13 +95,26 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     }
 
     func cancel(alarmId: UUID) async {
-        // Throws for an alarm that's already gone, which is fine.
-        try? AlarmManager.shared.cancel(id: alarmId)
+        // Apple's call for silencing a ringing alarm is `stop(id:)`; `cancel(id:)`
+        // removes one that hasn't fired yet. Both throw for an alarm that's
+        // already gone, which is fine.
+        let isAlerting = (try? AlarmManager.shared.alarms)?
+            .contains { $0.id == alarmId && $0.state == .alerting } ?? false
+        if isAlerting {
+            try? AlarmManager.shared.stop(id: alarmId)
+        } else {
+            try? AlarmManager.shared.cancel(id: alarmId)
+        }
     }
 
-    func currentAlarms() async -> [ScheduledAlarm] {
-        let alarms = (try? AlarmManager.shared.alarms) ?? []
-        return alarms.map { ScheduledAlarm(alarmId: $0.id, isAlerting: $0.state == .alerting) }
+    func currentAlarms() async throws -> [ScheduledAlarm] {
+        do {
+            return try AlarmManager.shared.alarms.map {
+                ScheduledAlarm(alarmId: $0.id, isAlerting: $0.state == .alerting)
+            }
+        } catch {
+            throw AlarmSchedulerError.listingFailed(reason: String(describing: error))
+        }
     }
 
     // MARK: - Helpers
@@ -113,7 +126,13 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
         case .denied:
             throw AlarmSchedulerError.authorizationDenied
         case .notDetermined:
-            let state = try? await AlarmManager.shared.requestAuthorization()
+            let state: AlarmManager.AuthorizationState
+            do {
+                state = try await AlarmManager.shared.requestAuthorization()
+            } catch {
+                // The request itself failed; that isn't the user saying no.
+                throw AlarmSchedulerError.schedulingFailed(reason: "authorization request failed: \(error)")
+            }
             guard state == .authorized else { throw AlarmSchedulerError.authorizationDenied }
         }
     }
