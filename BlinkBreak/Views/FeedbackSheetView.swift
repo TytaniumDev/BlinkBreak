@@ -99,8 +99,8 @@ struct FeedbackSheetView: View {
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("button.feedback.submit")
 
-                    Text("Diagnostic data and recent app logs are attached automatically to help us "
-                         + "understand any issues. No personal data is shared.")
+                    Text("Recent app logs are attached to help us understand any issues. "
+                         + "If you add an email, it's only used to reply to you.")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.4))
                         .multilineTextAlignment(.center)
