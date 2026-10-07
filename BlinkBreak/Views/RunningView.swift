@@ -14,14 +14,6 @@
 import BlinkBreakCore
 import SwiftUI
 
-// Cached so the once-a-second render doesn't allocate a formatter each tick.
-private let a11yDurationFormatter: DateComponentsFormatter = {
-    let formatter = DateComponentsFormatter()
-    formatter.unitsStyle = .full
-    formatter.allowedUnits = [.minute, .second]
-    return formatter
-}()
-
 struct RunningView<Controller: SessionControllerProtocol>: View {
 
     let controller: Controller
@@ -87,13 +79,15 @@ struct RunningView<Controller: SessionControllerProtocol>: View {
     private func countdown(at date: Date) -> some View {
         let interval = BlinkBreakConstants.breakInterval
         let remaining = max(0, breakAt.timeIntervalSince(date))
-        let total = Int(remaining.rounded(.up))
-        let label = String(format: "%02d:%02d", total / 60, total % 60)
-        return CountdownRing(progress: (interval - remaining) / interval, label: label)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Time remaining")
-            .accessibilityValue(a11yDurationFormatter.string(from: remaining) ?? label)
-            .accessibilityIdentifier("label.running.countdown")
+        let shown = Duration.seconds(remaining.rounded(.up))
+        return CountdownRing(
+            progress: (interval - remaining) / interval,
+            label: shown.formatted(.time(pattern: .minuteSecond(padMinuteToLength: 2)))
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Time remaining")
+        .accessibilityValue(shown.formatted(.units(allowed: [.minutes, .seconds], width: .wide)))
+        .accessibilityIdentifier("label.running.countdown")
     }
 }
 

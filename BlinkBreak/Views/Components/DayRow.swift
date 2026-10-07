@@ -25,8 +25,6 @@ struct DayRow: View {
                 Toggle("Enable \(dayName)", isOn: $daySchedule.isEnabled)
                     .labelsHidden()
                     .tint(.green)
-                    .scaleEffect(0.8)
-                    .frame(width: 40)
 
                 Text(dayName)
                     .font(.subheadline.weight(.medium))
