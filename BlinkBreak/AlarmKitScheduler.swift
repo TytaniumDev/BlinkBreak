@@ -96,13 +96,26 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     func cancel(alarmId: UUID) async {
         // Apple's call for silencing a ringing alarm is `stop(id:)`; `cancel(id:)`
         // removes one that hasn't fired yet. Both throw for an alarm that's
-        // already gone, which is fine.
-        let isAlerting = (try? AlarmManager.shared.alarms)?
-            .contains { $0.id == alarmId && $0.state == .alerting } ?? false
-        if isAlerting {
-            try? AlarmManager.shared.stop(id: alarmId)
-        } else {
-            try? AlarmManager.shared.cancel(id: alarmId)
+        // already gone, which is harmless, but AlarmKit's errors don't say which
+        // failure it was, so every failure is logged rather than swallowed.
+        let shortId = alarmId.uuidString.prefix(8)
+        var isAlerting = false
+        do {
+            isAlerting = try AlarmManager.shared.alarms
+                .contains { $0.id == alarmId && $0.state == .alerting }
+        } catch {
+            // Can't tell whether it's ringing; fall through to `cancel(id:)`.
+            AppLogger.shared.log(.warning, "alarm \(shortId): listing alarms before cancel failed: \(error)")
+        }
+        do {
+            if isAlerting {
+                try AlarmManager.shared.stop(id: alarmId)
+            } else {
+                try AlarmManager.shared.cancel(id: alarmId)
+            }
+        } catch {
+            let action = isAlerting ? "stop" : "cancel"
+            AppLogger.shared.log(.warning, "alarm \(shortId): \(action) failed: \(error)")
         }
     }
 
@@ -158,10 +171,13 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     }
 
     private static func sound(muted: Bool) -> AlertConfiguration.AlertSound {
-        // UI tests use the system default. The iOS 26.4 simulator's SpringBoard
-        // crashes (`-[AVAudioSession reporterID]: unrecognized selector`) whenever
-        // an alarm plays a custom sound file, even the silent one. It can't load
-        // the default tone at all, so the default is both safe and quiet there.
+        // UI tests use the system default. Observed on the iOS 26.4 simulator
+        // runtime: SpringBoard crashes (`-[AVAudioSession reporterID]:
+        // unrecognized selector`) whenever an alarm plays a bundled sound file,
+        // even the silent one. That runtime can't load the default tone at all,
+        // so the default is both safe and quiet there. Revisit when the simulator
+        // runtime changes — a runtime that can load the default tone would make
+        // UI-test alarms audible and may reintroduce the crash.
         if UITestSupport.isActive { return .default }
         return muted ? .named("break-alarm-silent.caf") : .named("break-alarm.caf")
     }

@@ -106,7 +106,11 @@ enum AlarmPermission {
             predicate: NSPredicate { _, _ in allow.exists || running.exists },
             object: nil
         )
-        _ = XCTWaiter().wait(for: [promptOrRunning], timeout: 10)
+        let result = XCTWaiter().wait(for: [promptOrRunning], timeout: 10)
+        XCTAssertEqual(
+            result, .completed,
+            "AlarmKit permission prompt never appeared and the session didn't start"
+        )
         if allow.exists {
             allow.tap()
         }

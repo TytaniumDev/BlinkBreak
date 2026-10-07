@@ -99,7 +99,7 @@ struct FeedbackSheetView: View {
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("button.feedback.submit")
 
-                    Text("Recent app logs are attached to help us understand any issues. "
+                    Text("Recent app logs and device info are attached to help us understand any issues. "
                          + "If you add an email, it's only used to reply to you.")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.4))
