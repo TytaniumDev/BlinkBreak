@@ -48,6 +48,9 @@ struct ScheduleSection<Controller: SessionControllerProtocol>: View {
                 }
             }
         }
+        // A container keeps the identifier on the section itself instead of
+        // SwiftUI copying it onto each child; VoiceOver still reaches every child.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("section.schedule")
     }
 

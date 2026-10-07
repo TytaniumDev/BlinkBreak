@@ -60,7 +60,6 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     // MARK: - AlarmSchedulerProtocol
 
     func authorizationStatus() async -> AlarmAuthorizationStatus {
-        if UITestSupport.isActive { return .authorized }
         switch AlarmManager.shared.authorizationState {
         case .authorized: return .authorized
         case .denied: return .denied
@@ -159,7 +158,11 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     }
 
     private static func sound(muted: Bool) -> AlertConfiguration.AlertSound {
-        // UI tests use the silent file so simulator runs stay quiet.
-        muted || UITestSupport.isActive ? .named("break-alarm-silent.caf") : .named("break-alarm.caf")
+        // UI tests use the system default. The iOS 26.4 simulator's SpringBoard
+        // crashes (`-[AVAudioSession reporterID]: unrecognized selector`) whenever
+        // an alarm plays a custom sound file, even the silent one. It can't load
+        // the default tone at all, so the default is both safe and quiet there.
+        if UITestSupport.isActive { return .default }
+        return muted ? .named("break-alarm-silent.caf") : .named("break-alarm.caf")
     }
 }
