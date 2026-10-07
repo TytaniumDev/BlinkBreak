@@ -26,12 +26,18 @@ struct AdaptiveScreen<Content: View, Actions: View>: View {
                         .frame(maxWidth: Layout.readableWidth)
                         .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                 }
+                // Inset the content inside the scroll view rather than padding the
+                // scroll view itself. A ScrollView clips to its bounds, and some
+                // controls (the iOS 26 switch) draw a little past their frame, so the
+                // scroll view needs room beyond the content's edges or they get cut.
+                .contentMargins(.horizontal, Layout.screenPadding, for: .scrollContent)
                 .scrollBounceBehavior(.basedOnSize)
             }
             actions
                 .frame(maxWidth: Layout.readableWidth)
+                .padding(.horizontal, Layout.screenPadding)
         }
-        .padding(Layout.screenPadding)
+        .padding(.vertical, Layout.screenPadding)
     }
 }
 
