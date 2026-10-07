@@ -571,6 +571,38 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
+> **Amendment (2026-10-07, during execution).** Tasks 6 and 7 were added after Tasks 3 and 5 surfaced two defects that were already on `main`:
+> - Task 3's integration run: the suite fails on `main` 769ba75, with 20 failed / 5 passed / 4 skipped. In UI-test mode, tapping Start never reaches the running state, and `ScheduleTests.testIdleViewShowsScheduleSection` can't find `section.schedule` as a container.
+> - Task 5's screenshot: the trailing edge of the Schedule and Alarm Sound switches is clipped on the idle screen (iOS 26.4 simulator).
+>
+> Both are fixed in the app, never by weakening tests.
+
+### Task 6: Header switches are clipped at the trailing edge
+
+**Files (expected — confirm while investigating):**
+- Modify: `BlinkBreak/Views/Components/AdaptiveScreen.swift`, and/or `BlinkBreak/Views/ScheduleSection.swift` / `BlinkBreak/Views/Components/SoundToggleRow.swift`
+
+**Evidence:** `.superpowers/sdd/2026-10-07-audit-followups/task-5-idle-schedule.png`. The Schedule and Alarm Sound switches are cut flat on their right edge at exactly the content's trailing edge, where the Start button's rounded end also sits. The day-row switches, which sit inside padded rows, are not clipped. `AdaptiveScreen` puts its content in a `ScrollView` and applies `Layout.screenPadding` outside it, so the scroll view's bounds equal the content's bounds.
+
+- [ ] **Step 1: Confirm the cause.** Use superpowers:systematic-debugging. Check whether the scroll view clips a switch whose rendering extends past its layout frame. One way: temporarily add `.scrollClipDisabled()` to the ScrollView in `AdaptiveScreen`, rebuild, screenshot, then revert. Record the result.
+- [ ] **Step 2: Fix it with a documented SwiftUI API, keeping the visual layout the same** (content inset 24 pt from the window edge, capped at `Layout.readableWidth`). Preferred: give the scroll view the full width and inset the scroll content with `.contentMargins(.horizontal, Layout.screenPadding, for: .scrollContent)`, keeping `actions` padded as before. If the evidence points elsewhere, use whatever fix the root cause calls for. Don't hide the problem by shrinking the control.
+- [ ] **Step 3: Verify visually.** Build, install and launch normally on an iOS 26.1+ iPhone simulator. Turn on the schedule and take screenshots of the idle screen (both header switches fully visible, nothing else moved), the running screen, and the idle screen in landscape. Save them under `.superpowers/sdd/2026-10-07-audit-followups/task-6-*.png` and compare with `task-5-idle-schedule.png`.
+- [ ] **Step 4: Build, lint, commit.** `./scripts/build.sh && ./scripts/lint.sh`, then commit with subject `fix: stop clipping switches at the content's trailing edge` and the Co-Authored-By trailer.
+
+### Task 7: Make the integration suite pass again
+
+**Files:** determined by the investigation. Expected: `BlinkBreak/AlarmKitScheduler.swift` / `BlinkBreak/UITestSupport.swift` and/or `BlinkBreakUITests/BlinkBreakUITestsBase.swift`, plus `BlinkBreak/Views/ScheduleSection.swift`.
+
+**Evidence:** `.superpowers/sdd/2026-10-07-audit-followups/task-3-report.md`, "Integration suite" section. Unverified hypothesis: with `BB_UI_TESTING=1`, `AlarmKitScheduler.authorizationStatus()` reports `.authorized` and skips `requestAuthorization()`. On a freshly erased simulator, AlarmKit has never been authorized, so `AlarmManager.shared.schedule` throws and Start stays idle. Task 5 observed that a normal (non-UI-test) launch on the simulator reaches running after the permission flow.
+
+- [ ] **Step 1: Find the root cause.** Use superpowers:systematic-debugging. Reproduce with one test: `xcodebuild test -project BlinkBreak.xcodeproj -scheme BlinkBreakUITests -destination "platform=iOS Simulator,name=iPhone 17 Pro" -only-testing:BlinkBreakUITests/StartStopTests/test_tapStart_transitionsIdleToRunning`. Collect evidence before changing code: the app's log lines (`log show --predicate 'subsystem == "com.tytaniumdev.BlinkBreak"'` on the simulator, or the test's attached logs), and the error `schedule` throws.
+- [ ] **Step 2: Fix the root cause.** If the hypothesis holds, the standard XCUITest approach is to let the app request permission normally and have the tests accept the system alert. For example, in `launchForIntegrationTest` accept the AlarmKit prompt through `XCUIApplication(bundleIdentifier: "com.apple.springboard")` when it appears, or use `addUIInterruptionMonitor`. Then remove the authorization bypass from `UITestSupport` / `AlarmKitScheduler` so no test-only permission path ships in the app. If the evidence shows a different cause, fix that instead and explain it in the report.
+- [ ] **Step 3: Fix `testIdleViewShowsScheduleSection`.** The test queries `app.otherElements["section.schedule"]`, but SwiftUI pushed the identifier down onto the section's children (a StaticText and a Switch). Make `ScheduleSection`'s container a real accessibility container: add `.accessibilityElement(children: .contain)` before `.accessibilityIdentifier("section.schedule")`. Confirm VoiceOver still reaches each child.
+- [ ] **Step 4: Run the full suite.** `./scripts/test-integration.sh`. Expected: every test passes except the 4 `ScreenshotTests`, which skip by design. Don't change any assertion, timeout or timing value to get there. If one test still fails after a fix attempt, re-run it alone once (to rule out a simulator flake). If it's still red, report it with evidence rather than weakening it. Also confirm `ReconciliationTests`' `NSPredicate` wait now actually runs.
+- [ ] **Step 5: Docs, lint, commit.** If the permission handling changed, update CLAUDE.md's integration-test section to describe how tests handle the AlarmKit prompt, and update the `UITestSupport.swift` header. Run `./scripts/test.sh && ./scripts/lint.sh`, then commit with subject `fix: integration suite reaches running again` (adjust the subject to the real root cause) and the Co-Authored-By trailer.
+
+---
+
 ## Final verification (controller, after all tasks)
 
 - [ ] `./scripts/test.sh`, `./scripts/lint.sh`, `./scripts/build.sh` all pass.
