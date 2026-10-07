@@ -22,22 +22,20 @@ final class ReconciliationUITests: XCTestCase {
 
     func test_startThenRelaunchBeforeBreak_preservesRunningState() {
         // First launch: start a fresh session, verify running state, terminate.
+        // The break alarm is booked 30 s out, so it can't fire before the
+        // relaunch below (terminate + relaunch takes ~5 s).
         let app = XCUIApplication()
-        app.launchForIntegrationTest()
+        app.launchForIntegrationTest(breakIntervalSeconds: 30)
         app.waitForButton(A11y.Idle.startButton).tap()
         _ = app.waitForButton(A11y.Running.stopButton)
         app.terminate()
 
-        // Second launch: NO reset of defaults. The persisted record should cause
-        // the app to come up in running state (because we terminate before the
-        // break fires, within the 3-second window — tight but doable).
+        // Second launch: NO reset of defaults, so the persisted record survives.
         let relaunched = XCUIApplication()
-        // Note: no -BB_RESET_DEFAULTS; we want the persisted record to survive.
-        // The persisted alarm fire time is what matters, not the relaunch's interval.
         relaunched.launchForIntegrationTest(breakIntervalSeconds: 30, resetDefaults: false)
 
-        // Expect running state because the persisted cycleStartedAt is recent and
-        // the break interval is 30s now (plenty of time remaining).
+        // Expect running state: the persisted record plus the still-pending
+        // system alarm decide the state, not the relaunch's interval.
         _ = relaunched.waitForButton(A11y.Running.stopButton)
     }
 
