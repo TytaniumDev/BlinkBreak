@@ -284,6 +284,32 @@ struct SessionControllerTests {
         #expect(f.record == afterRoll)
     }
 
+    @Test("\"End break\" arriving after the app already rolled on still stops the ringing alarm")
+    func lateEndBreakStopsAlarm() async {
+        let f = Fixture()
+        let lookAwayAlarm = await f.startLookingAway()
+        f.advance(by: lookAway + BlinkBreakConstants.lookAwayCompletionMargin)
+        f.alarms.simulateAlerting(lookAwayAlarm)
+        await f.settle()
+
+        await f.controller.respond(to: .confirm, alarmId: lookAwayAlarm)
+
+        #expect(f.alarms.cancelled.contains(lookAwayAlarm))
+        #expect(f.alarms.systemAlarmIds.contains(lookAwayAlarm) == false)
+    }
+
+    @Test("a button tapped on a ringing alarm after the session stopped still stops it")
+    func buttonOnRingingAlarmWhileIdle() async {
+        let f = Fixture()
+        let ringing = UUID()
+        f.alarms.addSystemAlarm(ringing, isAlerting: true)
+
+        await f.controller.respond(to: .confirm, alarmId: ringing)
+
+        #expect(f.alarms.cancelled == [ringing])
+        #expect(f.alarms.scheduled.isEmpty)
+    }
+
     @Test("the look-away ending on time rolls on even without an alerting event")
     func lookAwayEndsWithoutEvent() async {
         let f = Fixture()

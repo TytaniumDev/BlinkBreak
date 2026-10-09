@@ -155,7 +155,11 @@ public final class SessionController: SessionControllerProtocol {
         await queue.run {
             let record = self.persistence.loadSession()
             guard record.alarmId == alarmId else {
-                self.log.log(.info, "respond(\(response.rawValue)): alarm \(alarmId.short) is not current, ignoring")
+                // The session already moved past this alarm (e.g. the look-away
+                // rolled on when it started ringing), but it may still be ringing.
+                // The custom button doesn't dismiss it by itself, so stop it here.
+                self.log.log(.info, "respond(\(response.rawValue)): alarm \(alarmId.short) is not current, stopping it")
+                await self.alarms.cancel(alarmId: alarmId)
                 return
             }
             self.log.log(.info, "respond(\(response.rawValue)): alarm \(alarmId.short) phase=\(record.phase.rawValue)")
