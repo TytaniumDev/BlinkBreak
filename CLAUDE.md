@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BlinkBreak is an iOS app that enforces the 20-20-20 rule for eye strain: every 20 minutes, the user is alerted to look at something 20 feet away for 20 seconds. The alert is delivered via **AlarmKit** (iOS 26.1+) — a full-screen alarm takeover with a "Start break" button. Plays at alarm volume regardless of silent switch / Focus / DND. Supports an optional weekly schedule for automatic start/stop.
+BlinkBreak is an iOS app that enforces the 20-20-20 rule for eye strain: every 20 minutes, the user is alerted to look at something 20 feet away for 20 seconds. The alert is delivered via **AlarmKit** (iOS 26.1+) — a full-screen alarm takeover whose system Stop button starts the break (a "Skip break" button skips it). Plays at alarm volume regardless of silent switch / Focus / DND. Supports an optional weekly schedule for automatic start/stop.
 
 It runs on iPhone (portrait + landscape), iPad (fully resizable), and Apple silicon Macs as the iPad app ("Designed for iPad").
 
@@ -71,8 +71,8 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 `SessionRecord.Phase` is persisted: `idle`, `scheduled` (weekly schedule pre-booked the next window's first break), `running`, `lookingAway`. `SessionState` is derived from the record plus the clock: `idle`, `running(breakAt:)`, `breakPending`, `breakActive(endsAt:)`, `paused(until:)`.
 
-- The break alarm fires → `breakPending`. "Start break" (alarm button or in-app) → look-away alarm booked → `breakActive`. Stop on the break alarm skips straight to the next cycle.
-- The look-away alarm fires → next cycle → `running`.
+- The break alarm fires → `breakPending`. Stop on the alarm (or "Start break" in-app) → look-away alarm booked → `breakActive`. "Skip break" on the break alarm skips straight to the next cycle.
+- The look-away alarm fires → next cycle → `running`. Its only button is Stop.
 
 ### Weekly schedule, pause, and manual sessions
 
@@ -83,7 +83,7 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 ### How the cycle advances (important)
 
-- **Alarm buttons run App Intents** (`BreakButtonIntent`, `StopButtonIntent`). iOS runs them even when the app isn't open; they call `SessionController.respond(to:alarmId:)` through `AppEnvironment`, which books the next alarm. This is what keeps the cycle going when the app has been killed.
+- **Alarm buttons run App Intents** (`BreakButtonIntent` on Stop, `StopButtonIntent` on Skip break; the names predate the swap and stay because booked alarms refer to them by type name). Each stops its own alarm first, so the alert clears on a paired Apple Watch too. iOS runs them even when the app isn't open; they call `SessionController.respond(to:alarmId:)` through `AppEnvironment`, which books the next alarm. This is what keeps the cycle going when the app has been killed.
 - **While the app is alive**, `AlarmKitScheduler` turns `alarmUpdates` into `.alerting` / `.removed` events. The look-away alarm ringing rolls the cycle on. An alarm removed with no intent response is treated as skipped after `BlinkBreakConstants.missingAlarmGrace`.
 - **`reconcile()`** runs when the app becomes active (`RootView`, `onChange(of: scenePhase, initial: true)`). It catches up on missed transitions, cancels alarms the session doesn't own, and applies the schedule.
 - **The weekly schedule pre-books** the first break of the next window as a normal AlarmKit alarm. There is no background task.
@@ -115,7 +115,7 @@ Two layers. **Run unit tests during iteration; run integration tests only as fin
 
 ### What neither layer covers (manual verification only)
 
-- **Alarm buttons with the app killed.** Tap Start break / End break / Stop on the system alarm after swiping the app away; the next alarm must still be booked.
+- **Alarm buttons with the app killed.** Tap Stop / Skip break on the system alarm after swiping the app away; the next alarm must still be booked.
 - **Focus Mode break-through.** No Focus Mode in the simulator.
 - **Custom alarm sound playback.**
 - **Mac ("Designed for iPad") alarm behavior.**

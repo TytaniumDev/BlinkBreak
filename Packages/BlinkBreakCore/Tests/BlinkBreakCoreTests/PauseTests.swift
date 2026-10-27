@@ -272,7 +272,7 @@ struct PauseTests {
         await f.controller.start()
         f.now.value = at(2, 16, 50)
 
-        await f.controller.respond(to: .stop, alarmId: f.record.alarmId!)
+        await f.controller.respond(to: .skip, alarmId: f.record.alarmId!)
 
         #expect(f.controller.state == .idle)
         #expect(f.record.phase == .scheduled)

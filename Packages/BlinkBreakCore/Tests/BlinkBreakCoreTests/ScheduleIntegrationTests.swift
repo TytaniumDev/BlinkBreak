@@ -182,7 +182,7 @@ struct ScheduleIntegrationTests {
         let alarm = f.record.alarmId!
 
         f.now.value = at(2, 16, 50)
-        await f.controller.respond(to: .stop, alarmId: alarm)
+        await f.controller.respond(to: .skip, alarmId: alarm)
 
         #expect(f.controller.state == .idle)
         #expect(f.record.phase == .scheduled)
@@ -241,7 +241,7 @@ struct ScheduleIntegrationTests {
         await f.controller.reconcile()
         #expect(f.record.phase == .running)
 
-        await f.controller.respond(to: .stop, alarmId: alarm)
+        await f.controller.respond(to: .skip, alarmId: alarm)
         #expect(f.record.phase == .running)
         #expect(f.record.wasAutoStarted == false)
     }
