@@ -7,16 +7,21 @@
 //  background if it isn't running — so the next alarm gets booked right away,
 //  whether or not the app is open.
 //
-//  - The custom button ("Start break" on the break alarm, "End break" on the
-//    look-away alarm) → `BreakButtonIntent`.
 //  - The system Stop button (label fixed by AlarmKit since iOS 26.1) →
-//    `StopButtonIntent`: skip this break / end the look-away, and carry on
-//    with the normal 20-minute cadence.
+//    `BreakButtonIntent`: start the break on the break alarm, end it on the
+//    look-away alarm. Stop is the main action because the system dismisses
+//    a stopped alarm everywhere it rings, including a paired Apple Watch.
+//  - The custom "Skip break" button (break alarm only) → `StopButtonIntent`:
+//    skip this break and carry on with the normal 20-minute cadence.
 //
-//  Both hand the decision to `SessionController.respond(to:alarmId:)`. The
-//  custom button also stops its own alarm first: unlike the system Stop
-//  button, it doesn't dismiss the alarm by itself, and the alert on a paired
-//  Apple Watch keeps ringing until the alarm is stopped.
+//  Both hand the decision to `SessionController.respond(to:alarmId:)`, after
+//  stopping their own alarm: the custom button doesn't dismiss the alarm by
+//  itself, and the alert on a paired Apple Watch keeps ringing until the
+//  alarm is stopped. Stopping an alarm the system already stopped is harmless.
+//
+//  The type names date from when the buttons were the other way round. They
+//  stay as they are because alarms booked by an older build refer to these
+//  intents by type name.
 //
 //  Flutter analogue: a notification-action callback that runs in a background
 //  isolate and calls straight into your state class.
@@ -69,7 +74,10 @@ struct StopButtonIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        await AppEnvironment.respond(.stop, alarmID: alarmID)
+        if let id = UUID(uuidString: alarmID) {
+            AlarmKitScheduler.stopRinging(alarmId: id)
+        }
+        await AppEnvironment.respond(.skip, alarmID: alarmID)
         return .result()
     }
 }

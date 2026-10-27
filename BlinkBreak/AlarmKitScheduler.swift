@@ -76,13 +76,13 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
             presentation: AlarmPresentation(alert: Self.alert(for: kind)),
             tintColor: .accentColor
         )
-        // The system Stop button runs `StopButtonIntent` (skip / end the break);
-        // the custom secondary button runs `BreakButtonIntent` (start / end the break).
+        // The system Stop button runs `BreakButtonIntent` (start / end the break);
+        // the custom "Skip break" button runs `StopButtonIntent` (skip the break).
         let configuration = AlarmManager.AlarmConfiguration<BlinkBreakAlarmMetadata>.alarm(
             schedule: .fixed(fireDate),
             attributes: attributes,
-            stopIntent: StopButtonIntent(alarmID: id.uuidString),
-            secondaryIntent: BreakButtonIntent(alarmID: id.uuidString),
+            stopIntent: BreakButtonIntent(alarmID: id.uuidString),
+            secondaryIntent: kind == .breakDue ? StopButtonIntent(alarmID: id.uuidString) : nil,
             sound: Self.sound(muted: muteSound)
         )
         do {
@@ -127,7 +127,7 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     }
 
     /// Silences an alarm the user just answered from its alert. Called first
-    /// thing by `BreakButtonIntent`: the custom button doesn't dismiss the alarm
+    /// thing by both alarm intents: the custom button doesn't dismiss the alarm
     /// by itself, and stopping it straight away (rather than after the session
     /// controller's queue gets to it) lets the system clear the alert on every
     /// device showing it, including a paired Apple Watch.
@@ -136,8 +136,9 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
             try AlarmManager.shared.stop(id: alarmId)
             AppLogger.shared.log(.info, "alarm \(alarmId.uuidString.prefix(8)): stopped from its button")
         } catch {
-            // Already dismissed, e.g. the user answered on the other device first.
-            AppLogger.shared.log(.info, "alarm \(alarmId.uuidString.prefix(8)): stop from its button failed: \(error)")
+            // Already dismissed: the system Stop button did it, or the user
+            // answered on the other device first.
+            AppLogger.shared.log(.info, "alarm \(alarmId.uuidString.prefix(8)): already stopped: \(error)")
         }
     }
 
@@ -172,24 +173,23 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
     }
 
     private static func alert(for kind: AlarmKind) -> AlarmPresentation.Alert {
+        // The system Stop button (label fixed by AlarmKit) starts or ends the
+        // break. Only the break alarm gets a second button, to skip the break;
+        // on the look-away alarm, skipping and ending the break are the same.
         switch kind {
         case .breakDue:
-            return alert(title: "Time to look away", button: "Start break", systemImage: "eye")
+            return AlarmPresentation.Alert(
+                title: "Time to look away",
+                secondaryButton: AlarmButton(text: "Skip break", textColor: .white, systemImageName: "forward.end"),
+                secondaryButtonBehavior: .custom
+            )
         case .lookAwayDone:
-            return alert(title: "Look-away complete", button: "End break", systemImage: "checkmark")
+            return AlarmPresentation.Alert(
+                title: "Look-away complete",
+                secondaryButton: nil,
+                secondaryButtonBehavior: nil
+            )
         }
-    }
-
-    private static func alert(
-        title: LocalizedStringResource,
-        button: LocalizedStringResource,
-        systemImage: String
-    ) -> AlarmPresentation.Alert {
-        AlarmPresentation.Alert(
-            title: title,
-            secondaryButton: AlarmButton(text: button, textColor: .white, systemImageName: systemImage),
-            secondaryButtonBehavior: .custom
-        )
     }
 
     private static func sound(muted: Bool) -> AlertConfiguration.AlertSound {

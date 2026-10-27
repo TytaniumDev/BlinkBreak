@@ -6,9 +6,9 @@
 //  scheduler and persistence, and exposes observable state to SwiftUI.
 //
 //  How the cycle keeps going:
-//  - The alarm buttons ("Start break", "End break", Stop) run App Intents. iOS
-//    runs those even when the app isn't open, and they call `respond(to:alarmId:)`
-//    here, which books the next alarm. So the cycle doesn't depend on the app
+//  - The alarm buttons (Stop, "Skip break") run App Intents. iOS runs those
+//    even when the app isn't open, and they call `respond(to:alarmId:)` here,
+//    which books the next alarm. So the cycle doesn't depend on the app
 //    being alive.
 //  - When the app IS alive it also watches the system alarm list. The look-away
 //    alarm firing rolls the cycle on by itself, and an alarm that disappears
@@ -32,12 +32,12 @@ import Observation
 
 /// Which alarm button the user tapped. Reported by the app's App Intents.
 public enum AlarmResponse: String, Sendable {
-    /// The custom button: "Start break" on the break alarm, "End break" on the
-    /// look-away alarm.
+    /// The system Stop button: starts the break on the break alarm, ends it on
+    /// the look-away alarm.
     case confirm
-    /// The system Stop button. Skips the break (or ends the look-away) and
-    /// continues on the normal cadence.
-    case stop
+    /// The custom "Skip break" button. Skips the break (or ends the look-away)
+    /// and continues on the normal cadence.
+    case skip
 }
 
 @MainActor
@@ -168,7 +168,7 @@ public final class SessionController: SessionControllerProtocol {
                 return
             case (.confirm, .scheduled), (.confirm, .running):
                 await self.beginBreak(expecting: alarmId)
-            case (.confirm, .lookingAway), (.stop, _):
+            case (.confirm, .lookingAway), (.skip, _):
                 await self.completeCycle(expecting: alarmId)
             }
         }

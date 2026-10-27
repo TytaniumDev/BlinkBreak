@@ -150,10 +150,10 @@ To seed signing assets the first time, run `fastlane seed_certs` locally (see `f
   │      │ break alarm fires (20 min)
   │      ▼            │
   │  ┌───────────────┐│
-  │  │ breakPending  ├┤──── Stop on the alarm (skip) ──► running
+  │  │ breakPending  ├┤── "Skip break" on the alarm ──► running
   │  └───────────────┘│
   │      │            │
-  │      │ "Start break" (alarm button or in-app)
+  │      │ Stop on the alarm, or "Start break" in-app
   │      ▼            │
   │  ┌──────────────┐ │
   │  │ breakActive  │─┘
@@ -172,8 +172,10 @@ Inside a weekly-schedule window, a running session can also be **paused** (e.g. 
 
 BlinkBreak's alarming is a two-beat cycle driven by **AlarmKit** (iOS 26.1+). The full-screen alarm takeover fires at alarm volume regardless of silent switch, Focus, or DND. There are two alarm kinds:
 
-- `.breakDue` — fires at the end of a 20-minute `running` cycle. Buttons: **Start break** and the system **Stop** (skip this break).
-- `.lookAwayDone` — fires at the end of the 20-second look-away. Buttons: **End break** and **Stop** (both continue to the next cycle).
+- `.breakDue` — fires at the end of a 20-minute `running` cycle. Buttons: the system **Stop** (start the break) and **Skip break**.
+- `.lookAwayDone` — fires at the end of the 20-second look-away. Button: the system **Stop** (end the break and continue to the next cycle).
+
+Stop is the main action because the system dismisses a stopped alarm on every device showing it, including a paired Apple Watch. AlarmKit fixes its label as "Stop".
 
 A session owns exactly one alarm at a time.
 
@@ -181,7 +183,7 @@ A session owns exactly one alarm at a time.
 
 The key design goal is that **the cycle keeps going even when iOS has killed the app**:
 
-1. **Alarm buttons run App Intents** (`BreakButtonIntent`, `StopButtonIntent` in `AlarmIntents.swift`). iOS runs these when the user taps, launching the app process in the background if needed. They call `SessionController.respond(to:alarmId:)`, which books the next alarm immediately.
+1. **Alarm buttons run App Intents** (`BreakButtonIntent` for Stop, `StopButtonIntent` for Skip break, in `AlarmIntents.swift`). iOS runs these when the user taps, launching the app process in the background if needed. They call `SessionController.respond(to:alarmId:)`, which books the next alarm immediately.
 2. **While the app is alive**, `AlarmKitScheduler` diffs `AlarmManager.shared.alarmUpdates` into `.alerting` / `.removed` events. The look-away alarm ringing rolls the cycle forward on its own. An alarm that disappears with no intent reporting a tap is treated as "skipped", after a 5-second grace period so a slightly late intent still wins.
 3. **`reconcile()`** runs whenever the app becomes active. It catches up on anything missed while the app was dead, cancels alarms the session doesn't own, and applies the weekly schedule.
 4. **The weekly schedule pre-books** the first break alarm of the next window (e.g. 9:20 for a 9:00 start). No background execution is needed for automatic starts. When a schedule-started session reaches the end of its window, it stops and pre-books the next window.

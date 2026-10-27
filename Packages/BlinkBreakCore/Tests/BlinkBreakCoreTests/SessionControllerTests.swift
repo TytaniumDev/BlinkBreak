@@ -199,13 +199,13 @@ struct SessionControllerTests {
         #expect(f.alarms.lastScheduled?.kind == .lookAwayDone)
     }
 
-    @Test("Stop on the break alarm skips the look-away and books the next break")
-    func stopBreakAlarm() async {
+    @Test("Skip break on the break alarm skips the look-away and books the next break")
+    func skipBreakAlarm() async {
         let f = Fixture()
         let alarm = await f.startRunning()
         f.advance(by: interval)
 
-        await f.controller.respond(to: .stop, alarmId: alarm)
+        await f.controller.respond(to: .skip, alarmId: alarm)
 
         let nextFire = f.now.value.addingTimeInterval(interval)
         #expect(f.controller.state == .running(breakAt: nextFire))
@@ -225,13 +225,13 @@ struct SessionControllerTests {
         #expect(f.record.phase == .running)
     }
 
-    @Test("Stop on the look-away alarm also books the next break")
-    func stopLookAwayAlarm() async {
+    @Test("A skip response on the look-away alarm also books the next break")
+    func skipLookAwayAlarm() async {
         let f = Fixture()
         let lookAwayAlarm = await f.startLookingAway()
         f.advance(by: lookAway)
 
-        await f.controller.respond(to: .stop, alarmId: lookAwayAlarm)
+        await f.controller.respond(to: .skip, alarmId: lookAwayAlarm)
 
         #expect(f.record.phase == .running)
     }
@@ -252,7 +252,7 @@ struct SessionControllerTests {
     @Test("a button response while idle is ignored")
     func responseWhileIdle() async {
         let f = Fixture()
-        await f.controller.respond(to: .stop, alarmId: UUID())
+        await f.controller.respond(to: .skip, alarmId: UUID())
         #expect(f.alarms.scheduled.isEmpty)
     }
 
