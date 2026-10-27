@@ -99,14 +99,20 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
         // already gone, which is harmless, but AlarmKit's errors don't say which
         // failure it was, so every failure is logged rather than swallowed.
         let shortId = alarmId.uuidString.prefix(8)
-        var isAlerting = false
+        let state: Alarm.State?
         do {
-            isAlerting = try AlarmManager.shared.alarms
-                .contains { $0.id == alarmId && $0.state == .alerting }
+            guard let alarm = try AlarmManager.shared.alarms.first(where: { $0.id == alarmId }) else {
+                // Already stopped (e.g. by `stopRinging`) or never booked.
+                AppLogger.shared.log(.debug, "alarm \(shortId): already gone, nothing to cancel")
+                return
+            }
+            state = alarm.state
         } catch {
             // Can't tell whether it's ringing; fall through to `cancel(id:)`.
             AppLogger.shared.log(.warning, "alarm \(shortId): listing alarms before cancel failed: \(error)")
+            state = nil
         }
+        let isAlerting = state == .alerting
         do {
             if isAlerting {
                 try AlarmManager.shared.stop(id: alarmId)
@@ -115,7 +121,23 @@ final class AlarmKitScheduler: AlarmSchedulerProtocol {
             }
         } catch {
             let action = isAlerting ? "stop" : "cancel"
-            AppLogger.shared.log(.warning, "alarm \(shortId): \(action) failed: \(error)")
+            let stateText = state.map { String(describing: $0) } ?? "unknown"
+            AppLogger.shared.log(.warning, "alarm \(shortId): \(action) failed (state=\(stateText)): \(error)")
+        }
+    }
+
+    /// Silences an alarm the user just answered from its alert. Called first
+    /// thing by `BreakButtonIntent`: the custom button doesn't dismiss the alarm
+    /// by itself, and stopping it straight away (rather than after the session
+    /// controller's queue gets to it) lets the system clear the alert on every
+    /// device showing it, including a paired Apple Watch.
+    static func stopRinging(alarmId: UUID) {
+        do {
+            try AlarmManager.shared.stop(id: alarmId)
+            AppLogger.shared.log(.info, "alarm \(alarmId.uuidString.prefix(8)): stopped from its button")
+        } catch {
+            // Already dismissed, e.g. the user answered on the other device first.
+            AppLogger.shared.log(.info, "alarm \(alarmId.uuidString.prefix(8)): stop from its button failed: \(error)")
         }
     }
 
