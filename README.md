@@ -121,6 +121,8 @@ Two checks:
 
 TestFlight deploys run automatically on push to `main` via `.github/workflows/deploy-testflight.yml`. The workflow uses Fastlane + match + pilot; secrets are centralized in Doppler (project `blinkbreak`, config `prd`) and pulled into the job at runtime.
 
+PRs merged by the `automerge` label are merged by `github-actions[bot]`, and that push doesn't trigger other workflows. `.github/workflows/deploy-after-automerge.yml` covers them: when a PR's CI (or the Automerge Label run) finishes, it waits for the auto-merge and then starts `deploy-testflight.yml` with `workflow_dispatch`.
+
 The only GitHub repo secret required is `DOPPLER_TOKEN`. Doppler holds everything else:
 
 - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_CONTENT`, `ASC_API_KEY_IS_BASE64` — App Store Connect API key (App Manager role)

@@ -1,0 +1,107 @@
+name: Deploy After Automerge
+
+# Starts the TestFlight deploy for PRs that GitHub auto-merged.
+#
+# Why this exists: the `automerge` label turns on native auto-merge with
+# GITHUB_TOKEN (automerge-label.yml), so GitHub merges as github-actions[bot].
+# A push made with GITHUB_TOKEN never triggers other workflows, so the merge
+# commit doesn't fire deploy-testflight.yml's `push` trigger. A
+# workflow_dispatch made with GITHUB_TOKEN *does* start a run, so this
+# workflow waits for the auto-merge and then dispatches the deploy.
+#
+# It listens for the two runs that can come right before an auto-merge:
+#   - CI finishing green (the usual case: the label was added early)
+#   - Automerge Label finishing (the label was added after CI was already
+#     green, so GitHub merges straight away)
+#
+# Manual merges are left alone: they push as a real user, so the deploy's own
+# `push` trigger already covers them.
+
+on:
+  workflow_run:
+    workflows: [CI, Automerge Label]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+# Both triggers can fire for the same PR. Running them one after the other
+# lets the second one see the deploy the first one started and skip.
+concurrency:
+  group: deploy-after-automerge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Find the PR
+        id: pr
+        run: |
+          number=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            --jq '[.[] | select(.base.ref == "main")][0].number // empty')
+          if [ -z "$number" ]; then
+            echo "No PR into main for $HEAD_SHA; nothing to deploy."
+            exit 0
+          fi
+          labeled=$(gh api "repos/$REPO/issues/$number/labels" \
+            --jq 'any(.[]; .name == "automerge")')
+          echo "PR #$number, automerge label: $labeled"
+          if [ "$labeled" = "true" ]; then
+            echo "number=$number" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for the auto-merge
+        id: merge
+        if: steps.pr.outputs.number != ''
+        env:
+          NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          # GitHub merges a few seconds after the last required check passes.
+          # Give it up to 10 minutes.
+          for _ in $(seq 1 40); do
+            pr=$(gh api "repos/$REPO/pulls/$NUMBER")
+            state=$(jq -r '.state' <<< "$pr")
+            if [ "$(jq -r '.merged' <<< "$pr")" = "true" ]; then
+              merged_by=$(jq -r '.merged_by.login' <<< "$pr")
+              sha=$(jq -r '.merge_commit_sha' <<< "$pr")
+              echo "PR #$NUMBER merged by $merged_by as $sha"
+              if [ "$merged_by" = "github-actions[bot]" ]; then
+                echo "sha=$sha" >> "$GITHUB_OUTPUT"
+              else
+                echo "Merged by a user; deploy-testflight.yml's push trigger covers it."
+              fi
+              exit 0
+            fi
+            if [ "$state" = "closed" ]; then
+              echo "PR #$NUMBER was closed without merging."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "PR #$NUMBER didn't merge within 10 minutes; not deploying."
+
+      - name: Start the TestFlight deploy
+        if: steps.merge.outputs.sha != ''
+        env:
+          SHA: ${{ steps.merge.outputs.sha }}
+        run: |
+          existing=$(gh api \
+            "repos/$REPO/actions/workflows/deploy-testflight.yml/runs?head_sha=$SHA" \
+            --jq '.total_count')
+          if [ "$existing" != "0" ]; then
+            echo "A deploy for $SHA already exists; skipping."
+            exit 0
+          fi
+          gh workflow run deploy-testflight.yml --repo "$REPO" --ref main
+          echo "Started deploy-testflight.yml on main for $SHA."
