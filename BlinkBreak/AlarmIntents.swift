@@ -13,7 +13,10 @@
 //    `StopButtonIntent`: skip this break / end the look-away, and carry on
 //    with the normal 20-minute cadence.
 //
-//  Both hand the decision to `SessionController.respond(to:alarmId:)`.
+//  Both hand the decision to `SessionController.respond(to:alarmId:)`. The
+//  custom button also stops its own alarm first: unlike the system Stop
+//  button, it doesn't dismiss the alarm by itself, and the alert on a paired
+//  Apple Watch keeps ringing until the alarm is stopped.
 //
 //  Flutter analogue: a notification-action callback that runs in a background
 //  isolate and calls straight into your state class.
@@ -41,6 +44,9 @@ struct BreakButtonIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
+        if let id = UUID(uuidString: alarmID) {
+            AlarmKitScheduler.stopRinging(alarmId: id)
+        }
         await AppEnvironment.respond(.confirm, alarmID: alarmID)
         return .result()
     }
