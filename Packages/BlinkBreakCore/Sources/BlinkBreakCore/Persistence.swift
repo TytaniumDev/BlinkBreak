@@ -2,8 +2,8 @@
 //  Persistence.swift
 //  BlinkBreakCore
 //
-//  Protocol over the three small values BlinkBreak stores — the session record,
-//  the weekly schedule, and the alarm-sound preference — plus the
+//  Protocol over the small values BlinkBreak stores — the session record, the
+//  weekly schedule, the alarm-sound preference, and the meeting settings — plus the
 //  UserDefaults-backed implementation. Tests use an in-memory implementation
 //  that lives in the test target.
 //
@@ -25,6 +25,10 @@ public protocol PersistenceProtocol: Sendable {
     /// Whether alarms play silently. Defaults to `false`.
     func loadAlarmSoundMuted() -> Bool
     func saveAlarmSoundMuted(_ muted: Bool)
+
+    /// The stored meeting settings, or `MeetingSettings.default` if none are stored.
+    func loadMeetingSettings() -> MeetingSettings
+    func saveMeetingSettings(_ settings: MeetingSettings)
 }
 
 /// The production `PersistenceProtocol`, backed by `UserDefaults`. Values are
@@ -35,6 +39,7 @@ public struct UserDefaultsPersistence: PersistenceProtocol {
         static let session = "BlinkBreak.Session.v2"
         static let schedule = "BlinkBreak.WeeklySchedule"
         static let alarmSoundMuted = "BlinkBreak.MuteAlarmSound"
+        static let meetingSettings = "BlinkBreak.MeetingSettings"
     }
 
     /// Keys written by builds before the intent-driven redesign. Nothing reads
@@ -77,6 +82,14 @@ public struct UserDefaultsPersistence: PersistenceProtocol {
         defaults.set(muted, forKey: Key.alarmSoundMuted)
     }
 
+    public func loadMeetingSettings() -> MeetingSettings {
+        decode(MeetingSettings.self, forKey: Key.meetingSettings) ?? .default
+    }
+
+    public func saveMeetingSettings(_ settings: MeetingSettings) {
+        encode(settings, forKey: Key.meetingSettings)
+    }
+
     /// Deletes values left behind by older builds.
     public func removeLegacyData() {
         Self.legacyKeys.forEach(defaults.removeObject(forKey:))
@@ -85,7 +98,7 @@ public struct UserDefaultsPersistence: PersistenceProtocol {
     /// Deletes everything BlinkBreak stores. Used by UI tests for a clean start.
     public func removeAll() {
         removeLegacyData()
-        [Key.session, Key.schedule, Key.alarmSoundMuted].forEach(defaults.removeObject(forKey:))
+        [Key.session, Key.schedule, Key.alarmSoundMuted, Key.meetingSettings].forEach(defaults.removeObject(forKey:))
     }
 
     private func decode<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {

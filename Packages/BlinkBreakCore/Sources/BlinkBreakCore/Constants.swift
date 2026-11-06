@@ -34,6 +34,11 @@ public enum BlinkBreakConstants {
     /// next cycle on its own, so a slightly late alarm isn't cancelled early.
     public static let lookAwayCompletionMargin: TimeInterval = 1
 
+    /// How far past a break's due time to read the calendar when skipping
+    /// meetings. A break pushed past this horizon is booked without checking
+    /// further; the next calendar change or app launch checks again.
+    public static let meetingLookahead: TimeInterval = 12 * 60 * 60
+
     private static func override(_ name: String) -> TimeInterval? {
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment[name],

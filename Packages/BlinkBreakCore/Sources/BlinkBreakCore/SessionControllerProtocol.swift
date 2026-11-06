@@ -68,4 +68,18 @@ public protocol SessionControllerProtocol: AnyObject, Observable {
 
     /// Save the mute preference. Updates `muteAlarmSound` immediately.
     func updateAlarmSound(muted: Bool)
+
+    /// "Skip breaks during meetings" and which calendars count.
+    var meetingSettings: MeetingSettings { get }
+
+    /// True when meeting skipping needs calendar access the user has denied.
+    var calendarAccessDenied: Bool { get }
+
+    /// Save new meeting settings. Turning skipping on asks for calendar access
+    /// first and stays off if it's refused (`calendarAccessDenied` turns true).
+    /// Re-checks the booked break against the calendar.
+    func updateMeetingSettings(_ settings: MeetingSettings) async
+
+    /// The calendars the user can choose from. Empty without calendar access.
+    func availableCalendars() async -> [CalendarInfo]
 }

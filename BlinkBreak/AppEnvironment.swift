@@ -27,7 +27,11 @@ enum AppEnvironment {
         } else {
             persistence.removeLegacyData()
         }
-        return SessionController(alarmScheduler: AlarmKitScheduler(), persistence: persistence)
+        return SessionController(
+            alarmScheduler: AlarmKitScheduler(),
+            persistence: persistence,
+            calendarProvider: EventKitCalendarProvider()
+        )
     }()
 
     static let feedbackReporter: any FeedbackReporting = SentryFeedbackReporter {

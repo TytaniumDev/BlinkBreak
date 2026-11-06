@@ -83,6 +83,9 @@ targets:
         # AlarmKit user-permission prompt copy. Shown the first time we call
         # AlarmManager.shared.requestAuthorization().
         NSAlarmKitUsageDescription: "BlinkBreak schedules alarms to remind you to take 20-second eye-rest breaks every 20 minutes."
+        # Calendar permission prompt copy. Shown when the user turns on
+        # "Skip breaks during meetings" (EKEventStore.requestFullAccessToEvents()).
+        NSCalendarsFullAccessUsageDescription: "BlinkBreak checks your calendars so it can skip eye breaks that land during a meeting."
     entitlements:
       path: BlinkBreak/BlinkBreak.entitlements
       properties: {}

@@ -37,7 +37,7 @@ The script automatically runs `xcrun simctl erase all` before each invocation to
 ```bash
 ./scripts/lint.sh
 ```
-Two checks: (1) a grep-based forbidden-import scan that fails if any file under `Packages/BlinkBreakCore/Sources/` imports `SwiftUI`, `UIKit`, `WatchKit`, `AlarmKit`, `ActivityKit`, `AppIntents`, or `Sentry`; (2) `swiftlint` if installed.
+Two checks: (1) a grep-based forbidden-import scan that fails if any file under `Packages/BlinkBreakCore/Sources/` imports `SwiftUI`, `UIKit`, `WatchKit`, `AlarmKit`, `ActivityKit`, `AppIntents`, `EventKit`, or `Sentry`; (2) `swiftlint` if installed.
 
 ### Build
 ```bash
@@ -55,17 +55,17 @@ xcodegen generate
 
 ### UI / business-logic separation is non-negotiable
 
-All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. The package imports nothing platform-specific — no `SwiftUI`, `UIKit`, `WatchKit`, `AlarmKit`, `AppIntents`, or third-party SDKs. This is enforced by `scripts/lint.sh` and is the fundamental architectural rule.
+All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. The package imports nothing platform-specific — no `SwiftUI`, `UIKit`, `WatchKit`, `AlarmKit`, `AppIntents`, `EventKit`, or third-party SDKs. This is enforced by `scripts/lint.sh` and is the fundamental architectural rule.
 
-- **Views** depend on `SessionControllerProtocol`, not on the concrete `SessionController` class. Views read `state` / `canPause` and call protocol methods (`start()`, `stop()`, `pause()`, `startBreak()`, `takeBreakNow()`, `reconcile()`, `updateSchedule(_:)`, `updateAlarmSound(muted:)`). Views contain no conditional business logic beyond a `switch` on `SessionState`.
+- **Views** depend on `SessionControllerProtocol`, not on the concrete `SessionController` class. Views read `state` / `canPause` and call protocol methods (`start()`, `stop()`, `pause()`, `startBreak()`, `takeBreakNow()`, `reconcile()`, `updateSchedule(_:)`, `updateAlarmSound(muted:)`, `updateMeetingSettings(_:)`, `availableCalendars()`). Views contain no conditional business logic beyond a `switch` on `SessionState`.
 - **A visual-iteration PR should only touch files under `BlinkBreak/Views/`.** Colors and layout constants live in `Views/Theme.swift`. If such a PR touches `BlinkBreakCore`, something is wrong and the PR should be split.
 - **SwiftUI previews use `PreviewSessionController`**, a mock that conforms to `SessionControllerProtocol`. Every view has a `#Preview` for each applicable state.
 - **Every screen uses `AdaptiveScreen`** (`Views/Components/`), which caps content at a readable width, scrolls when the window is short, and pins the action buttons at the bottom. New screens must use it so they work at every iPhone/iPad/Mac window size.
 
 ### The two software units
 
-1. **`BlinkBreakCore` (local Swift Package, Swift 6 language mode)** — `SessionController` (the `@Observable` state machine), `SessionState` (derived UI state), `SessionRecord` (persisted phase + owned alarm), `AlarmSchedulerProtocol`, `PersistenceProtocol` + `UserDefaultsPersistence`, `WeeklySchedule` + its evaluation math, `SerialTaskQueue`, `AppLogger`, `BlinkBreakConstants`.
-2. **`BlinkBreak` (iOS app target, Swift 6 language mode)** — `@main BlinkBreakApp`, `AppEnvironment` (composition root that owns the one shared `SessionController`), `AlarmKitScheduler` (concrete `AlarmManager.shared` wrapper), `AlarmIntents.swift` (the alarm-button App Intents), `Feedback/` (Sentry feedback via an environment-injected `FeedbackReporting`), SwiftUI views in `Views/`, small reusable components in `Views/Components/`.
+1. **`BlinkBreakCore` (local Swift Package, Swift 6 language mode)** — `SessionController` (the `@Observable` state machine), `SessionState` (derived UI state), `SessionRecord` (persisted phase + owned alarm), `AlarmSchedulerProtocol`, `CalendarProviderProtocol` + `MeetingSettings` + `MeetingSkip` (meeting skipping), `PersistenceProtocol` + `UserDefaultsPersistence`, `WeeklySchedule` + its evaluation math, `SerialTaskQueue`, `AppLogger`, `BlinkBreakConstants`.
+2. **`BlinkBreak` (iOS app target, Swift 6 language mode)** — `@main BlinkBreakApp`, `AppEnvironment` (composition root that owns the one shared `SessionController`), `AlarmKitScheduler` (concrete `AlarmManager.shared` wrapper), `EventKitCalendarProvider` (concrete EventKit wrapper), `AlarmIntents.swift` (the alarm-button App Intents), `Feedback/` (Sentry feedback via an environment-injected `FeedbackReporting`), SwiftUI views in `Views/`, small reusable components in `Views/Components/`.
 
 ### State machine
 
@@ -81,6 +81,10 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 - **Pause** (`SessionController.pause()`, gated by `canPause`: session active + a schedule window open now) cancels the session's alarms and stops with `pausedUntil` = window end and `manualStopDate` = now; the next window is pre-booked as usual. The UI shows `.paused(until:)` until `pausedUntil`, then the pause lapses to `.idle`. `start()` doubles as Resume.
 - A manual stop or pause is carried on the pre-booked record, so editing the schedule can't restart the session in the same window.
 
+### Skipping breaks during meetings
+
+With `MeetingSettings.isEnabled`, every break the controller books is checked against the calendar (`CalendarProviderProtocol`, EventKit in the app). A break that lands inside a meeting moves to the first later slot on the same 20-minute grid that isn't in one (`MeetingSkip.firstFreeSlot`) — skipped, not delayed. A meeting is a timed, non-Free, non-declined event on a calendar not in `excludedCalendarIds`; all-day events never count. The booked break is re-checked on calendar changes (`EKEventStoreChanged` while the app is alive), on `reconcile()`, and when the settings change; a re-check only ever moves a break later and never touches a ringing alarm. If the moved break would land past a manual session's window end, the session stops. EventKit sees whatever accounts are on the device, so a work calendar counts only if it (or a copy of it) is in the iPhone's Calendar app.
+
 ### How the cycle advances (important)
 
 - **Alarm buttons run App Intents** (`BreakButtonIntent` on Stop, `StopButtonIntent` on Skip break; the names predate the swap and stay because booked alarms refer to them by type name). Each stops its own alarm first, so the alert clears on a paired Apple Watch too. iOS runs them even when the app isn't open; they call `SessionController.respond(to:alarmId:)` through `AppEnvironment`, which books the next alarm. This is what keeps the cycle going when the app has been killed.
@@ -91,7 +95,7 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 ### Persistence + reconciliation
 
-`SessionRecord` (phase, alarmId, alarmFiresAt, wasAutoStarted, manualStopDate, pausedUntil, scheduledStopAt) is persisted to `UserDefaults` under `BlinkBreak.Session.v2`. AlarmKit is the source of truth for what is actually scheduled or ringing (`AlarmManager.shared.alarms`); the record says which of those alarms the session owns and what it means. Nothing else caches alarm state.
+`SessionRecord` (phase, alarmId, alarmFiresAt, wasAutoStarted, manualStopDate, pausedUntil, scheduledStopAt) is persisted to `UserDefaults` under `BlinkBreak.Session.v2` (meeting settings under `BlinkBreak.MeetingSettings`). AlarmKit is the source of truth for what is actually scheduled or ringing (`AlarmManager.shared.alarms`); the record says which of those alarms the session owns and what it means. Nothing else caches alarm state.
 
 ## Test structure
 
@@ -118,6 +122,7 @@ Two layers. **Run unit tests during iteration; run integration tests only as fin
 - **Alarm buttons with the app killed.** Tap Stop / Skip break on the system alarm after swiping the app away; the next alarm must still be booked.
 - **Focus Mode break-through.** No Focus Mode in the simulator.
 - **Custom alarm sound playback.**
+- **Meeting skipping against a real calendar** (EventKit permission prompt, synced work calendars).
 - **Mac ("Designed for iPad") alarm behavior.**
 
 Any PR that affects alarm behavior must exercise on-device manual verification before merging.

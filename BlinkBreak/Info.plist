@@ -24,6 +24,8 @@
 	<false/>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>BlinkBreak schedules alarms to remind you to take 20-second eye-rest breaks every 20 minutes.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>BlinkBreak checks your calendars so it can skip eye breaks that land during a meeting.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

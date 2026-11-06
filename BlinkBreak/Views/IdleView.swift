@@ -2,8 +2,8 @@
 //  IdleView.swift
 //  BlinkBreak
 //
-//  The idle-state view: app name, a short explainer, schedule and sound
-//  settings, and a Start button. No icon per design feedback — the explainer
+//  The idle-state view: app name, a short explainer, schedule, sound and
+//  meeting settings, and a Start button. No icon per design feedback — the explainer
 //  text carries the meaning instead.
 //
 
@@ -34,6 +34,9 @@ struct IdleView<Controller: SessionControllerProtocol>: View {
                     onToggle: { controller.updateAlarmSound(muted: $0) }
                 )
                 .padding(.top, 8)
+
+                MeetingsSection(controller: controller)
+                    .padding(.top, 8)
 
                 Spacer(minLength: 24)
 

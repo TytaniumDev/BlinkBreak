@@ -19,6 +19,9 @@
 //    automatic starts need no background execution either.
 //  - Manual sessions (and Resume after a Pause) hand control back to the
 //    schedule at the end of the window open when they started, or the next one.
+//  - With "skip breaks during meetings" on, every break is checked against the
+//    calendar as it's booked, and again when the calendar changes. A break that
+//    lands in a meeting moves to the next 20-minute slot after it.
 //
 //  Every transition runs on one serial queue, so transitions never interleave
 //  across `await`s.
@@ -50,10 +53,13 @@ public final class SessionController: SessionControllerProtocol {
     public private(set) var weeklySchedule: WeeklySchedule
     public private(set) var muteAlarmSound: Bool
     public private(set) var authorizationDenied = false
+    public private(set) var meetingSettings: MeetingSettings
+    public private(set) var calendarAccessDenied = false
 
     // MARK: - Dependencies
 
     @ObservationIgnored private let alarms: AlarmSchedulerProtocol
+    @ObservationIgnored private let calendarProvider: CalendarProviderProtocol?
     @ObservationIgnored private let persistence: PersistenceProtocol
     @ObservationIgnored private let calendar: Calendar
     @ObservationIgnored private let clock: @Sendable () -> Date
@@ -62,6 +68,7 @@ public final class SessionController: SessionControllerProtocol {
 
     @ObservationIgnored private let queue = SerialTaskQueue()
     @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var calendarTask: Task<Void, Never>?
     @ObservationIgnored private var wakeTask: Task<Void, Never>?
     @ObservationIgnored private var wakeDate: Date?
 
@@ -70,12 +77,15 @@ public final class SessionController: SessionControllerProtocol {
     /// - Parameters:
     ///   - alarmScheduler: `AlarmKitScheduler()` in the app, `MockAlarmScheduler()` in tests.
     ///   - persistence: `UserDefaultsPersistence()` in the app, `InMemoryPersistence()` in tests.
+    ///   - calendarProvider: `EventKitCalendarProvider()` in the app, `MockCalendarProvider()`
+    ///     in tests. Nil disables meeting skipping.
     ///   - calendar: Used for schedule windows.
     ///   - clock: Returns "now". Tests pass a closure over a fake date to control time.
     ///   - sleep: Suspends for a duration. Tests pass an instant or gated version.
     public init(
         alarmScheduler: AlarmSchedulerProtocol,
         persistence: PersistenceProtocol,
+        calendarProvider: CalendarProviderProtocol? = nil,
         calendar: Calendar = .current,
         clock: @escaping @Sendable () -> Date = { Date() },
         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
@@ -83,12 +93,14 @@ public final class SessionController: SessionControllerProtocol {
     ) {
         self.alarms = alarmScheduler
         self.persistence = persistence
+        self.calendarProvider = calendarProvider
         self.calendar = calendar
         self.clock = clock
         self.sleep = sleep
         self.log = logger
         self.weeklySchedule = persistence.loadSchedule()
         self.muteAlarmSound = persistence.loadAlarmSoundMuted()
+        self.meetingSettings = persistence.loadMeetingSettings()
         self.state = SessionState.derive(from: persistence.loadSession(), now: clock())
 
         let events = alarmScheduler.events
@@ -97,10 +109,18 @@ public final class SessionController: SessionControllerProtocol {
                 self?.handle(event)
             }
         }
+        if let changes = calendarProvider?.changes {
+            calendarTask = Task { [weak self] in
+                for await _ in changes {
+                    self?.calendarDidChange()
+                }
+            }
+        }
     }
 
     deinit {
         eventTask?.cancel()
+        calendarTask?.cancel()
         wakeTask?.cancel()
     }
 
@@ -196,12 +216,39 @@ public final class SessionController: SessionControllerProtocol {
         }
     }
 
+    public func updateMeetingSettings(_ settings: MeetingSettings) async {
+        var settings = settings
+        if settings.isEnabled, !meetingSettings.isEnabled {
+            // Turning it on is when we ask for calendar access. Not on the
+            // queue: the system prompt can wait on the user indefinitely.
+            let granted = await calendarProvider?.requestAccess() ?? false
+            calendarAccessDenied = !granted
+            if !granted {
+                log.log(.warning, "meetings: calendar access not granted")
+                settings.isEnabled = false
+            }
+        }
+        persistence.saveMeetingSettings(settings)
+        meetingSettings = settings
+        await queue.run { await self.skipBookedBreakIfInMeeting() }
+    }
+
+    public func availableCalendars() async -> [CalendarInfo] {
+        await calendarProvider?.calendars() ?? []
+    }
+
     /// Wait until every queued transition has finished. For tests.
     func waitUntilIdle() async {
         await queue.drain()
     }
 
-    // MARK: - Alarm events
+    // MARK: - Alarm and calendar events
+
+    /// The calendar changed (a meeting was added, moved, or synced in).
+    func calendarDidChange() {
+        log.log(.debug, "event: calendar changed")
+        queue.enqueue { await self.skipBookedBreakIfInMeeting() }
+    }
 
     func handle(_ event: AlarmEvent) {
         switch event {
@@ -267,7 +314,10 @@ public final class SessionController: SessionControllerProtocol {
         // ringing alarm (e.g. the day's last look-away) to finish ringing.
         await cancelAlarms(keepingAlerting: autoStarted)
         let start = cycleStart ?? clock()
-        let firesAt = start.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        // A pre-booked first break that skips a meeting also delays when the UI
+        // shows the window as started (`firesAt - breakInterval`). Harmless:
+        // nothing rings before then either way.
+        let firesAt = await breakDate(skippingMeetingsFrom: start.addingTimeInterval(BlinkBreakConstants.breakInterval))
         guard let alarmId = await scheduleAlarm(.breakDue, at: firesAt) else {
             save(SessionRecord(manualStopDate: previous.manualStopDate, pausedUntil: previous.pausedUntil))
             return
@@ -355,7 +405,7 @@ public final class SessionController: SessionControllerProtocol {
             await alarms.cancel(alarmId: current)
         }
         let now = clock()
-        let nextFire = now.addingTimeInterval(BlinkBreakConstants.breakInterval)
+        let nextFire = await breakDate(skippingMeetingsFrom: now.addingTimeInterval(BlinkBreakConstants.breakInterval))
         if sessionWindowHasEnded(record, at: nextFire) {
             await stopSession(reason: sessionWindowHasEnded(record, at: now) ? .windowClosed : .windowEnding)
             return
@@ -435,7 +485,27 @@ public final class SessionController: SessionControllerProtocol {
         }
         if let systemAlarms, let id = record.alarmId, !systemAlarms.contains(where: { $0.alarmId == id }) {
             checkMissingAlarmAfterGrace(id)
+            return
         }
+        await skipBookedBreakIfInMeeting()
+    }
+
+    /// Move the booked break past a meeting that was added (or a setting that
+    /// was turned on) after it was booked. Never moves a break earlier, and
+    /// leaves a ringing alarm alone.
+    private func skipBookedBreakIfInMeeting() async {
+        let record = persistence.loadSession()
+        guard record.phase == .running || record.phase == .scheduled,
+              let firesAt = record.alarmFiresAt,
+              firesAt > clock().addingTimeInterval(1) else { return }
+        let slot = await breakDate(skippingMeetingsFrom: firesAt)
+        guard slot != firesAt else { return }
+        if record.phase == .running, sessionWindowHasEnded(record, at: slot) {
+            // The rest of the window is meetings.
+            await stopSession(reason: .windowEnding)
+            return
+        }
+        await rescheduleCurrentAlarm(record, at: slot)
     }
 
     /// When idle, start or pre-book according to the weekly schedule.
@@ -545,6 +615,34 @@ extension SessionController {
     private func refreshAuthorization() async {
         let status = await alarms.authorizationStatus()
         authorizationDenied = status == .denied
+        // Also re-checked while a refusal is showing, so granting access in
+        // Settings clears the hint when the user comes back.
+        if meetingSettings.isEnabled || calendarAccessDenied, let calendarProvider {
+            calendarAccessDenied = await calendarProvider.accessStatus() == .denied
+        }
+    }
+
+    /// The break due at `fireDate`, moved to the first 20-minute slot after it
+    /// that isn't in a meeting. Unchanged when meeting skipping is off.
+    private func breakDate(skippingMeetingsFrom fireDate: Date) async -> Date {
+        guard meetingSettings.isEnabled, let calendarProvider else { return fireDate }
+        let events = await calendarProvider.events(
+            from: fireDate,
+            to: fireDate.addingTimeInterval(BlinkBreakConstants.meetingLookahead)
+        )
+        let settings = meetingSettings
+        let meetings = events
+            .filter { settings.isMeeting($0) }
+            .map { DateInterval(start: $0.start, end: $0.end) }
+        let slot = MeetingSkip.firstFreeSlot(
+            from: fireDate,
+            interval: BlinkBreakConstants.breakInterval,
+            meetings: meetings
+        )
+        if slot != fireDate {
+            log.log(.info, "meetings: break at \(fireDate) skipped to \(slot)")
+        }
+        return slot
     }
 
     private func scheduleAlarm(_ kind: AlarmKind, at date: Date) async -> UUID? {
