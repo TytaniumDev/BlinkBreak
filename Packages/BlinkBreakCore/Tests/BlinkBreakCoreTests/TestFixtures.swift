@@ -66,24 +66,27 @@ enum TestCalendar {
 @MainActor
 final class SessionControllerFixture {
     let alarms = MockAlarmScheduler()
+    let calendarEvents = MockCalendarProvider()
     let persistence: InMemoryPersistence
     let now: NowBox
     let sleeper = ManualSleeper()
     let controller: SessionController
 
-    /// Defaults to Monday 10:00 GMT with the schedule off.
+    /// Defaults to Monday 10:00 GMT with the schedule and meeting skipping off.
     init(
         now: Date = TestCalendar.date(weekday: 2, hour: 10),
         session: SessionRecord = SessionRecord(),
-        schedule: WeeklySchedule = .default
+        schedule: WeeklySchedule = .default,
+        meetingSettings: MeetingSettings = .default
     ) {
         let box = NowBox(now)
         let sleeper = sleeper
         self.now = box
-        self.persistence = InMemoryPersistence(session: session, schedule: schedule)
+        self.persistence = InMemoryPersistence(session: session, schedule: schedule, meetingSettings: meetingSettings)
         self.controller = SessionController(
             alarmScheduler: alarms,
             persistence: persistence,
+            calendarProvider: calendarEvents,
             calendar: TestCalendar.gmt,
             clock: { box.value },
             sleep: { await sleeper.sleep($0) }
@@ -135,4 +138,30 @@ extension WeeklySchedule {
         schedule.isEnabled = true
         return schedule
     }()
+}
+
+// MARK: - Calendar helpers
+
+/// Monday 2026-04-06 at `hour:minute` GMT.
+func monday(_ hour: Int, _ minute: Int = 0) -> Date {
+    TestCalendar.date(weekday: 2, hour: hour, minute: minute)
+}
+
+/// A timed, busy event on Monday from `start` to `end` ("HH:MM").
+func meeting(
+    _ start: (Int, Int),
+    _ end: (Int, Int),
+    calendarId: String = "work",
+    isAllDay: Bool = false,
+    isBusy: Bool = true,
+    isDeclined: Bool = false
+) -> CalendarEvent {
+    CalendarEvent(
+        calendarId: calendarId,
+        start: monday(start.0, start.1),
+        end: monday(end.0, end.1),
+        isAllDay: isAllDay,
+        isBusy: isBusy,
+        isDeclined: isDeclined
+    )
 }

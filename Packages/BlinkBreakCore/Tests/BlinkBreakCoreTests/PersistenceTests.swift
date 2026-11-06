@@ -26,6 +26,7 @@ struct PersistenceTests {
         #expect(store.loadSession() == SessionRecord())
         #expect(store.loadSchedule() == .default)
         #expect(store.loadAlarmSoundMuted() == false)
+        #expect(store.loadMeetingSettings() == .default)
     }
 
     @Test("session, schedule and sound round-trip")
@@ -43,10 +44,13 @@ struct PersistenceTests {
         store.saveSession(record)
         store.saveSchedule(.workweekOn)
         store.saveAlarmSoundMuted(true)
+        let meetings = MeetingSettings(isEnabled: true, excludedCalendarIds: ["family"])
+        store.saveMeetingSettings(meetings)
 
         #expect(store.loadSession() == record)
         #expect(store.loadSchedule() == .workweekOn)
         #expect(store.loadAlarmSoundMuted())
+        #expect(store.loadMeetingSettings() == meetings)
     }
 
     @Test("unreadable session data falls back to idle instead of crashing")

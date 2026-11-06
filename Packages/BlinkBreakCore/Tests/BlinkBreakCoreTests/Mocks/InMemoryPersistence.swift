@@ -15,12 +15,17 @@ final class InMemoryPersistence: PersistenceProtocol {
         var session = SessionRecord()
         var schedule = WeeklySchedule.default
         var alarmSoundMuted = false
+        var meetingSettings = MeetingSettings.default
     }
 
     private let storage: Mutex<Storage>
 
-    init(session: SessionRecord = SessionRecord(), schedule: WeeklySchedule = .default) {
-        storage = Mutex(Storage(session: session, schedule: schedule))
+    init(
+        session: SessionRecord = SessionRecord(),
+        schedule: WeeklySchedule = .default,
+        meetingSettings: MeetingSettings = .default
+    ) {
+        storage = Mutex(Storage(session: session, schedule: schedule, meetingSettings: meetingSettings))
     }
 
     func loadSession() -> SessionRecord { storage.withLock { $0.session } }
@@ -29,4 +34,6 @@ final class InMemoryPersistence: PersistenceProtocol {
     func saveSchedule(_ schedule: WeeklySchedule) { storage.withLock { $0.schedule = schedule } }
     func loadAlarmSoundMuted() -> Bool { storage.withLock { $0.alarmSoundMuted } }
     func saveAlarmSoundMuted(_ muted: Bool) { storage.withLock { $0.alarmSoundMuted = muted } }
+    func loadMeetingSettings() -> MeetingSettings { storage.withLock { $0.meetingSettings } }
+    func saveMeetingSettings(_ settings: MeetingSettings) { storage.withLock { $0.meetingSettings = settings } }
 }

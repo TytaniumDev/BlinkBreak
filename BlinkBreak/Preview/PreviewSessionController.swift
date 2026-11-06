@@ -23,17 +23,23 @@ final class PreviewSessionController: SessionControllerProtocol {
     var muteAlarmSound = false
     var authorizationDenied: Bool
     var canPause: Bool
+    var meetingSettings: MeetingSettings
+    var calendarAccessDenied: Bool
 
     init(
         state: SessionState = .idle,
         weeklySchedule: WeeklySchedule = .default,
         authorizationDenied: Bool = false,
-        canPause: Bool = false
+        canPause: Bool = false,
+        meetingSettings: MeetingSettings = .default,
+        calendarAccessDenied: Bool = false
     ) {
         self.state = state
         self.weeklySchedule = weeklySchedule
         self.authorizationDenied = authorizationDenied
         self.canPause = canPause
+        self.meetingSettings = meetingSettings
+        self.calendarAccessDenied = calendarAccessDenied
     }
 
     // MARK: - SessionControllerProtocol
@@ -72,6 +78,18 @@ final class PreviewSessionController: SessionControllerProtocol {
         muteAlarmSound = muted
     }
 
+    func updateMeetingSettings(_ settings: MeetingSettings) async {
+        meetingSettings = settings
+    }
+
+    func availableCalendars() async -> [CalendarInfo] {
+        [
+            CalendarInfo(id: "home", title: "Home", accountTitle: "iCloud"),
+            CalendarInfo(id: "family", title: "Family", accountTitle: "iCloud"),
+            CalendarInfo(id: "work", title: "Work (copy)", accountTitle: "name@gmail.com")
+        ]
+    }
+
     // MARK: - Preview fixtures
 
     static var idle: PreviewSessionController { PreviewSessionController() }
@@ -106,6 +124,15 @@ final class PreviewSessionController: SessionControllerProtocol {
 
     static var breakActive: PreviewSessionController {
         PreviewSessionController(state: .breakActive(endsAt: Date().addingTimeInterval(15)))
+    }
+
+    /// Meeting skipping on, with the Family calendar excluded.
+    static var meetingsOn: PreviewSessionController {
+        PreviewSessionController(meetingSettings: MeetingSettings(isEnabled: true, excludedCalendarIds: ["family"]))
+    }
+
+    static var calendarDenied: PreviewSessionController {
+        PreviewSessionController(calendarAccessDenied: true)
     }
 
     static var permissionDenied: PreviewSessionController {
