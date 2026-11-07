@@ -14,6 +14,7 @@
 //  Flutter analogue: a ChangeNotifier around the `google_sign_in` plugin.
 //
 
+import BlinkBreakCore
 import GoogleSignIn
 import Observation
 import UIKit
