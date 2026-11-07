@@ -37,7 +37,7 @@ The script automatically runs `xcrun simctl erase all` before each invocation to
 ```bash
 ./scripts/lint.sh
 ```
-Two checks: (1) a grep-based forbidden-import scan that fails if any file under `Packages/BlinkBreakCore/Sources/` imports `SwiftUI`, `UIKit`, `WatchKit`, `AlarmKit`, `ActivityKit`, `AppIntents`, `EventKit`, or `Sentry`; (2) `swiftlint` if installed.
+Two checks: (1) a grep-based forbidden-import scan that fails if any file under `Packages/BlinkBreakCore/Sources/` imports `SwiftUI`, `UIKit`, `WatchKit`, `AlarmKit`, `ActivityKit`, `AppIntents`, `EventKit`, `Sentry`, or `GoogleSignIn`; (2) `swiftlint` if installed.
 
 ### Build
 ```bash
@@ -64,8 +64,8 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 ### The two software units
 
-1. **`BlinkBreakCore` (local Swift Package, Swift 6 language mode)** — `SessionController` (the `@Observable` state machine), `SessionState` (derived UI state), `SessionRecord` (persisted phase + owned alarm), `AlarmSchedulerProtocol`, `CalendarProviderProtocol` + `MeetingSettings` + `MeetingSkip` (meeting skipping), `PersistenceProtocol` + `UserDefaultsPersistence`, `WeeklySchedule` + its evaluation math, `SerialTaskQueue`, `AppLogger`, `BlinkBreakConstants`.
-2. **`BlinkBreak` (iOS app target, Swift 6 language mode)** — `@main BlinkBreakApp`, `AppEnvironment` (composition root that owns the one shared `SessionController`), `AlarmKitScheduler` (concrete `AlarmManager.shared` wrapper), `EventKitCalendarProvider` (concrete EventKit wrapper), `AlarmIntents.swift` (the alarm-button App Intents), `Feedback/` (Sentry feedback via an environment-injected `FeedbackReporting`), SwiftUI views in `Views/`, small reusable components in `Views/Components/`.
+1. **`BlinkBreakCore` (local Swift Package, Swift 6 language mode)** — `SessionController` (the `@Observable` state machine), `SessionState` (derived UI state), `SessionRecord` (persisted phase + owned alarm), `AlarmSchedulerProtocol`, `CalendarProviderProtocol` + `CompositeCalendarProvider` + `CalendarEventCache` + `MeetingSettings` + `MeetingSkip` (meeting skipping), `PersistenceProtocol` + `UserDefaultsPersistence`, `WeeklySchedule` + its evaluation math, `SerialTaskQueue`, `AppLogger`, `BlinkBreakConstants`.
+2. **`BlinkBreak` (iOS app target, Swift 6 language mode)** — `@main BlinkBreakApp`, `AppEnvironment` (composition root that owns the one shared `SessionController`), `AlarmKitScheduler` (concrete `AlarmManager.shared` wrapper), `EventKitCalendarProvider` (concrete EventKit wrapper), `Google/` (Google Calendar free/busy: `GoogleCalendarAccount` wraps GoogleSignIn, `GoogleCalendarProvider` calls the REST API, `GoogleAccountConnecting` is what views see via the environment), `AlarmIntents.swift` (the alarm-button App Intents), `Feedback/` (Sentry feedback via an environment-injected `FeedbackReporting`), SwiftUI views in `Views/`, small reusable components in `Views/Components/`.
 
 ### State machine
 
@@ -83,7 +83,7 @@ All business logic lives in `Packages/BlinkBreakCore/`, a local Swift Package. T
 
 ### Skipping breaks during meetings
 
-With `MeetingSettings.isEnabled`, every break the controller books is checked against the calendar (`CalendarProviderProtocol`, EventKit in the app). A break that lands inside a meeting moves to the first later slot on the same 20-minute grid that isn't in one (`MeetingSkip.firstFreeSlot`) — skipped, not delayed. A meeting is a timed, non-Free, non-declined event on a calendar not in `excludedCalendarIds`; all-day events never count. The booked break is re-checked on calendar changes (`EKEventStoreChanged` while the app is alive), on `reconcile()`, and when the settings change; a re-check only ever moves a break later and never touches a ringing alarm. If the moved break would land past a manual session's window end, the session stops. EventKit sees whatever accounts are on the device, so a work calendar counts only if it (or a copy of it) is in the iPhone's Calendar app.
+With `MeetingSettings.isEnabled`, every break the controller books is checked against the calendar (`CalendarProviderProtocol`, EventKit in the app). A break that lands inside a meeting moves to the first later slot on the same 20-minute grid that isn't in one (`MeetingSkip.firstFreeSlot`) — skipped, not delayed. A meeting is a timed, non-Free, non-declined event on a calendar not in `excludedCalendarIds`; all-day events never count. The booked break is re-checked on calendar changes (`EKEventStoreChanged` while the app is alive), on `reconcile()`, and when the settings change; a re-check only ever moves a break later and never touches a ringing alarm. If the moved break would land past a manual session's window end, the session stops. EventKit sees whatever accounts are on the device. Calendars that can't be added to the iPhone (Tyler's work calendar is shared into his personal Gmail as free/busy only) come from Google: the user taps Connect, signs in with GoogleSignIn (read-only `calendar.calendarlist.readonly` + `calendar.freebusy` scopes), and `GoogleCalendarProvider` reads busy times with `freeBusy.query`. `CompositeCalendarProvider` merges both sources. Google results are cached in UserDefaults so an alarm button tapped offline still skips meetings fetched earlier. The iOS OAuth client is in the `magic-bracket-simulator` Firebase project; its client ID is `GIDClientID` in `project.yml` (and the reversed ID is the app's URL scheme).
 
 ### How the cycle advances (important)
 
@@ -156,6 +156,6 @@ Matches the `TytaniumDev` repo pattern established by Wheelson / HeadsUpCDM / My
 - Components in `Views/Components/` are stateless, take everything as parameters, and have `#Preview` macros. Keep them small.
 - Every SwiftUI view file has a `#Preview` for each state it can render.
 - `SessionController` methods are the only place state mutations happen. Views never mutate state directly.
-- Third-party SDKs (Sentry) stay out of views; views get services from the SwiftUI environment (see `Feedback/FeedbackReporting.swift`).
+- Third-party SDKs (Sentry, GoogleSignIn) stay out of views; views get services from the SwiftUI environment (see `Feedback/FeedbackReporting.swift`, `Google/GoogleAccountConnecting.swift`).
 - When adding a new state-machine transition or alarm path: write the unit test first, watch it fail, make it pass. All existing unit tests must stay green after any `BlinkBreakCore` change.
 - iOS app target is `BlinkBreak`; bundle ID `com.tytaniumdev.BlinkBreak`.

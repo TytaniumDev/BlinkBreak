@@ -24,6 +24,10 @@ struct BlinkBreakApp: App {
         WindowGroup {
             RootView(controller: AppEnvironment.controller)
                 .environment(\.feedbackReporter, AppEnvironment.feedbackReporter)
+                .environment(\.googleAccount, AppEnvironment.googleAccount)
+                // Google sign-in returns to the app through its URL scheme.
+                .onOpenURL { AppEnvironment.googleAccount.handle($0) }
+                .task { await AppEnvironment.googleAccount.restore() }
         }
     }
 }

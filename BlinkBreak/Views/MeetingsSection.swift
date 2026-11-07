@@ -3,7 +3,9 @@
 //  BlinkBreak
 //
 //  The "Skip Breaks in Meetings" block on IdleView: an on/off toggle, a link
-//  to choose which calendars count, and a hint when calendar access is denied.
+//  to choose which calendars count, a hint when calendar access is denied,
+//  and a row to connect a Google account (for calendars that can't be added
+//  to the iPhone, like a work calendar shared as free/busy only).
 //  Turning it on is what triggers the calendar permission prompt (inside
 //  `updateMeetingSettings`).
 //
@@ -18,7 +20,10 @@ struct MeetingsSection<Controller: SessionControllerProtocol>: View {
 
     let controller: Controller
     @State private var showingCalendars = false
+    @State private var isGoogleWorking = false
+    @State private var googleError: String?
     @Environment(\.openURL) private var openURL
+    @Environment(\.googleAccount) private var googleAccount
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -49,9 +54,38 @@ struct MeetingsSection<Controller: SessionControllerProtocol>: View {
                 .foregroundStyle(.white.opacity(0.6))
                 .accessibilityIdentifier("button.meetings.chooseCalendars")
             }
+
+            if let googleAccount {
+                GoogleCalendarRow(
+                    email: googleAccount.email,
+                    isWorking: isGoogleWorking,
+                    onConnect: { runGoogle { try await googleAccount.connect() } },
+                    onDisconnect: { runGoogle { await googleAccount.disconnect() } }
+                )
+                .padding(.top, 6)
+            }
+
+            if let googleError {
+                Text(googleError)
+                    .font(.caption)
+                    .foregroundStyle(.red.opacity(0.9))
+            }
         }
         .sheet(isPresented: $showingCalendars) {
             CalendarPickerView(controller: controller)
+        }
+    }
+
+    private func runGoogle(_ action: @escaping @MainActor () async throws -> Void) {
+        isGoogleWorking = true
+        googleError = nil
+        Task {
+            do {
+                try await action()
+            } catch {
+                googleError = error.localizedDescription
+            }
+            isGoogleWorking = false
         }
     }
 
@@ -84,6 +118,18 @@ struct MeetingsSection<Controller: SessionControllerProtocol>: View {
             .foregroundStyle(.white)
             .padding(24)
     }
+    .environment(\.googleAccount, PreviewGoogleAccount())
+    .preferredColorScheme(.dark)
+}
+
+#Preview("On, Google connected") {
+    ZStack {
+        CalmBackground()
+        MeetingsSection(controller: PreviewSessionController.meetingsOn)
+            .foregroundStyle(.white)
+            .padding(24)
+    }
+    .environment(\.googleAccount, PreviewGoogleAccount(email: "name@gmail.com"))
     .preferredColorScheme(.dark)
 }
 
