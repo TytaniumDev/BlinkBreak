@@ -35,6 +35,9 @@ packages:
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
     exactVersion: "8.58.4"
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    exactVersion: "10.1.0"
 
 targets:
 
@@ -50,6 +53,8 @@ targets:
       - package: BlinkBreakCore
       - package: Sentry
         product: Sentry
+      - package: GoogleSignIn
+        product: GoogleSignIn
     info:
       path: BlinkBreak/Info.plist
       properties:
@@ -86,6 +91,13 @@ targets:
         # Calendar permission prompt copy. Shown when the user turns on
         # "Skip breaks during meetings" (EKEventStore.requestFullAccessToEvents()).
         NSCalendarsFullAccessUsageDescription: "BlinkBreak checks your calendars so it can skip eye breaks that land during a meeting."
+        # Google Sign-In (meeting skipping with Google Calendar). The iOS OAuth
+        # client lives in the BlinkBreak Firebase project. The
+        # URL scheme is the reversed client ID; Google redirects back through it.
+        GIDClientID: "GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com"
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - "com.googleusercontent.apps.GOOGLE_IOS_CLIENT_ID"
     entitlements:
       path: BlinkBreak/BlinkBreak.entitlements
       properties: {}

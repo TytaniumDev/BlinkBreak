@@ -17,7 +17,7 @@
 import Foundation
 
 /// One event on one of the user's calendars, as the system reports it.
-public struct CalendarEvent: Sendable, Equatable {
+public struct CalendarEvent: Codable, Sendable, Equatable {
     public let calendarId: String
     public let start: Date
     public let end: Date
@@ -45,10 +45,10 @@ public struct CalendarEvent: Sendable, Equatable {
 }
 
 /// A calendar the user can include or exclude.
-public struct CalendarInfo: Sendable, Equatable, Identifiable {
+public struct CalendarInfo: Codable, Sendable, Equatable, Identifiable {
     public let id: String
     public let title: String
-    /// The account it belongs to, e.g. "iCloud" or "name@gmail.com".
+    /// The account it belongs to, e.g. "iCloud" or "Google · name@gmail.com".
     public let accountTitle: String
 
     public init(id: String, title: String, accountTitle: String) {

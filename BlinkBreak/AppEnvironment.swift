@@ -30,9 +30,15 @@ enum AppEnvironment {
         return SessionController(
             alarmScheduler: AlarmKitScheduler(),
             persistence: persistence,
-            calendarProvider: EventKitCalendarProvider()
+            calendarProvider: CompositeCalendarProvider([
+                EventKitCalendarProvider(),
+                GoogleCalendarProvider(account: googleAccount)
+            ])
         )
     }()
+
+    /// The Google account for meeting skipping (busy times from Google Calendar).
+    static let googleAccount = GoogleCalendarAccount()
 
     static let feedbackReporter: any FeedbackReporting = SentryFeedbackReporter {
         [

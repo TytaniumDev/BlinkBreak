@@ -24,6 +24,17 @@
 	<false/>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>BlinkBreak schedules alarms to remind you to take 20-second eye-rest breaks every 20 minutes.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.GOOGLE_IOS_CLIENT_ID</string>
+			</array>
+		</dict>
+	</array>
+	<key>GIDClientID</key>
+	<string>GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>BlinkBreak checks your calendars so it can skip eye breaks that land during a meeting.</string>
 	<key>UIApplicationSceneManifest</key>
