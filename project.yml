@@ -92,7 +92,7 @@ targets:
         # "Skip breaks during meetings" (EKEventStore.requestFullAccessToEvents()).
         NSCalendarsFullAccessUsageDescription: "BlinkBreak checks your calendars so it can skip eye breaks that land during a meeting."
         # Google Sign-In (meeting skipping with Google Calendar). The iOS OAuth
-        # client lives in the magic-bracket-simulator Firebase project. The
+        # client lives in the BlinkBreak Firebase project. The
         # URL scheme is the reversed client ID; Google redirects back through it.
         GIDClientID: "GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com"
         CFBundleURLTypes:
